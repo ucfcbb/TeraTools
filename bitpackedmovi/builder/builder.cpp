@@ -17,7 +17,7 @@ int main() {
      * # bits needed for alphabet
      * run length encoded runs, each run is first the character, then the length
     */
-    uint64_t runs, alphbits, maxalph, lenbits = 8, maxLen = (1 << lenbits) - 1;
+    uint64_t runs, alphbits, maxalph, lenbits = 8, maxLen = (1 << lenbits) - 1, totalLen = 0;
     std::cin >> runs >> alphbits;
     if (alphbits > 64) {
         std::cerr << "Number of bits per alphabet symbol must be at most 64, recieved " << alphbits << std::endl;
@@ -43,6 +43,7 @@ int main() {
     if (std::cin >> alph >> len) {
         alphRange = {alph,alph};
         lenRange = {len,len};
+        totalLen += len;
         ++numRun;
     }
     else {
@@ -68,6 +69,7 @@ int main() {
         alphRange.max = std::max(alphRange.max, alph);
         lenRange.min = std::min(lenRange.min, len);
         lenRange.max = std::max(lenRange.max, len);
+        totalLen += len;
 
         rlbwt[numRun] = alph;
         runlens[numRun] = len;
@@ -79,5 +81,6 @@ int main() {
     }
 
     std::cout << "Alphabet range: " << alphRange << "\nRun Lengths range: " << lenRange << std::endl;
+    std::cout << "Total BWT length: " << totalLen << std::endl;
     return 0;
 }

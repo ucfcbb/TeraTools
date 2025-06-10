@@ -33,7 +33,7 @@ int main(int argc, char *argv[]) {
     */
 
     if (fmi.e) {
-        std::cout << (uint64_t)rb3_fmi_get_r(&fmi) << ' ' << fmi.e->abits << ' ';
+        std::cout << (uint64_t)rb3_fmi_get_r(&fmi) << ' ' << (uint64_t)fmi.e->abits << ' ';
         int64_t l;
         int c = 0;
         rlditr_t itr;
