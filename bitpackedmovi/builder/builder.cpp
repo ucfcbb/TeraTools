@@ -75,54 +75,26 @@ int main(int argc, char *argv[]) {
         }
 
         Timer.stop(); //(use_mmap)? "Loading fmd with mmap" : "Loading fmd"
-        Timer.start("Reading fmd into sdsl");
-
-        uint64_t runs = 0, alphbits, maxalph, lenbits = 1, maxLen = (1 << lenbits) - 1, totalLen = 0;
-        uint64_t alph = 0, len = 0;
-        uRange alphRange, lenRange;
 
         if (!fmi.e) {
             std::cerr << "ERROR: fmd is a multirope (mrope)? I don't know what that is." << std::endl;
             return 1;
         }
 
-        alphbits = (uint64_t)fmi.e->abits;
-        maxalph = ((alphbits == 64)? 0 : (1 << alphbits)) - 1;
-        std::cout << "Number of bits per symbol in rlbwt: " << alphbits << std::endl;
+        Timer.start("Reading fmd for parameters");
+        uint64_t runs = 0, totalLen = 0, alphbits, lenbits;
+        uRange alphRange, lenRange;
 
+        rlditr_t itr1;
+        rld_itr_init(fmi.e, &itr1, 0); //what does 0 mean in this function call? offset number of bits to start reading at?
         int64_t l;
         int c = 0;
-        rlditr_t itr;
-        rld_itr_init(fmi.e, &itr, 0); //what does 0 mean in this function call? offset number of bits to start reading at?
 
-        rlbwt = sdsl::int_vector<>(1, 0, alphbits);
-        runlens = sdsl::int_vector<>(1, 0, lenbits);
 
-        auto setAlphLenCheckBounds = [&alph, &maxalph, &alphbits, &len, &maxLen, &lenbits, &runlens, &c, &l, &runs] () {
-            alph = (uint64_t)c;
-            len = (uint64_t)l;
-            if (alph > maxalph) {
-                std::cerr << "Recieved symbol larger than maximum alphabet symbol. Recieved " << alph 
-                    << ". Maximum possible: " << maxalph 
-                    << ". According to " << alphbits << " bits per alphabet symbol" << std::endl;
-                exit(1);
-            }
-            while (len > maxLen) {
-                std::cout << "Recieved symbol larger than current maximum length. Recieved " << len
-                    << ". Current run index: " << runs << std::endl;;
-                std::cout << "Expanding lenbits from " << lenbits << " to " << lenbits*2 << std::endl;
-                lenbits *= 2;
-                maxLen = ((lenbits == 64)? 0 : (1 << lenbits)) - 1;
-                sdsl::util::expand_width(runlens, lenbits);
-            }
-        };
-
-        if ((l = rld_dec(fmi.e, &itr, &c, 0)) > 0) {
-            //std::cout << c << ' ' << l << std::endl;
-            setAlphLenCheckBounds();
-            alphRange = {alph,alph};
-            lenRange = {len,len};
-            totalLen += len;
+        if ((l = rld_dec(fmi.e, &itr1, &c, 0)) > 0) {
+            alphRange = {(uint64_t)c,(uint64_t)c};
+            lenRange = {(uint64_t)l,(uint64_t)l};
+            totalLen += (uint64_t)l;
             ++runs;
         }
         else {
@@ -130,41 +102,74 @@ int main(int argc, char *argv[]) {
             return 1;
         }
 
-        while ((l = rld_dec(fmi.e, &itr, &c, 0)) > 0) {
-            //std::cout << c << ' ' << l << std::endl;
-            if (runs == rlbwt.size()) {
-                std::cout << "Resizing sdsl::int_vectors from " << runs << " elements (runs) to "
-                    << runs*2 << " elements (runs).\n";
-                rlbwt.resize(runs*2);
-                runlens.resize(runs*2);
-            }
+        while ((l = rld_dec(fmi.e, &itr1, &c, 0)) > 0) {
+            alphRange.min = std::min(alphRange.min, (uint64_t)c);
+            alphRange.max = std::max(alphRange.max, (uint64_t)c);
+            lenRange.min = std::min(lenRange.min, (uint64_t)l);
+            lenRange.max = std::max(lenRange.max, (uint64_t)l);
 
-            setAlphLenCheckBounds();
-
-            alphRange.min = std::min(alphRange.min, alph);
-            alphRange.max = std::max(alphRange.max, alph);
-            lenRange.min = std::min(lenRange.min, len);
-            lenRange.max = std::max(lenRange.max, len);
-            totalLen += len;
-
-            rlbwt[runs] = alph;
-            runlens[runs] = len;
-
+            totalLen += (uint64_t)l;
             ++runs;
         }
-        Timer.stop(); //Reading fmd into sdsl
 
+        alphbits = sdsl::bits::hi(alphRange.max) + 1;
+        lenbits = sdsl::bits::hi(lenRange.max) + 1;
+        if (alphbits != (uint64_t)fmi.e->abits) 
+            std::cout << "WARNING: computed bits per symbol not equal to bits used in fmd. Computed: " 
+                << alphbits << ", ropebwt3: " << (uint64_t)fmi.e->abits << std::endl;
 
         std::cout << "Number of runs: " << runs 
             << "\nNumber of bits per symbol in rlbwt: " << alphbits 
             << "\nNumber of bits per run for encoding length: " << lenbits
-            << "\nCurrent maximum possible length of a run: " << maxLen 
             << std::endl;
 
 
         std::cout << "Alphabet range: " << alphRange << "\nRun Lengths range: " << lenRange << std::endl;
         std::cout << "Total BWT length: " << totalLen << std::endl;
 
+        Timer.stop(); //Reading fmd for parameters
+        Timer.start("Reading fmd into sdsl");
+
+        uint64_t alph = 0, len = 0, newTotalLen = 0, newRuns = 0;
+
+
+        rlditr_t itr;
+        rld_itr_init(fmi.e, &itr, 0); //what does 0 mean in this function call? offset number of bits to start reading at?
+
+        rlbwt = sdsl::int_vector<>(runs, 0, alphbits);
+        runlens = sdsl::int_vector<>(runs, 0, lenbits);
+
+        while ((l = rld_dec(fmi.e, &itr, &c, 0)) > 0) {
+            alph = (uint64_t)c;
+            len = (uint64_t)l;
+            if (alph < alphRange.min || alph > alphRange.max) {
+                std::cerr << "ERROR: Run symbol outside of previously found range, symbol: " << alph << ", Range: " << alphRange << std::endl;
+                return 1;
+            }
+            if (len < lenRange.min || len > lenRange.max) {
+                std::cerr << "ERROR: Run length outside of previously found range, length: " << len << ", Range: " << lenRange << std::endl;
+                return 1;
+            }
+            newTotalLen += len;
+
+            rlbwt[newRuns] = alph;
+            runlens[newRuns] = len;
+
+            ++newRuns;
+        }
+        Timer.stop(); //Reading fmd into sdsl
+
+        if (newRuns != runs) {
+            std::cerr << "ERROR: Number of runs found is different in first and second reads. First: " << runs << ", second: " << newRuns << std::endl;
+            return 1;
+        }
+        if (newTotalLen != totalLen) {
+            std::cerr << "ERROR: Total bwt length found is different in first and second reads. First: " << totalLen << ", second: " << newTotalLen << std::endl;
+            return 1;
+        }
+
+
+        /*
         Timer.start("Shrinking sdsl");
         std::cout << "Shrinking rlbwt to size" << std::endl;
         std::cout << "Previous element width in bits: " << (int)rlbwt.width() << std::endl;
@@ -186,6 +191,7 @@ int main(int argc, char *argv[]) {
         std::cout << "New length in number of elements: " << runlens.size() << std::endl;
         std::cout << "New capacity by number of bits: " << runlens.capacity() << std::endl;
         Timer.stop(); //Shrinking sdsl
+        */
 
         Timer.start("Computing sdsl size");
         std::cout << "Final rlbwt size in bytes: " << sdsl::size_in_bytes(rlbwt) << std::endl;
