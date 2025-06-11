@@ -24,13 +24,15 @@ objs = $(ropebwt3dir)/bre.o\
 libs = -lsdsl -lpthread -lz -lm
 incs = -I$(sdslincdir) -I$(ropebwt3dir)
 
+cppflags+=-Wall
+
 ifneq ($(asan),)
 	cppflags+=-fsanitize=address
 	libs+=-fsanitize=address -ldl
 endif
 
 ifneq ($(omp),0)
-	cppflags=-DLIBSAIS_OPENMP
+	cppflags+=-DLIBSAIS_OPENMP
 	cppflags+=-fopenmp
 	libs+=-fopenmp
 endif

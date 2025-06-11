@@ -12,7 +12,7 @@ std::ostream& operator<<(std::ostream& os, uRange range) {
 }
 
 int main(int argc, char *argv[]) {
-    const char characters[7] = "$ACGTN";
+    //const char characters[7] = "$ACGTN";
     if (argc != 2 && argc != 3) {
         std::cerr << "Usage: builder [-mmap] <input.fmd>\n\nIf -mmap is passed, the file is memory mapped before reading, otherwise traditional file io is used\n";
         std::cerr << argc-1 << " arguments passed instead of 1 or 2" << std::endl;
@@ -120,5 +120,28 @@ int main(int argc, char *argv[]) {
 
     std::cout << "Alphabet range: " << alphRange << "\nRun Lengths range: " << lenRange << std::endl;
     std::cout << "Total BWT length: " << totalLen << std::endl;
+
+    std::cout << "Shrinking rlbwt to size" << std::endl;
+    std::cout << "Previous element width in bits: " << (int)rlbwt.width() << std::endl;
+    sdsl::util::bit_compress(rlbwt);
+    std::cout << "New element width in bits: " << (int)rlbwt.width() << std::endl;
+    std::cout << "Previous length in number of elements: " << rlbwt.size() << std::endl;
+    std::cout << "Previous capacity by number of bits: " << rlbwt.capacity() << std::endl;
+    rlbwt.resize(runs);
+    std::cout << "New length in number of elements: " << rlbwt.size() << std::endl;
+    std::cout << "New capacity by number of bits: " << rlbwt.capacity() << std::endl;
+    std::cout << std::endl;
+    std::cout << "Shrinking runlens to size" << std::endl;
+    std::cout << "Previous element width in bits: " << (int)runlens.width() << std::endl;
+    sdsl::util::bit_compress(runlens);
+    std::cout << "New element width in bits: " << (int)runlens.width() << std::endl;
+    std::cout << "Previous length in number of elements: " << runlens.size() << std::endl;
+    std::cout << "Previous capacity by number of bits: " << runlens.capacity() << std::endl;
+    runlens.resize(runs);
+    std::cout << "New length in number of elements: " << runlens.size() << std::endl;
+    std::cout << "New capacity by number of bits: " << runlens.capacity() << std::endl;
+
+    std::cout << "Final rlbwt size in bytes: " << sdsl::size_in_bytes(rlbwt) << std::endl;
+    std::cout << "Final runlens size in bytes: " << sdsl::size_in_bytes(runlens) << std::endl;
     return 0;
 }
