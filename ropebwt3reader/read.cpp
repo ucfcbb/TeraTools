@@ -17,7 +17,7 @@ int main(int argc, char *argv[]) {
     }
     char* inputfmd = argv[argc-1];
 
-    const int use_mmap = (argc == 3);
+    int use_mmap = (argc == 3);
     rb3_fmi_t fmi;
     rb3_fmi_restore(&fmi, inputfmd, use_mmap);
     if (fmi.e == 0 && fmi.r == 0) {
@@ -43,7 +43,7 @@ int main(int argc, char *argv[]) {
             //std::cerr << "run of length " << l << " of the character " << c << " equals " << characters[c] << std::endl;
             //s += std::string(l, characters[c]);
 
-            std::cout << c << ' ' << l << ' ';
+            std::cout << (uint64_t)c << ' ' << (uint64_t)l << ' ';
         }
         //std::cerr << "Final BWT:\n" << s << std::endl;
     } else if (fmi.r) {
