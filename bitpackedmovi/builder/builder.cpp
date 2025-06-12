@@ -45,8 +45,29 @@ std::ostream& operator<<(std::ostream& os, uRange range) {
     return os;
 }
 
+//returns whether an RLBWT represented by a chars int vec and a lens int vec is equivalent to an fmi
+bool areEqual(sdsl::int_vector<> chars, sdsl::int_vector<> lens, const rb3_fmi_t& fmi) {
+    if (chars.size() != lens.size()) {
+        std::cerr << "areEqual called for a symbol array and length array of different sizes" << std::endl;
+        exit(1);
+    }
+
+    rlditr_t itr;
+    rld_itr_init(fmi.e, &itr, 0); //what does 0 mean in this function call? offset number of bits to start reading at?
+    uint64_t currentRun = 0;
+    int64_t l = 0;
+    int c = 0;
+    while (currentRun < chars.size() && (l = rld_dec(fmi.e, &itr, &c, 0)) > 0) {
+        if ((uint64_t)l != lens[currentRun] || (uint64_t)c != chars[currentRun])
+            return false;
+        ++currentRun;
+    }
+    return currentRun == chars.size();
+}
+
+
 int main(int argc, char *argv[]) {
-    Timer.start("Reading RLBWT from FMD");
+    Timer.start("Constructing RLBWT from FMD");
     sdsl::int_vector<> rlbwt, runlens;
     {
         Timer.start("Reading Arguments");
@@ -197,8 +218,15 @@ int main(int argc, char *argv[]) {
         std::cout << "Final rlbwt size in bytes: " << sdsl::size_in_bytes(rlbwt) << std::endl;
         std::cout << "Final runlens size in bytes: " << sdsl::size_in_bytes(runlens) << std::endl;
         Timer.stop(); //Computing sdsl size
+
+        Timer.start("Verifying correctness of constructed RLBWT");
+
+        std::cout << "Built RLBWT and input FMD are " 
+            << ((areEqual(rlbwt, runlens, fmi))? "equal" : "not equal!") << std::endl;
+        Timer.stop(); //Verifying correctness of constructed RLBWT
+
         rb3_fmi_free(&fmi);
     }
-    Timer.stop(); //Reading RLBWT from FMD
+    Timer.stop(); //Constructing RLBWT from FMD
     return 0;
 }
