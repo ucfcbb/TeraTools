@@ -67,8 +67,10 @@ bool areEqual(sdsl::int_vector<> chars, sdsl::int_vector<> lens, const rb3_fmi_t
 
 
 int main(int argc, char *argv[]) {
-    Timer.start("Constructing RLBWT from FMD");
-    sdsl::int_vector<> rlbwt, runlens;
+    Timer.start("builder");
+    Timer.start("Program Initialization");
+    int use_mmap;
+    rb3_fmi_t fmi;
     {
         Timer.start("Reading Arguments");
         //const char characters[7] = "$ACGTN";
@@ -83,12 +85,11 @@ int main(int argc, char *argv[]) {
             return 1;
         }
         char* inputfmd = argv[argc-1];
-        int use_mmap = (argc == 3);
+        use_mmap = (argc == 3);
 
         Timer.stop(); //Reading Arguments
         Timer.start((use_mmap)? "Loading fmd with mmap" : "Loading fmd");
 
-        rb3_fmi_t fmi;
         rb3_fmi_restore(&fmi, inputfmd, use_mmap);
         if (fmi.e == 0 && fmi.r == 0) {
             std::cerr << "ERROR: failed to load fmd from index file " << inputfmd << std::endl;
@@ -101,10 +102,16 @@ int main(int argc, char *argv[]) {
             std::cerr << "ERROR: fmd is a multirope (mrope)? I don't know what that is." << std::endl;
             return 1;
         }
+    }
+    Timer.stop(); //Program Initialization
 
+    Timer.start("Constructing RLBWT from FMD");
+    sdsl::int_vector<> rlbwt, runlens;
+    uint64_t runs = 0, totalLen = 0, alphbits, lenbits;
+    uRange alphRange, lenRange;
+    uint64_t *alphCounts, *alphRuns;
+    {
         Timer.start("Reading fmd for parameters");
-        uint64_t runs = 0, totalLen = 0, alphbits, lenbits;
-        uRange alphRange, lenRange;
 
         rlditr_t itr1;
         rld_itr_init(fmi.e, &itr1, 0); //what does 0 mean in this function call? offset number of bits to start reading at?
@@ -132,6 +139,16 @@ int main(int argc, char *argv[]) {
             totalLen += (uint64_t)l;
             ++runs;
         }
+
+        if (alphRange.max == (uint64_t)-1) {
+            std::cerr << "Maximum alphabet symbol is 2^64 - 1. This program assumes this is not the case." << std::endl;
+            return 1;
+        }
+
+        alphCounts = new uint64_t[alphRange.max + 1];
+        alphRuns = new uint64_t[alphRange.max + 1];
+        for (uint64_t i = 0; i <= alphRange.max; ++i)
+            alphCounts[i] = alphRuns[i] = 0;
 
         alphbits = sdsl::bits::hi(alphRange.max) + 1;
         lenbits = sdsl::bits::hi(lenRange.max) + 1;
@@ -172,6 +189,8 @@ int main(int argc, char *argv[]) {
                 return 1;
             }
             newTotalLen += len;
+            alphCounts[alph] += len;
+            ++alphRuns[alph];
 
             rlbwt[newRuns] = alph;
             runlens[newRuns] = len;
@@ -189,6 +208,9 @@ int main(int argc, char *argv[]) {
             return 1;
         }
 
+        std::cout << "Number of runs and number of total occurrences in text for each character is printed below.Format:\n\tsymbol\truns\toccurrences\n";
+        for (uint64_t i = 0; i <= alphRange.max; ++i) 
+            std::cout << '\t' << i << '\t' << alphRuns[i] << '\t' << alphCounts[i] << '\n';
 
         /*
         Timer.start("Shrinking sdsl");
@@ -228,5 +250,20 @@ int main(int argc, char *argv[]) {
         rb3_fmi_free(&fmi);
     }
     Timer.stop(); //Constructing RLBWT from FMD
+
+    Timer.start("Constructing LF from RLBWT");
+    sdsl::int_vector<> toRun, toOffset;
+    {
+
+
+    }
+    Timer.stop(); //Constructing LF from RLBWT
+
+    delete [] alphCounts;
+    alphCounts = nullptr;
+    delete [] alphRuns;
+    alphRuns = nullptr;
+
+    Timer.stop(); //builder
     return 0;
 }
