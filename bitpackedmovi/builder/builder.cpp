@@ -65,6 +65,41 @@ bool areEqual(sdsl::int_vector<> chars, sdsl::int_vector<> lens, const rb3_fmi_t
     return currentRun == chars.size();
 }
 
+struct IntervalPoint {
+    /*
+    //represents a position in a range [0,n-1] that is composed of x intervals
+    //[i_0,i_1-1],[i_1,i_2-1],[i_2,i_3-1],...,[i_{x-1},n-1]
+    //a position p in [0,n-1] in this range is represented by 
+    //position, interval, offset s.t.
+    // - position = p
+    // - interval = j s.t. i_j <= p and i_{j+1} > p
+    // - offset   = k s.t. i_j + k = p (therefore, k in [0,i_{j+1}-i_j-1]
+    */
+    uint64_t position, interval, offset;
+};
+/*
+bool operator==(const IntervalPoint& lhs, const IntervalPoint& rhs) {
+    return lhs.position == rhs.position && lhs.interval == rhs.interval && lhs.offset == rhs.offset;
+}
+*/
+
+bool operator!=(const IntervalPoint& lhs, const IntervalPoint& rhs) {
+    return lhs.position != rhs.position || lhs.interval != rhs.interval || lhs.offset != rhs.offset;
+}
+
+//assumptions:
+//no runs of length 0
+//the same runlens vector is passed for every call and unmodified
+//distance provided added to current position doesn't result in an out-of-bounds IntervalPoint 
+//  (except for position = n, the first position after the range
+void AdvanceIntervalPoint(IntervalPoint& intPoint, uint64_t distance, const sdsl::int_vector<>& runlens) {
+    uint64_t remaining = intPoint.offset + distance;
+    while (remaining && remaining >= runlens[intPoint.interval])
+        remaining -= runlens[intPoint.interval++];
+    intPoint.offset = remaining;
+    intPoint.position += distance;
+}
+
 
 int main(int argc, char *argv[]) {
     Timer.start("builder");
@@ -208,7 +243,7 @@ int main(int argc, char *argv[]) {
             return 1;
         }
 
-        std::cout << "Number of runs and number of total occurrences in text for each character is printed below.Format:\n\tsymbol\truns\toccurrences\n";
+        std::cout << "Number of runs and number of total occurrences in text for each character is printed below. Format:\n\tsymbol\truns\toccurrences\n";
         for (uint64_t i = 0; i <= alphRange.max; ++i) 
             std::cout << '\t' << i << '\t' << alphRuns[i] << '\t' << alphCounts[i] << '\n';
 
@@ -247,22 +282,134 @@ int main(int argc, char *argv[]) {
             << ((areEqual(rlbwt, runlens, fmi))? "equal" : "not equal!") << std::endl;
         Timer.stop(); //Verifying correctness of constructed RLBWT
 
-        rb3_fmi_free(&fmi);
     }
     Timer.stop(); //Constructing RLBWT from FMD
 
     Timer.start("Constructing LF from RLBWT");
-    sdsl::int_vector<> toRun, toOffset;
+    sdsl::int_vector<> toRun(runs, 0, sdsl::bits::hi(runs) + 1);
+    sdsl::int_vector<> toOffset(runs, 0, runlens.width());
+    IntervalPoint *alphStarts = new IntervalPoint[alphRange.max+2];
     {
+        Timer.start("Computing alphStarts");
+        {
+            alphStarts[0] = {0, 0, 0};
+            uint64_t thisAlph = 0, thisAlphLeft = alphCounts[0];
+            uint64_t thisRunStart = 0;
 
+            //at beginning of one iteration of this loop,
+            //we are at the beginning of a run in the bwt with thisAlphLeft
+            //characters of thisAlph to traverse
+            for (uint64_t i = 0; i < runs; ++i) {
+                uint64_t l = runlens[i];
+                //at the beginning of one iteration of this loop, we are at a position
+                //within a run (possibly the first) such that the last position in the 
+                //F array of thisAlph occurs in this run (run i).
+                //!!!!!!!!!!!!!
+                //thisAlphLeft is the number of thisAlph characters left to traverse + the
+                //number of non thisAlph characters before the thisAlph characters in the 
+                //current run
+                //!!!!!!!!!!!!!
+                while (thisAlphLeft < l) {
+                    ++thisAlph;
+                    alphStarts[thisAlph] = { thisRunStart + thisAlphLeft, i, thisAlphLeft };
+                    thisAlphLeft += alphCounts[thisAlph];
+                }
 
+                thisAlphLeft -= l;
+                thisRunStart += l;
+            }
+
+            if (thisAlph != alphRange.max) {
+                std::cerr << "ERROR: When computing alphStarts, didn't end up on largest alphabet value! Largest value: "
+                    << alphRange.max << ". Ended up on: " << thisAlph << std::endl;
+                return 1;
+            }
+            if (thisAlphLeft) {
+                std::cerr << "ERROR: When computing alphStarts, there are a nonzero amount of "
+                    << alphRange.max << " characters left to look for, but the end of the rlbwt has been reached." << std::endl;
+                return 1;
+            }
+            if (thisRunStart != totalLen) {
+                std::cerr << "Final position is not total length of bwt in alphStart computation! Final position: " 
+                    << thisRunStart << ". Total length: " << totalLen;
+                return 1;
+            }
+
+            //equivalent to alphStarts[thisAlph] = { thisRunStart + thisAlphLeft, i, thisAlphLeft };
+            //since thisAlphLeft = 0
+            alphStarts[++thisAlph] = { thisRunStart, runs, 0 };
+        }
+        Timer.stop(); //Computing alphStarts
+
+        std::cout << "Computed alphStarts printed below."
+            << " Note: ENDBWT is not a symbol, but is stored as a sentinel in the alphStarts array at the endFormat:\n"
+            << "\tsymbol\tposition\trun\toffset\n";
+        for (uint64_t i = 0; i <= alphRange.max; ++i)
+            std::cout << '\t' << i << '\t' << alphStarts[i].position
+                << '\t' << alphStarts[i].interval
+                << '\t' << alphStarts[i].offset << '\n';
+        std::cout << '\t' << "ENDBWT" << '\t' << alphStarts[alphRange.max+1].position
+            << '\t' << alphStarts[alphRange.max+1].interval
+            << '\t' << alphStarts[alphRange.max+1].offset << '\n';
+
+        Timer.start("Computing run and offsets for LF from run starts");
+        {
+            IntervalPoint *currentAlphLFs = new IntervalPoint[alphRange.max+1];
+            for (uint64_t i = 0; i <= alphRange.max; ++i) 
+                currentAlphLFs[i] = alphStarts[i];
+
+            for (uint64_t i = 0; i < runs; ++i) {
+                uint64_t l = runlens[i], c = rlbwt[i];
+
+                toRun[i] = currentAlphLFs[c].interval;
+                toOffset[i] = currentAlphLFs[c].offset;
+
+                AdvanceIntervalPoint(currentAlphLFs[c], l, runlens);
+            }
+
+            //verify all currentAlphLFs ended up at the start of the next alph
+            bool allGood = true;
+            for (uint64_t i = 0; i <= alphRange.max; ++i) {
+                if (currentAlphLFs[i] != alphStarts[i+1]) {
+                    allGood = false;
+                    std::cerr << "Symbol " << i << " LF didn't end up at the start of "
+                        << " symbol " << i + 1 << " in F array.\nIt ended up at: "
+                        << "{ position: " << currentAlphLFs[i].position
+                        << ", interval: " << currentAlphLFs[i].interval
+                        << ", offset: " << currentAlphLFs[i].offset << " }.\n"
+                        << "The next symbol starts at " 
+                        << "{ position: " << alphStarts[i+1].position
+                        << ", interval: " << alphStarts[i+1].interval
+                        << ", offset: " << alphStarts[i+1].offset << " }."
+                        << std::endl;
+                }
+            }
+
+            if (allGood)
+                std::cout << "The LFs of all symbols ended up at the start of the next symbol.\n";
+            else {
+                std::cerr << "ERROR: The LFs of some symbols didn't end up at the start of the next symbol. (See above)." << std::endl;
+                return 1;
+            }
+
+            delete [] currentAlphLFs;
+            currentAlphLFs = nullptr;
+        }
+        Timer.stop(); //Computing run and offsets for LF from run starts
+        
+        Timer.start("Verifying computed LF is a permutation with one cycle");
+        Timer.stop(); //Verifying computed LF is a permutation with one cycle
     }
     Timer.stop(); //Constructing LF from RLBWT
 
-    delete [] alphCounts;
-    alphCounts = nullptr;
+    delete [] alphStarts;
+    alphStarts = nullptr;
     delete [] alphRuns;
     alphRuns = nullptr;
+    delete [] alphCounts;
+    alphCounts = nullptr;
+    
+    rb3_fmi_free(&fmi);
 
     Timer.stop(); //builder
     return 0;
