@@ -1,6 +1,7 @@
-#include <iostream>
+#include<iostream>
 #include"fm-index.h"
-#include <sdsl/vectors.hpp>
+#include<sdsl/vectors.hpp>
+#include<vector>
 
 #include<chrono>
 #include<stack>
@@ -144,7 +145,7 @@ int main(int argc, char *argv[]) {
     sdsl::int_vector<> rlbwt, runlens;
     uint64_t runs = 0, totalLen = 0, alphbits, lenbits;
     uRange alphRange, lenRange;
-    uint64_t *alphCounts, *alphRuns;
+    std::vector<uint64_t> alphCounts, alphRuns;
     {
         Timer.start("Reading fmd for parameters");
 
@@ -180,8 +181,8 @@ int main(int argc, char *argv[]) {
             return 1;
         }
 
-        alphCounts = new uint64_t[alphRange.max + 1];
-        alphRuns = new uint64_t[alphRange.max + 1];
+        alphCounts.resize(alphRange.max+1);
+        alphRuns.resize(alphRange.max+1);
         for (uint64_t i = 0; i <= alphRange.max; ++i)
             alphCounts[i] = alphRuns[i] = 0;
 
@@ -288,7 +289,7 @@ int main(int argc, char *argv[]) {
     Timer.start("Constructing LF from RLBWT");
     sdsl::int_vector<> toRun(runs, 0, sdsl::bits::hi(runs) + 1);
     sdsl::int_vector<> toOffset(runs, 0, runlens.width());
-    IntervalPoint *alphStarts = new IntervalPoint[alphRange.max+2];
+    std::vector<IntervalPoint> alphStarts(alphRange.max+2);
     {
         Timer.start("Computing alphStarts");
         {
@@ -354,7 +355,7 @@ int main(int argc, char *argv[]) {
 
         Timer.start("Computing run and offsets for LF from run starts");
         {
-            IntervalPoint *currentAlphLFs = new IntervalPoint[alphRange.max+1];
+            std::vector<IntervalPoint> currentAlphLFs(alphRange.max+1);
             for (uint64_t i = 0; i <= alphRange.max; ++i) 
                 currentAlphLFs[i] = alphStarts[i];
 
@@ -391,9 +392,6 @@ int main(int argc, char *argv[]) {
                 std::cerr << "ERROR: The LFs of some symbols didn't end up at the start of the next symbol. (See above)." << std::endl;
                 return 1;
             }
-
-            delete [] currentAlphLFs;
-            currentAlphLFs = nullptr;
         }
         Timer.stop(); //Computing run and offsets for LF from run starts
         
@@ -402,13 +400,6 @@ int main(int argc, char *argv[]) {
     }
     Timer.stop(); //Constructing LF from RLBWT
 
-    delete [] alphStarts;
-    alphStarts = nullptr;
-    delete [] alphRuns;
-    alphRuns = nullptr;
-    delete [] alphCounts;
-    alphCounts = nullptr;
-    
     rb3_fmi_free(&fmi);
 
     Timer.stop(); //builder
