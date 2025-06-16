@@ -436,68 +436,62 @@ int main(int argc, char *argv[]) {
         //printStructures(rlbwt, runlens, toRun, toOffset);
 
         Timer.start("Verifying computed LF by sum of sequence lengths");
-        uint64_t lfsDone = 0;
-        IntervalPoint start{ (uint64_t)-1, 0, 0}, current{(uint64_t)-1, 0, 0};
-        //In theory, this is a multi-dollar BWT. I.E. for strings, s_0, s_1, s_2,..., s_k,
-        //the text is s_0,$_0,s_1,$_1,s_2,$_2,...,s_k,$_k concatenated in that order,
-        //where $_i < $_j for i < j and $_i < a for all non $_* characters in the text
-        //HOWEVER: In practice, the multi-dollars incur a big cost by increasing the alphabet size
-        //therefore they are usually all treated as $. This costs us something: we are no longer able
-        //to perform LF on the BWT locations with $. If desired, the value i in BWT[x] = $_i must be recovered.
-        //then LF[x] = i. We forgo this ability in implementation because we don't care about it and costs index size
+        {
+            uint64_t sumSeqLengths = 0;
+            //In theory, this is a multi-dollar BWT. I.E. for strings, s_0, s_1, s_2,..., s_k,
+            //the text is s_0,$_0,s_1,$_1,s_2,$_2,...,s_k,$_k concatenated in that order,
+            //where $_i < $_j for i < j and $_i < a for all non $_* characters in the text
+            //HOWEVER: In practice, the multi-dollars incur a big cost by increasing the alphabet size
+            //therefore they are usually all treated as $. This costs us something: we are no longer able
+            //to perform LF on the BWT locations with $. If desired, the value i in BWT[x] = $_i must be recovered.
+            //then LF[x] = i. We forgo this ability in implementation because we don't care about it and costs index size
 
-        //However this does make verifying the LF function more difficult. (Typically, we could just LF n times
-        //and verify that we return to the origin, then LF is a permutation with one cycle and likely correct.)
-        //Here instead, we indpentently LF through each string contained in the text, sum up their lengths, 
-        //and claim that if the sum of the lengths is accurate then the LF is likely correct. We could
-        //also keep a bool array and make sure every position of the BWT is traversed exactly once,
-        //but this would be costly in terms of memory for large compressed BWTs (150 GB for human472)
-        const uint64_t outputtingInterval = 3e7;
-        Timer.start("Timing LFs 0 to " + std::to_string(std::min(totalLen, outputtingInterval - 1)));
-        //count the length of sequence seq
-        for (uint64_t seq = 0; seq < alphCounts[0]; ++seq) {
-            if (seq) {
+            //However this does make verifying the LF function more difficult. (Typically, we could just LF n times
+            //and verify that we return to the origin, then LF is a permutation with one cycle and likely correct.)
+            //Here instead, we indpentently LF through each string contained in the text, sum up their lengths, 
+            //and claim that if the sum of the lengths is accurate then the LF is likely correct. We could
+            //also keep a bool array and make sure every position of the BWT is traversed exactly once,
+            //but this would be costly in terms of memory for large compressed BWTs (150 GB for human472)
+            //compute starts
+            std::vector<IntervalPoint> starts(alphCounts[0]);
+            IntervalPoint start{ (uint64_t)-1, 0, 0};
+            starts[0] = start;
+            for (uint64_t seq = 1; seq < alphCounts[0]; ++seq) {
                 ++start.offset;
                 if (start.offset == runlens[start.interval]) {
                     start.offset = 0;
                     ++start.interval;
                 }
+                starts[seq] = start;
             }
-            current = start;
-            do {
-                if ((lfsDone+1)%outputtingInterval == 0) {
-                    Timer.stop();
-                    Timer.start("Timing LFs " + std::to_string(lfsDone+1) + " to " + std::to_string(std::min(totalLen, lfsDone+outputtingInterval)));
+
+            //count the length of sequence seq
+            #pragma omp parallel for schedule(guided)
+            for (uint64_t seq = 0; seq < alphCounts[0]; ++seq) {
+                IntervalPoint current{(uint64_t)-1, 0, 0};
+                current = starts[seq];
+                uint64_t seqLen = 1; //counting LF to endmarker, which isn't performed in actuality (simulated by incrementing start.offset...)
+                while (rlbwt[current.interval] != 0) {
+                    ++seqLen;
+                    current = mapLF(current, runlens, toRun, toOffset);
                 }
-                ++lfsDone;
+                #pragma omp critical 
+                {
+                    sumSeqLengths += seqLen;
+                }
+            }
 
-                /*
-                   std::cout << "current: { position: " << current.position
-                   << ", interval: " << current.interval
-                   << ", offset: " << current.offset << " }.\n";
-                 */
-
-                current = mapLF(current, runlens, toRun, toOffset);
-            } while (lfsDone <= totalLen && rlbwt[current.interval] != 0);
-            ++lfsDone; //counting LF to endmarker, which isn't performed in actuality (simulated by incrementing start.offset...)
+            if (sumSeqLengths != totalLen) {
+                std::cerr << "ERROR: Sum of sequence length not equal to the length of the BWT! Sequence length is computed by LF.\n"
+                    << "ERROR: A total of " << sumSeqLengths << " LFs were computed. This is not equal to the length of the BWT, which is "
+                    << totalLen << ". NOTE: if sumSeqLengths = length + 1, LF (very likely) was terminated early and didn't compute "
+                    << "the full sequence lengths. This is because verification is automatically terminated after length + 1"
+                    << " LFs because the LF function is then known to be incorrect." << std::endl;
+                return 1;
+            }
+            std::cout << "LF is likely correct, the sum of sequence lengths computed by it is " << sumSeqLengths << ". " 
+                << sumSeqLengths - alphCounts[0] << " LFs were computed in order to verify this.\n";
         }
-        Timer.stop();
-        /*
-        std::cout << "current: { position: " << current.position
-            << ", interval: " << current.interval
-            << ", offset: " << current.offset << " }.\n";
-        */
-        
-        if (lfsDone != totalLen) {
-            std::cerr << "ERROR: Sum of sequence length not equal to the length of the BWT! Sequence length is computed by LF.\n"
-                << "ERROR: A total of " << lfsDone << " LFs were computed. This is not equal to the length of the BWT, which is "
-                << totalLen << ". NOTE: if lfsDone = length + 1, LF (very likely) was terminated early and didn't compute "
-                << "the full sequence lengths. This is because verification is automatically terminated after length + 1"
-                << " LFs because the LF function is then known to be incorrect." << std::endl;
-            return 1;
-        }
-        std::cout << "LF is likely correct, the sum of sequence lengths computed by it is " << lfsDone << ". " 
-            << lfsDone << " LFs were computed in order to verify this.\n";
         Timer.stop(); //Verifying computed LF by sum of sequence lengths
     }
     Timer.stop(); //Constructing LF from RLBWT
