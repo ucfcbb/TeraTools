@@ -59,7 +59,14 @@ bool areEqual(sdsl::int_vector<> chars, sdsl::int_vector<> lens, const rb3_fmi_t
     int64_t l = 0;
     int c = 0;
     while (currentRun < chars.size() && (l = rld_dec(fmi.e, &itr, &c, 0)) > 0) {
-        if ((uint64_t)l != lens[currentRun] || (uint64_t)c != chars[currentRun])
+        uint64_t thisRunLength = lens[currentRun], thisRunChar = chars[currentRun];
+        //reconcatenating endmarker runs for comparison
+        while (thisRunChar == 0 && currentRun + 1 < chars.size() && chars[currentRun + 1] == 0) {
+            ++currentRun;
+            thisRunLength += lens[currentRun];
+        }
+
+        if ((uint64_t)l != thisRunLength || (uint64_t)c != thisRunChar)
             return false;
         ++currentRun;
     }
@@ -181,110 +188,153 @@ int main(int argc, char *argv[]) {
 
     Timer.start("Constructing RLBWT from FMD");
     sdsl::int_vector<> rlbwt, runlens;
+
+    //'repaired' values. These are the values of our constructed index.
+    //They may differ from ropebwt3's values because we split endmarkers into separate runs
     uint64_t runs = 0, totalLen = 0, alphbits, lenbits;
     uRange alphRange, lenRange;
     std::vector<uint64_t> alphCounts, alphRuns;
     {
         Timer.start("Reading fmd for parameters");
+        {
+            //original ropebwt3 values
+            uint64_t RB3_runs = 0, RB3_lenbits;
+            uRange RB3_lenRange;
 
-        rlditr_t itr1;
-        rld_itr_init(fmi.e, &itr1, 0); //what does 0 mean in this function call? offset number of bits to start reading at?
-        int64_t l;
-        int c = 0;
 
 
-        if ((l = rld_dec(fmi.e, &itr1, &c, 0)) > 0) {
-            alphRange = {(uint64_t)c,(uint64_t)c};
-            lenRange = {(uint64_t)l,(uint64_t)l};
-            totalLen += (uint64_t)l;
-            ++runs;
+            rlditr_t itr1;
+            rld_itr_init(fmi.e, &itr1, 0); //what does 0 mean in this function call? offset number of bits to start reading at?
+            int64_t l;
+            int c = 0;
+
+
+            if ((l = rld_dec(fmi.e, &itr1, &c, 0)) > 0) {
+                alphRange = {(uint64_t)c,(uint64_t)c};
+
+                RB3_lenRange = {(uint64_t)l,(uint64_t)l};
+                lenRange = (c == 0)? uRange{(uint64_t)1, (uint64_t)1} : RB3_lenRange;
+
+                runs += (c == 0)? (uint64_t)l : 1;
+                ++RB3_runs;
+
+                totalLen += (uint64_t)l;
+            }
+            else {
+                std::cerr << "Failed to read first run's character and length" << std::endl;
+                return 1;
+            }
+
+            while ((l = rld_dec(fmi.e, &itr1, &c, 0)) > 0) {
+                alphRange.min = std::min(alphRange.min, (uint64_t)c);
+                alphRange.max = std::max(alphRange.max, (uint64_t)c);
+
+                RB3_lenRange.min = std::min(RB3_lenRange.min, (uint64_t)l);
+                RB3_lenRange.max = std::max(RB3_lenRange.max, (uint64_t)l);
+                lenRange.min = std::min(lenRange.min, (uint64_t)((c == 0)? 1 : l));
+                lenRange.max = std::max(lenRange.max, (uint64_t)((c == 0)? 1 : l));
+
+                ++RB3_runs;
+                runs += (c == 0)? (uint64_t)l : 1;
+
+                totalLen += (uint64_t)l;
+            }
+
+            if (alphRange.max == (uint64_t)-1) {
+                std::cerr << "Maximum alphabet symbol is 2^64 - 1. "
+                    << "This program assumes this is not the case (it can only handle alphabet <= (2^64) - 2." << std::endl;
+                return 1;
+            }
+
+            std::cout << "INFO: The parameters for our constructed BWT (i.e. #runs, max length, etc.) may be "
+                << "different from those of the input (ropebwt3).\nINFO: This is because in our constructed BWT, "
+                << "each endmarker is contained in its own run.\n";
+
+            alphbits = sdsl::bits::hi(alphRange.max) + 1;
+            RB3_lenbits = sdsl::bits::hi(RB3_lenRange.max) + 1;
+            lenbits = sdsl::bits::hi(lenRange.max) + 1;
+            if (alphbits != (uint64_t)fmi.e->abits) 
+                std::cout << "WARNING: computed bits per symbol not equal to bits used in fmd. Computed: " 
+                    << alphbits << ", ropebwt3: " << (uint64_t)fmi.e->abits << std::endl;
+
+            std::cout << "Input number of runs (i.e. before splitting endmarker runs): " << RB3_runs 
+                << "\nThis index number of runs (i.e. after splitting endmarker runs): " << runs 
+                << "\nNumber of bits per symbol in rlbwt: " << alphbits 
+                << "\nInput number of bits per run for encoding length (i.e. before splitting endmarker runs): " << RB3_lenbits
+                << "\nThis index number of bits per run for encoding length (i.e. after splitting endmarker runs): " << lenbits
+                << std::endl;
+
+
+            std::cout << "Alphabet range: " << alphRange 
+                << "\nInput run lengths range (i.e. before splitting endmarker runs): " << RB3_lenRange
+                << "\nThis index run lengths range (i.e. after splitting endmarker runs): " << lenRange << std::endl;
+            std::cout << "Total BWT length: " << totalLen << std::endl;
         }
-        else {
-            std::cerr << "Failed to read first run's character and length" << std::endl;
-            return 1;
-        }
-
-        while ((l = rld_dec(fmi.e, &itr1, &c, 0)) > 0) {
-            alphRange.min = std::min(alphRange.min, (uint64_t)c);
-            alphRange.max = std::max(alphRange.max, (uint64_t)c);
-            lenRange.min = std::min(lenRange.min, (uint64_t)l);
-            lenRange.max = std::max(lenRange.max, (uint64_t)l);
-
-            totalLen += (uint64_t)l;
-            ++runs;
-        }
-
-        if (alphRange.max == (uint64_t)-1) {
-            std::cerr << "Maximum alphabet symbol is 2^64 - 1. This program assumes this is not the case." << std::endl;
-            return 1;
-        }
-
-        alphCounts.resize(alphRange.max+1);
-        alphRuns.resize(alphRange.max+1);
-        for (uint64_t i = 0; i <= alphRange.max; ++i)
-            alphCounts[i] = alphRuns[i] = 0;
-
-        alphbits = sdsl::bits::hi(alphRange.max) + 1;
-        lenbits = sdsl::bits::hi(lenRange.max) + 1;
-        if (alphbits != (uint64_t)fmi.e->abits) 
-            std::cout << "WARNING: computed bits per symbol not equal to bits used in fmd. Computed: " 
-                << alphbits << ", ropebwt3: " << (uint64_t)fmi.e->abits << std::endl;
-
-        std::cout << "Number of runs: " << runs 
-            << "\nNumber of bits per symbol in rlbwt: " << alphbits 
-            << "\nNumber of bits per run for encoding length: " << lenbits
-            << std::endl;
-
-
-        std::cout << "Alphabet range: " << alphRange << "\nRun Lengths range: " << lenRange << std::endl;
-        std::cout << "Total BWT length: " << totalLen << std::endl;
-
         Timer.stop(); //Reading fmd for parameters
         Timer.start("Reading fmd into sdsl");
+        {
+            alphCounts.resize(alphRange.max+1, 0);
+            alphRuns.resize(alphRange.max+1, 0);
+            std::vector<uint64_t> RB3_alphRuns(alphRange.max+1, 0);
 
-        uint64_t alph = 0, len = 0, newTotalLen = 0, newRuns = 0;
+            uint64_t alph = 0, len = 0, newTotalLen = 0, newRuns = 0;
 
 
-        rlditr_t itr;
-        rld_itr_init(fmi.e, &itr, 0); //what does 0 mean in this function call? offset number of bits to start reading at?
+            rlditr_t itr;
+            rld_itr_init(fmi.e, &itr, 0); //what does 0 mean in this function call? offset number of bits to start reading at?
 
-        rlbwt = sdsl::int_vector<>(runs, 0, alphbits);
-        runlens = sdsl::int_vector<>(runs, 0, lenbits);
+            rlbwt = sdsl::int_vector<>(runs, 0, alphbits);
+            runlens = sdsl::int_vector<>(runs, 0, lenbits);
 
-        while ((l = rld_dec(fmi.e, &itr, &c, 0)) > 0) {
-            alph = (uint64_t)c;
-            len = (uint64_t)l;
-            if (alph < alphRange.min || alph > alphRange.max) {
-                std::cerr << "ERROR: Run symbol outside of previously found range, symbol: " << alph << ", Range: " << alphRange << std::endl;
+            int64_t l;
+            int c = 0;
+            while ((l = rld_dec(fmi.e, &itr, &c, 0)) > 0) {
+                alph = (uint64_t)c;
+                len = (uint64_t)l;
+                if (alph < alphRange.min || alph > alphRange.max) {
+                    std::cerr << "ERROR: Run symbol outside of previously found range, symbol: " << alph << ", Range: " << alphRange << std::endl;
+                    return 1;
+                }
+                if (len < lenRange.min || len > lenRange.max) {
+                    std::cerr << "ERROR: Run length outside of previously found range, length: " << len << ", Range: " << lenRange << std::endl;
+                    return 1;
+                }
+                newTotalLen += len;
+                alphCounts[alph] += len;
+
+                ++RB3_alphRuns[alph];
+                alphRuns[alph] += (alph == 0)? len : 1;
+
+                if (alph == 0) {
+                    while (len) {
+                        rlbwt[newRuns] = alph;
+                        runlens[newRuns] = 1;
+                        ++newRuns;
+                        --len;
+                    }
+                }
+                else {
+                    rlbwt[newRuns] = alph;
+                    runlens[newRuns] = len;
+                    ++newRuns;
+                }
+            }
+
+            if (newRuns != runs) {
+                std::cerr << "ERROR: Number of runs found is different in first and second reads. First: " << runs << ", second: " << newRuns << std::endl;
                 return 1;
             }
-            if (len < lenRange.min || len > lenRange.max) {
-                std::cerr << "ERROR: Run length outside of previously found range, length: " << len << ", Range: " << lenRange << std::endl;
+            if (newTotalLen != totalLen) {
+                std::cerr << "ERROR: Total bwt length found is different in first and second reads. First: " << totalLen << ", second: " << newTotalLen << std::endl;
                 return 1;
             }
-            newTotalLen += len;
-            alphCounts[alph] += len;
-            ++alphRuns[alph];
 
-            rlbwt[newRuns] = alph;
-            runlens[newRuns] = len;
-
-            ++newRuns;
+            std::cout << "Number of runs and number of total occurrences in text for each character is printed below. Format:\n"
+                << "\tsymbol\truns in this index\truns in input\toccurrences\n";
+            for (uint64_t i = 0; i <= alphRange.max; ++i) 
+                std::cout << '\t' << i << '\t' << alphRuns[i] << '\t' << RB3_alphRuns[i] << '\t' << alphCounts[i] << '\n';
         }
         Timer.stop(); //Reading fmd into sdsl
-
-        if (newRuns != runs) {
-            std::cerr << "ERROR: Number of runs found is different in first and second reads. First: " << runs << ", second: " << newRuns << std::endl;
-            return 1;
-        }
-        if (newTotalLen != totalLen) {
-            std::cerr << "ERROR: Total bwt length found is different in first and second reads. First: " << totalLen << ", second: " << newTotalLen << std::endl;
-            return 1;
-        }
-
-        std::cout << "Number of runs and number of total occurrences in text for each character is printed below. Format:\n\tsymbol\truns\toccurrences\n";
-        for (uint64_t i = 0; i <= alphRange.max; ++i) 
-            std::cout << '\t' << i << '\t' << alphRuns[i] << '\t' << alphCounts[i] << '\n';
 
         /*
         Timer.start("Shrinking sdsl");
@@ -324,10 +374,13 @@ int main(int argc, char *argv[]) {
     }
     Timer.stop(); //Constructing RLBWT from FMD
 
+    rb3_fmi_free(&fmi);
+
     Timer.start("Constructing LF from RLBWT");
     sdsl::int_vector<> toRun(runs, 0, sdsl::bits::hi(runs) + 1);
     sdsl::int_vector<> toOffset(runs, 0, runlens.width());
     std::vector<IntervalPoint> alphStarts(alphRange.max+2);
+    std::vector<IntervalPoint> stringStarts(alphCounts[0]);
     {
         Timer.start("Computing alphStarts");
         {
@@ -438,6 +491,12 @@ int main(int argc, char *argv[]) {
         Timer.start("Verifying computed LF by sum of sequence lengths");
         {
             uint64_t sumSeqLengths = 0;
+            //This below comment is outdated. It is kept for informational purposes and posterity.
+            //We now keep each dollar in a separate run. We still verify by sequence
+            //because it is easily parallelizable and complete LF traversal is by far the slowest part of construction.
+            //(Naturally, since it is the only O(n) instead of O(r) part. It's not even O(n) because I haven't
+            //split the intervals of the move data structure yet.)
+            //-----------------------------------------------------------------------------------------------------------
             //In theory, this is a multi-dollar BWT. I.E. for strings, s_0, s_1, s_2,..., s_k,
             //the text is s_0,$_0,s_1,$_1,s_2,$_2,...,s_k,$_k concatenated in that order,
             //where $_i < $_j for i < j and $_i < a for all non $_* characters in the text
@@ -453,6 +512,7 @@ int main(int argc, char *argv[]) {
             //also keep a bool array and make sure every position of the BWT is traversed exactly once,
             //but this would be costly in terms of memory for large compressed BWTs (150 GB for human472)
             //compute starts
+            //-----------------------------------------------------------------------------------------------------------
             std::vector<IntervalPoint> starts(alphCounts[0]);
             IntervalPoint start{ (uint64_t)-1, 0, 0};
             starts[0] = start;
@@ -468,8 +528,7 @@ int main(int argc, char *argv[]) {
             //count the length of sequence seq
             #pragma omp parallel for schedule(guided)
             for (uint64_t seq = 0; seq < alphCounts[0]; ++seq) {
-                IntervalPoint current{(uint64_t)-1, 0, 0};
-                current = starts[seq];
+                IntervalPoint current{starts[seq]};
                 uint64_t seqLen = 1; //counting LF to endmarker, which isn't performed in actuality (simulated by incrementing start.offset...)
                 while (rlbwt[current.interval] != 0) {
                     ++seqLen;
@@ -478,6 +537,7 @@ int main(int argc, char *argv[]) {
                 #pragma omp critical 
                 {
                     sumSeqLengths += seqLen;
+                    stringStarts[seq] = current;
                 }
             }
 
@@ -496,7 +556,21 @@ int main(int argc, char *argv[]) {
     }
     Timer.stop(); //Constructing LF from RLBWT
 
-    rb3_fmi_free(&fmi);
+    Timer.start("RLBWT Repair");
+    {
+        Timer.start("Detecting endmarkers in runs in RLBWT");
+        //set of runIDs that are runs of multiple endmarkers in the RLBWT
+        for (const auto& intPoint : stringStarts) {
+            if (intPoint.offset) {
+                std::cerr << "ERROR: There is a run of endmarkers in the RLBWT with length > 1!\n";
+                return 1;
+            }
+        }
+        std::cout << "Every endmarker in the RLBWT is in a run of length 1.\n";
+        Timer.stop(); //Detecting endmarkers in runs in RLBWT
+
+    }
+    Timer.stop(); //RLBWT Repair
 
     Timer.stop(); //builder
     return 0;
