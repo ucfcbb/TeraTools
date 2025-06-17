@@ -544,9 +544,7 @@ int main(int argc, char *argv[]) {
             if (sumSeqLengths != totalLen) {
                 std::cerr << "ERROR: Sum of sequence length not equal to the length of the BWT! Sequence length is computed by LF.\n"
                     << "ERROR: A total of " << sumSeqLengths << " LFs were computed. This is not equal to the length of the BWT, which is "
-                    << totalLen << ". NOTE: if sumSeqLengths = length + 1, LF (very likely) was terminated early and didn't compute "
-                    << "the full sequence lengths. This is because verification is automatically terminated after length + 1"
-                    << " LFs because the LF function is then known to be incorrect." << std::endl;
+                    << totalLen << "." << std::endl;
                 return 1;
             }
             std::cout << "LF is likely correct, the sum of sequence lengths computed by it is " << sumSeqLengths << ". " 
@@ -569,6 +567,42 @@ int main(int argc, char *argv[]) {
         std::cout << "Every endmarker in the RLBWT is in a run of length 1.\n";
         Timer.stop(); //Detecting endmarkers in runs in RLBWT
 
+        Timer.start("Correcting LFs of endmarkers");
+        toRun[stringStarts[0].interval] = alphCounts[0] - 1;
+        toOffset[stringStarts[0].interval] = 0;
+        for (uint64_t seq = 1; seq < alphCounts[0]; ++seq) {
+            toRun[stringStarts[seq].interval] = seq - 1;
+            toOffset[stringStarts[seq].interval] = 0;
+        }
+        Timer.stop(); //Correcting LFs of endmarkers
+
+        Timer.start("Testing all LFs by permutation with one cycle");
+        IntervalPoint start{ (uint64_t)-1, 0, 0}, current{ (uint64_t)-1, 0, 0};
+        uint64_t lfsDone = 0;
+        uint64_t outputInterval = 1e8;
+
+        Timer.start("Timing LFs 0 to " + std::to_string(std::min(totalLen, outputInterval - 1)));
+        do {
+            current = mapLF(current, runlens, toRun, toOffset);
+            ++lfsDone;
+            if (lfsDone % outputInterval == outputInterval - 1) {
+                Timer.stop();
+                Timer.start("Timing LFs " + std::to_string(lfsDone + 1) + " to " + std::to_string(std::min(totalLen, lfsDone + outputInterval)));
+            }
+        } while (lfsDone <= totalLen && current != start);
+        Timer.stop();
+
+        if (lfsDone != totalLen) {
+            std::cerr << "ERROR: LF Invalid after endmarker repair. " << lfsDone 
+                << " LFs done in an attempt to traverse one cycle of the BWT. Length is actually " << totalLen
+                << ". NOTE: if sumSeqLengths = length + 1, LF (very likely) was terminated early and didn't compute "
+                << "the full sequence lengths. This is because verification is automatically terminated after length + 1"
+                << " LFs because the LF function is then known to be incorrect." << std::endl;
+            return 1;
+        }
+
+        std::cout << "LF is a permutation with one cycle, therefore it is very likely correct.\n";
+        Timer.stop(); //Testing all LFs by permutation with one cycle
     }
     Timer.stop(); //RLBWT Repair
 
