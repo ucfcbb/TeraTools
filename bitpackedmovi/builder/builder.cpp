@@ -360,7 +360,7 @@ int main(int argc, char *argv[]) {
         Timer.stop(); //Shrinking sdsl
         */
 
-        Timer.start("Computing sdsl size");
+        Timer.start("Computing RLBWT size");
         std::cout << "Final rlbwt size in bytes: " << sdsl::size_in_bytes(rlbwt) << std::endl;
         std::cout << "Final runlens size in bytes: " << sdsl::size_in_bytes(runlens) << std::endl;
         Timer.stop(); //Computing sdsl size
@@ -380,7 +380,6 @@ int main(int argc, char *argv[]) {
     sdsl::int_vector<> toRun(runs, 0, sdsl::bits::hi(runs) + 1);
     sdsl::int_vector<> toOffset(runs, 0, runlens.width());
     std::vector<IntervalPoint> alphStarts(alphRange.max+2);
-    std::vector<IntervalPoint> stringStarts(alphCounts[0]);
     {
         Timer.start("Computing alphStarts");
         {
@@ -486,8 +485,14 @@ int main(int argc, char *argv[]) {
         }
         Timer.stop(); //Computing run and offsets for LF from run starts
         
+        Timer.start("Computing LF size");
+        std::cout << "Final toRun size in bytes: " << sdsl::size_in_bytes(toRun) << std::endl;
+        std::cout << "Final toOffset size in bytes: " << sdsl::size_in_bytes(toOffset) << std::endl;
+        Timer.stop(); //Computing LF size
+
         //printStructures(rlbwt, runlens, toRun, toOffset);
 
+        /*
         Timer.start("Verifying computed LF by sum of sequence lengths");
         {
             uint64_t sumSeqLengths = 0;
@@ -551,8 +556,64 @@ int main(int argc, char *argv[]) {
                 << sumSeqLengths - alphCounts[0] << " LFs were computed in order to verify this.\n";
         }
         Timer.stop(); //Verifying computed LF by sum of sequence lengths
+        */
     }
     Timer.stop(); //Constructing LF from RLBWT
+
+    Timer.start("SA sampling");
+    std::vector<IntervalPoint> stringStarts(alphCounts[0]);
+    sdsl::int_vector<> SATopRun(runs, 0, sdsl::bits::hi(totalLen) + 1);
+    sdsl::int_vector<> SABotRun(runs, 0, sdsl::bits::hi(totalLen) + 1);
+    std::vector<uint64_t> seqLens(alphCounts[0]); //seq lengths, counts endmarker so the empty string has length 1
+    //number of times each string is at the top (and bottom respectively) of a run, 
+    //counts endmarker, so value for the empty string would be 1
+    std::vector<uint64_t> seqNumsTopRun(alphCounts[0]), seqNumsBotRun(alphCounts[0]); 
+    {
+        uint64_t sumSeqLengths = 0;
+        Timer.start("Auxiliary info computation (seqLens, seqNumsTopRun, seqNumsBotRun)");
+        std::vector<IntervalPoint> starts(alphCounts[0]);
+        IntervalPoint start{ (uint64_t)-1, 0, 0};
+        starts[0] = start;
+        for (uint64_t seq = 1; seq < alphCounts[0]; ++seq) {
+            ++start.offset;
+            if (start.offset == runlens[start.interval]) {
+                start.offset = 0;
+                ++start.interval;
+            }
+            starts[seq] = start;
+        }
+
+        #pragma omp parallel for schedule(guided)
+        for (uint64_t seq = 0; seq < alphCounts[0]; ++seq) {
+            IntervalPoint current{starts[seq]};
+            uint64_t seqLen = 1, seqNumTopRun = 1, seqNumBotRun = 1;
+            while (rlbwt[current.interval] != 0) {
+                ++seqLen;
+                seqNumTopRun += (current.offset == 0);
+                seqNumBotRun += (current.offset == runlens[current.interval] - 1);
+                current = mapLF(current, runlens, toRun, toOffset);
+            } 
+            #pragma omp critical
+            {
+                sumSeqLengths += seqLen;
+                stringStarts[seq] = current;
+
+                seqLens[seq] = seqLen;
+                seqNumsTopRun[seq] = seqNumTopRun;
+                seqNumsBotRun[seq] = seqNumBotRun;
+            }
+        }
+        Timer.stop(); //Auxiliary info computation (seqLens, seqNumsTopRun, seqNumsBotRun)
+        if (sumSeqLengths != totalLen) {
+            std::cerr << "ERROR: Sum of sequence length not equal to the length of the BWT! Sequence length is computed by LF.\n"
+                << "ERROR: A total of " << sumSeqLengths << " LFs were computed. This is not equal to the length of the BWT, which is "
+                << totalLen << "." << std::endl;
+            return 1;
+        }
+        std::cout << "LF is likely correct, the sum of sequence lengths computed by it is " << sumSeqLengths << ". " 
+            << sumSeqLengths - alphCounts[0] << " LFs were computed in order to verify this.\n";
+    }
+    Timer.stop(); //SA sampling
 
     Timer.start("RLBWT Repair");
     {
@@ -576,6 +637,8 @@ int main(int argc, char *argv[]) {
         }
         Timer.stop(); //Correcting LFs of endmarkers
 
+        /*
+        //This code is correct, but is commented out because it takes very long for BWTs with large n (O(n) non-constant LF calls)
         Timer.start("Testing all LFs by permutation with one cycle");
         IntervalPoint start{ (uint64_t)-1, 0, 0}, current{ (uint64_t)-1, 0, 0};
         uint64_t lfsDone = 0;
@@ -603,6 +666,7 @@ int main(int argc, char *argv[]) {
 
         std::cout << "LF is a permutation with one cycle, therefore it is very likely correct.\n";
         Timer.stop(); //Testing all LFs by permutation with one cycle
+        */
     }
     Timer.stop(); //RLBWT Repair
 
