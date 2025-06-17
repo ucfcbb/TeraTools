@@ -24,7 +24,7 @@ objs = $(ropebwt3dir)/bre.o\
 libs = -lsdsl -lpthread -lz -lm
 incs = -I$(sdslincdir) -I$(ropebwt3dir)
 
-cppflags+=-Wall
+cppflags+=-Wall -O3 -DNDEBUG
 
 ifneq ($(asan),)
 	cppflags+=-fsanitize=address
