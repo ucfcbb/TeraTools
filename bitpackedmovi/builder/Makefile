@@ -45,7 +45,7 @@ clean:
 test: builder
 	set -e && \
 	for testind in $(testinds); do \
-		./builder $testind; \
+		./builder $$testind; \
 	done
 
 builder: $(objs) builder.cpp
