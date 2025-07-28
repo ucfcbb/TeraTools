@@ -1,6 +1,8 @@
 all: builder
 
-.PHONY: all clean
+.PHONY: all clean test
+
+testinds = ../../data/testing/idx.fmd ../../data/testing/mtb152.fmd
 
 sdslincdir = ../include
 sdsllibdir = ../lib
@@ -39,6 +41,12 @@ endif
 
 clean:
 	-rm builder
+
+test: builder
+	set -e && \
+	for testind in $(testinds); do \
+		./builder $testind; \
+	done
 
 builder: $(objs) builder.cpp
 	$(CXX) $(cppflags) $(incs) -L$(sdsllibdir) $^ -o $@ $(libs)

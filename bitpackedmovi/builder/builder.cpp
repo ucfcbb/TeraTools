@@ -91,6 +91,24 @@ bool operator==(const IntervalPoint& lhs, const IntervalPoint& rhs) {
 }
 */
 
+struct InvertibleMoveStructure {
+    //suffix array samples at
+    sdsl::int_vector<> SeqAt;
+    //characters between this sample and the next (including this sample)
+    sdsl::int_vector<> IntLength;
+
+    //suffix array samples above and below, suffix array position is represented as (seq, pos)
+    sdsl::int_vector<> SeqAbove;
+    sdsl::int_vector<> PosInSeqAbove;
+    sdsl::int_vector<> SeqBelow;
+    sdsl::int_vector<> PosInSeqBelow;
+
+    sdsl::int_vector<> AboveToInterval;
+    sdsl::int_vector<> AboveToOffset;
+    sdsl::int_vector<> BelowToInterval;
+    sdsl::int_vector<> BelowToOffset;
+};
+
 bool operator!=(const IntervalPoint& lhs, const IntervalPoint& rhs) {
     return lhs.position != rhs.position || lhs.interval != rhs.interval || lhs.offset != rhs.offset;
 }
@@ -579,10 +597,10 @@ int main(int argc, char *argv[]) {
     std::vector<uint64_t> seqLens(alphCounts[0]); //seq lengths, counts endmarker so the empty string has length 1
     //number of times each string is at the top (and bottom respectively) of a run, 
     //counts endmarker, so value for the empty string would be 1
-    std::vector<uint64_t> seqNumsTopRun(alphCounts[0]), seqNumsBotRun(alphCounts[0]); 
+    std::vector<uint64_t> seqNumsTopRun(alphCounts[0]), seqNumsBotRun(alphCounts[0]), seqNumsTopOrBotRun(alphCounts[0]); 
     {
         uint64_t sumSeqLengths = 0;
-        Timer.start("Auxiliary info computation (seqLens, seqNumsTopRun, seqNumsBotRun)");
+        Timer.start("Auxiliary info computation (seqLens, seqNumsTopRun, seqNumsBotRun, seqNumsTopOrBotRun)");
         {
             std::vector<IntervalPoint> starts(alphCounts[0]);
             IntervalPoint start{ (uint64_t)-1, 0, 0};
@@ -599,11 +617,12 @@ int main(int argc, char *argv[]) {
             #pragma omp parallel for schedule(guided)
             for (uint64_t seq = 0; seq < alphCounts[0]; ++seq) {
                 IntervalPoint current{starts[seq]};
-                uint64_t seqLen = 1, seqNumTopRun = 1, seqNumBotRun = 1;
+                uint64_t seqLen = 1, seqNumTopRun = 1, seqNumBotRun = 1, seqNumTopOrBotRun = 1;
                 while (rlbwt[current.interval] != 0) {
                     ++seqLen;
                     seqNumTopRun += (current.offset == 0);
                     seqNumBotRun += (current.offset == runlens[current.interval] - 1);
+                    seqNumTopOrBotRun += (current.offset == 0) || (current.offset == runlens[current.interval] - 1);
                     current = mapLF(current, runlens, toRun, toOffset);
                 } 
                 #pragma omp critical
@@ -614,6 +633,7 @@ int main(int argc, char *argv[]) {
                     seqLens[seq] = seqLen;
                     seqNumsTopRun[seq] = seqNumTopRun;
                     seqNumsBotRun[seq] = seqNumBotRun;
+                    seqNumsTopOrBotRun[seq] = seqNumTopOrBotRun;
                 }
             }
         }
