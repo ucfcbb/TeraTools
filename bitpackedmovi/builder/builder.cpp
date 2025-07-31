@@ -692,7 +692,7 @@ int main(int argc, char *argv[]) {
         PhiInvPhi.SeqAt = sdsl::int_vector<>(seqNumsTopOrBotRun.back(), 0, sdsl::bits::hi(alphCounts[0] - 1) + 1);
         PhiInvPhi.IntLength = sdsl::int_vector<>(seqNumsTopOrBotRun.back(), 0, sdsl::bits::hi(maxIntLen) + 1);
 
-        sdsl::int_vector<> runSampledAt(seqNumsTopOrBotRun.back(), 0, sdsl::bits::hi::(runs - 1) + 1);
+        sdsl::int_vector<> runSampledAt(seqNumsTopOrBotRun.back(), 0, sdsl::bits::hi(runs - 1) + 1);
 
         Timer.start("Sampling");
         {
