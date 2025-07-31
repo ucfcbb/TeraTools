@@ -593,6 +593,9 @@ int main(int argc, char *argv[]) {
     sdsl::int_vector<> SABotRunSeq(runs, 0, sdsl::bits::hi(alphCounts[0]) + 1);
     sdsl::int_vector<> SABotRunPos;
 
+    //Samples in Text order
+    InvertibleMoveStructure PhiInvPhi;
+
     uint64_t maxSeqLen = 0;
     std::vector<uint64_t> seqLens(alphCounts[0]); //seq lengths, counts endmarker so the empty string has length 1
     //number of times each string is at the top (and bottom respectively) of a run, 
@@ -600,6 +603,7 @@ int main(int argc, char *argv[]) {
     std::vector<uint64_t> seqNumsTopRun(alphCounts[0]), seqNumsBotRun(alphCounts[0]), seqNumsTopOrBotRun(alphCounts[0]); 
     {
         uint64_t sumSeqLengths = 0;
+        uint64_t maxIntLen = 0;
         Timer.start("Auxiliary info computation (seqLens, seqNumsTopRun, seqNumsBotRun, seqNumsTopOrBotRun)");
         {
             std::vector<IntervalPoint> starts(alphCounts[0]);
@@ -618,12 +622,19 @@ int main(int argc, char *argv[]) {
             for (uint64_t seq = 0; seq < alphCounts[0]; ++seq) {
                 IntervalPoint current{starts[seq]};
                 uint64_t seqLen = 1, seqNumTopRun = 1, seqNumBotRun = 1, seqNumTopOrBotRun = 1, seqNumOneRun = 1;
+                uint64_t currentTopOrBotIntervalLen = 1; //number of characters in the current interval on the sequence since the last time the sequence was at the top or bottom of a run
+                uint64_t maxTopOrBotIntervalLen = 0;
                 while (rlbwt[current.interval] != 0) {
                     ++seqLen;
                     seqNumOneRun += runlens[current.interval] == 1;
                     seqNumTopRun += (current.offset == 0);
                     seqNumBotRun += (current.offset == runlens[current.interval] - 1);
-                    seqNumTopOrBotRun += (current.offset == 0) || (current.offset == runlens[current.interval] - 1);
+                    if ((current.offset == 0) || (current.offset == runlens[current.interval] - 1)) {
+                        seqNumTopOrBotRun++;
+                        maxTopOrBotIntervalLen = std::max(maxTopOrBotIntervalLen, currentTopOrBotIntervalLen);
+                        currentTopOrBotIntervalLen = 0;
+                    }
+                    ++currentTopOrBotIntervalLen;
                     current = mapLF(current, runlens, toRun, toOffset);
                 } 
                 #pragma omp critical
@@ -635,6 +646,10 @@ int main(int argc, char *argv[]) {
                     seqNumsTopRun[seq] = seqNumTopRun;
                     seqNumsBotRun[seq] = seqNumBotRun;
                     seqNumsTopOrBotRun[seq] = seqNumTopOrBotRun;
+                    
+                    maxTopOrBotIntervalLen = std::max(maxTopOrBotIntervalLen, currentTopOrBotIntervalLen);
+                    maxIntLen = std::max(maxIntLen, maxTopOrBotIntervalLen);
+
                     if (seqNumTopOrBotRun != seqNumTopRun + seqNumBotRun - seqNumOneRun) {
                         std::cerr << "Number of times at bottom, top, boundary, and number runs of length one not consistent for seq " 
                             << seq << "!\nTop: " << seqNumTopRun
@@ -672,6 +687,9 @@ int main(int argc, char *argv[]) {
 
         SATopRunPos = sdsl::int_vector<>(runs, 0, sdsl::bits::hi(maxSeqLen) + 1);
         SABotRunPos = sdsl::int_vector<>(runs, 0, sdsl::bits::hi(maxSeqLen) + 1);
+
+        PhiInvPhi.SeqAt = sdsl::int_vector<>(seqNumsTopOrBotRun.back(), 0, sdsl::bits::hi(alphCounts[0] - 1) + 1);
+        PhiInvPhi.IntLength = sdsl::int_vector<>(seqNumsTopOrBotRun.back(), 0, sdsl::bits::hi(maxIntLen) + 1);
 
         Timer.start("Sampling");
         {
