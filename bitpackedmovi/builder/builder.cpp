@@ -684,6 +684,7 @@ int main(int argc, char *argv[]) {
         Timer.stop(); //Prefix summing auxiliary info
 
         std::cout << "Maximum sequence length: " << maxSeqLen << '\n';
+        std::cout << "Maximum interval length: " << maxIntLen << '\n';
 
         SATopRunPos = sdsl::int_vector<>(runs, 0, sdsl::bits::hi(maxSeqLen) + 1);
         SABotRunPos = sdsl::int_vector<>(runs, 0, sdsl::bits::hi(maxSeqLen) + 1);
