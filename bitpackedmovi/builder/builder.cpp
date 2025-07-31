@@ -692,6 +692,8 @@ int main(int argc, char *argv[]) {
         PhiInvPhi.SeqAt = sdsl::int_vector<>(seqNumsTopOrBotRun.back(), 0, sdsl::bits::hi(alphCounts[0] - 1) + 1);
         PhiInvPhi.IntLength = sdsl::int_vector<>(seqNumsTopOrBotRun.back(), 0, sdsl::bits::hi(maxIntLen) + 1);
 
+        sdsl::int_vector<> runSampledAt(seqNumsTopOrBotRun.back(), 0, sdsl::bits::hi::(runs - 1) + 1);
+
         Timer.start("Sampling");
         {
             std::vector<IntervalPoint> starts(alphCounts[0]);
@@ -706,7 +708,7 @@ int main(int argc, char *argv[]) {
                 starts[seq] = start;
             }
 
-            Timer.start("Sampling in SA order");
+            Timer.start("Sampling the SA order");
             #pragma omp parallel for schedule(guided)
             for(uint64_t seq = 0; seq < alphCounts[0]; ++seq) {
                 IntervalPoint current{starts[seq]};
@@ -756,6 +758,7 @@ int main(int argc, char *argv[]) {
                             }
                             PhiInvPhi.SeqAt[posRun] = seq;
                             PhiInvPhi.IntLength[posRun] = prevPos - pos;
+                            runSampledAt[posRun] = current.interval;
                             prevPos = pos;
                             if (posRun == finalRun) {
                                 std::cerr << "ERROR: posRunto reach last position before endmarker found!\n";
@@ -810,7 +813,7 @@ int main(int argc, char *argv[]) {
             }
             Timer.stop(); //Sampling in SA order
             
-            Timer.start("Sampling in Text order");
+            Timer.start("Sampling the Text order");
             Timer.stop(); //Sampling in Textorder
         }
         Timer.stop(); //Sampling
