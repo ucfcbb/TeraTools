@@ -814,6 +814,85 @@ int main(int argc, char *argv[]) {
             Timer.stop(); //Sampling in SA order
             
             Timer.start("Sampling the Text order");
+            #pragma omp parallel for schedule(guided)
+            for (uint64_t seq = 0; seq < alphCounts[0]; ++seq) {
+                //go from beginning of sequence to end, by interval in phi
+                uint64_t currentIntervalIndex = (seq == 0)? 0 :  seqNumsTopOrBotRun[seq-1];
+                uint64_t finalIntervalIndex = seqNumsTopOrBotRun[seq] - 1;
+                uint64_t seqTraversed = 0;
+
+                //do first interval
+                if (runlens[runSampledAt[currentIntervalIndex]] != 1) {
+                    std::cerr << "ERROR: first interval of sequences starts at a run of length not equal to 1"
+                       << " (should be 1 since bwt value should be endmarker of previous sequence)!\n";
+                }
+                if (PhiInvPhi.SeqAt[runSampledAt[currentIntervalIndex]] != seq)
+                    std::cerr << "ERROR: seq at interval doesn't match seq in Phi!\n";
+                if (SATopRunSeq[runSampledAt[currentIntervalIndex]] != SABotRunSeq[runSampledAt[currentIntervalIndex]])
+                    std::cerr << "ERROR: top and bottom run sequence samples don't match in endmarker run (should be length 1)!\n";
+                if (SATopRunPos[runSampledAt[currentIntervalIndex]] != SABotRunPos[runSampledAt[currentIntervalIndex]])
+                    std::cerr << "ERROR: top and bottom run sequence position samples don't match in endmarker run (should be length 1)!\n";
+
+                PhiInvPhi.SeqAbove[currentIntervalIndex] = SABotRunSeq[(runSampledAt[currentIntervalIndex] == 0)? SABotRunSeq.size()-1 : runSampledAt[currentIntervalIndex]-1];
+                PhiInvPhi.PosInSeqAbove[currentIntervalIndex] = SABotRunPos[(runSampledAt[currentIntervalIndex] == 0)? SABotRunSeq.size()-1 : runSampledAt[currentIntervalIndex]-1];
+                PhiInvPhi.SeqBelow[currentIntervalIndex] = SATopRunSeq[(runSampledAt[currentIntervalIndex] == SATopRunSeq.size() - 1)? 0 : runSampledAt[currentIntervalIndex]+1];
+                PhiInvPhi.PosInSeqBelow[currentIntervalIndex] = SATopRunPos[(runSampledAt[currentIntervalIndex] == SATopRunSeq.size() - 1)? 0 : runSampledAt[currentIntervalIndex]+1];
+
+                seqTraversed += PhiInvPhi.IntLength[currentIntervalIndex];
+                ++currentIntervalIndex;
+
+                while (seqTraversed < seqLens[seq]) {
+                    //add next interval
+                    uint64_t runIndex = runSampledAt[currentIntervalIndex];
+                    if (!((seq == SATopRunSeq[runIndex] && seqTraversed == SATopRunPos[runIndex]) ||
+                                (seq == SABotRunSeq[runIndex] && seqTraversed == SABotRunPos[runIndex])))
+                        std::cerr << "ERROR: Beginning of run interval in sequence is not equal to the sample at"
+                           << " the beginning or the end of the corresponding interval!\n";
+                    //computing above sample
+                    if (seq == SATopRunSeq[runIndex] && seqTraversed == SATopRunPos[runIndex]) {
+                        uint64_t runAboveIndex = (runIndex == 0)? runs - 1 : runIndex - 1;
+                        #pragma omp critical
+                        {
+                            PhiInvPhi.SeqAbove[currentIntervalIndex] = SABotRunSeq[runAboveIndex];
+                            PhiInvPhi.PosInSeqAbove[currentIntervalIndex] = SABotRunPos[runAboveIndex];
+                        }
+                    }
+                    else {
+                        //use previous above sample
+                        #pragma omp critical
+                        {
+                            PhiInvPhi.SeqAbove[currentIntervalIndex] = PhiInvPhi.SeqAbove[currentIntervalIndex - 1];
+                            PhiInvPhi.PosInSeqAbove[currentIntervalIndex] = PhiInvPhi.PosInSeqAbove[currentIntervalIndex - 1] + PhiInvPhi.IntLength[currentIntervalIndex - 1];
+                        }
+                    }
+
+                    //computing below sample
+                    if (seq = SABotRunSeq[runIndex] && seqTraversed == SABotRunPos[runIndex]) {
+                        uint64_t runBelowIndex = (runIndex == runs - 1)? 0 : runIndex + 1;
+                        #pragma omp critical
+                        {
+                            PhiInvPhi.SeqBelow[currentIntervalIndex] = SATopRunSeq[runBelowIndex];
+                            PhiInvPhi.PosInSeqAbove[currentIntervalIndex] = SABotRunPos[runBelowIndex];
+                        }
+                    }
+                    else {
+                        //use previous below sample
+                        #pragma omp critical
+                        {
+                            PhiInvPhi.SeqBelow[currentIntervalIndex] = PhiInvPhi.SeqBelow[currentIntervalIndex - 1];
+                            PhiInvPhi.PosInSeqBelow[currentIntervalIndex] = PhiInvPhi.PosInSeqBelow[currentIntervalIndex - 1] + PhiInvPhi.IntLength[currentIntervalIndex - 1];
+                        }
+                    }
+
+                    seqTraversed += PhiInvPhi.IntLength[currentIntervalIndex];
+                    ++currentIntervalIndex;
+                }
+
+                if (seqTraversed != seqLens[seq])
+                    std::cerr << "ERROR: Traversed a sequence some length not equal to it's actual length!\n";
+                if (currentIntervalIndex != seqNumsTopOrBotRun[seq])
+                    std::cerr << "ERROR: Traversed sequence but ended up on some interval in PhiInvPhi other than the first interval of the next sequence!\n";
+            }
             Timer.stop(); //Sampling in Textorder
         }
         Timer.stop(); //Sampling
