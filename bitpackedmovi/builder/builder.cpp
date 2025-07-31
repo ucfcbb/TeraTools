@@ -710,40 +710,58 @@ int main(int argc, char *argv[]) {
             for(uint64_t seq = 0; seq < alphCounts[0]; ++seq) {
                 IntervalPoint current{starts[seq]};
                 uint64_t pos = seqLens[seq] - 1;
-                uint64_t posPrevTopRun = seqNumsTopRun[seq] - 1;
-                uint64_t posPrevBotRun = seqNumsBotRun[seq] - 1;
+                uint64_t prevPos = seqLens[seq];
+                uint64_t posTopRun = seqNumsTopRun[seq] - 1;
+                uint64_t posBotRun = seqNumsBotRun[seq] - 1;
                 uint64_t posRun = seqNumsTopOrBotRun[seq] - 1;
                 uint64_t finalTopRun = (seq == 0)? 0 : seqNumsTopRun[seq-1];
                 uint64_t finalBotRun = (seq == 0)? 0 : seqNumsBotRun[seq-1];
-                uint64_t lastRun = (seq == 0)? 0 : seqNumsTopOrBotRun[seq-1];
+                uint64_t finalRun = (seq == 0)? 0 : seqNumsTopOrBotRun[seq-1];
                 while (rlbwt[current.interval] != 0) {
-                    if (current.offset == 0) {
+                    if (current.offset == 0 || current.offset == runlens[current.interval] - 1) {
+                        if (current.offset == 0) {
+                            #pragma omp critical
+                            {
+                                if (SATopRunSeq[current.interval] != 0 || SATopRunPos[current.interval] != 0) {
+                                    std::cerr << "ERROR: this run's top sample has already been set!\n";
+                                }
+                                SATopRunSeq[current.interval] = seq;
+                                SATopRunPos[current.interval] = pos;
+                                if (posTopRun == finalTopRun) {
+                                    std::cerr << "ERROR: posTopRun to reach last position before endmarker found!\n";
+                                }
+                            }
+                            --posTopRun;
+                        }
+                        if (current.offset == runlens[current.interval] - 1) {
+                            #pragma omp critical
+                            {
+                                if (SABotRunSeq[current.interval] != 0 || SABotRunPos[current.interval] != 0) {
+                                    std::cerr << "ERROR: this run's bot sample has already been set!\n";
+                                }
+                                SABotRunSeq[current.interval] = seq;
+                                SABotRunPos[current.interval] = pos;
+                                if (posBotRun == finalBotRun) {
+                                    std::cerr << "ERROR: posBotRun to reach last position before endmarker found!\n";
+                                }
+                            }
+                            --posBotRun;
+                        }
+
                         #pragma omp critical
                         {
-                            if (SATopRunSeq[current.interval] != 0 || SATopRunPos[current.interval] != 0) {
-                                std::cerr << "ERROR: this run's top sample has already been set!\n";
+                            if (PhiInvPhi.SeqAt[posRun] != 0 || PhiInvPhi.IntLength[posRun] != 0) {
+                                std::cerr << "ERROR: this interval's phi sample has already been set!\n";
                             }
-                            SATopRunSeq[current.interval] = seq;
-                            SATopRunPos[current.interval] = pos;
-                            if (posTopRun == lastTopRun) {
-                                std::cerr << "ERROR: posTopRun to reach last position before endmarker found!\n";
-                            }
-                        }
-                        --posTopRun;
-                    }
-                    if (current.offset == runlens[current.interval] - 1) {
-                        #pragma omp critical
-                        {
-                            if (SABotRunSeq[current.interval] != 0 || SABotRunPos[current.interval] != 0) {
-                                std::cerr << "ERROR: this run's bot sample has already been set!\n";
-                            }
-                            SABotRunSeq[current.interval] = seq;
-                            SABotRunPos[current.interval] = pos;
-                            if (posBotRun == lastBotRun) {
-                                std::cerr << "ERROR: posBotRun to reach last position before endmarker found!\n";
+                            PhiInvPhi.SeqAt[posRun] = seq;
+                            PhiInvPhi.IntLength[posRun] = prevPos - pos;
+                            prevPos = pos;
+                            if (posRun == finalRun) {
+                                std::cerr << "ERROR: posRunto reach last position before endmarker found!\n";
                             }
                         }
-                        --posBotRun;
+                        --posRun;
+
                     }
                     if (pos == 0) {
                         std::cerr << "ERROR: pos in sequence to reach -1 before endmarker found!\n";
@@ -754,11 +772,14 @@ int main(int argc, char *argv[]) {
                 if (pos != 0) {
                     std::cerr << "ERROR: full sequence not traversed!\n";
                 }
-                if (posTopRun != lastTopRun) {
+                if (posTopRun != finalTopRun) {
                     std::cerr << "ERROR: didn't traverse all top samples of this sequence!\n";
                 }
-                if (posBotRun != lastBotRun) {
+                if (posBotRun != finalBotRun) {
                     std::cerr << "ERROR: didn't traverse all bottom samples of this sequence!\n";
+                }
+                if (posRun != finalRun) {
+                    std::cerr << "ERROR: didn't traverse all interval samples of this sequence!\n";
                 }
                 if (current.offset == 0) {
                     #pragma omp critical
@@ -767,6 +788,9 @@ int main(int argc, char *argv[]) {
                         SATopRunPos[current.interval] = pos;
                     }
                     --posTopRun;
+
+                    PhiInvPhi.SeqAt[posRun] = seq;
+                    PhiInvPhi.IntLength[posRun] = prevPos - pos;
                 }
                 else {
                     std::cerr << "ERROR: offset != 0 in last run, endmarker run!\n";
