@@ -692,6 +692,12 @@ int main(int argc, char *argv[]) {
         PhiInvPhi.SeqAt = sdsl::int_vector<>(seqNumsTopOrBotRun.back(), 0, sdsl::bits::hi(alphCounts[0] - 1) + 1);
         PhiInvPhi.IntLength = sdsl::int_vector<>(seqNumsTopOrBotRun.back(), 0, sdsl::bits::hi(maxIntLen) + 1);
 
+        PhiInvPhi.SeqAbove = sdsl::int_vector<>(seqNumsTopOrBotRun.back(), 0, sdsl::bits::hi(alphCounts[0] - 1) + 1);
+        PhiInvPhi.PosInSeqAbove = sdsl::int_vector<>(seqNumsTopOrBotRun.back(), 0, sdsl::bits::hi(maxSeqLen) + 1);
+        PhiInvPhi.SeqBelow = sdsl::int_vector<>(seqNumsTopOrBotRun.back(), 0, sdsl::bits::hi(alphCounts[0] - 1) + 1);
+        PhiInvPhi.PosInSeqBelow = sdsl::int_vector<>(seqNumsTopOrBotRun.back(), 0, sdsl::bits::hi(maxSeqLen) + 1);
+
+
         sdsl::int_vector<> runSampledAt(seqNumsTopOrBotRun.back(), 0, sdsl::bits::hi(runs - 1) + 1);
 
         Timer.start("Sampling");
@@ -814,11 +820,10 @@ int main(int argc, char *argv[]) {
             Timer.stop(); //Sampling in SA order
             
             Timer.start("Sampling the Text order");
-            #pragma omp parallel for schedule(guided)
+            //#pragma omp parallel for schedule(guided)
             for (uint64_t seq = 0; seq < alphCounts[0]; ++seq) {
                 //go from beginning of sequence to end, by interval in phi
                 uint64_t currentIntervalIndex = (seq == 0)? 0 :  seqNumsTopOrBotRun[seq-1];
-                uint64_t finalIntervalIndex = seqNumsTopOrBotRun[seq] - 1;
                 uint64_t seqTraversed = 0;
 
                 //do first interval
@@ -826,7 +831,7 @@ int main(int argc, char *argv[]) {
                     std::cerr << "ERROR: first interval of sequences starts at a run of length not equal to 1"
                        << " (should be 1 since bwt value should be endmarker of previous sequence)!\n";
                 }
-                if (PhiInvPhi.SeqAt[runSampledAt[currentIntervalIndex]] != seq)
+                if (PhiInvPhi.SeqAt[currentIntervalIndex] != seq)
                     std::cerr << "ERROR: seq at interval doesn't match seq in Phi!\n";
                 if (SATopRunSeq[runSampledAt[currentIntervalIndex]] != SABotRunSeq[runSampledAt[currentIntervalIndex]])
                     std::cerr << "ERROR: top and bottom run sequence samples don't match in endmarker run (should be length 1)!\n";
@@ -867,7 +872,7 @@ int main(int argc, char *argv[]) {
                     }
 
                     //computing below sample
-                    if (seq = SABotRunSeq[runIndex] && seqTraversed == SABotRunPos[runIndex]) {
+                    if (seq == SABotRunSeq[runIndex] && seqTraversed == SABotRunPos[runIndex]) {
                         uint64_t runBelowIndex = (runIndex == runs - 1)? 0 : runIndex + 1;
                         #pragma omp critical
                         {
@@ -888,10 +893,16 @@ int main(int argc, char *argv[]) {
                     ++currentIntervalIndex;
                 }
 
-                if (seqTraversed != seqLens[seq])
+#pragma omp critical
+                if (seqTraversed != seqLens[seq]) {
                     std::cerr << "ERROR: Traversed a sequence some length not equal to it's actual length!\n";
-                if (currentIntervalIndex != seqNumsTopOrBotRun[seq])
+                    std::cerr << "ERROR: Traversed seq " << seq << " " << seqTraversed << " characters. Actual length: " << seqLens[seq] << '\n';
+                }
+#pragma omp critical
+                if (currentIntervalIndex != seqNumsTopOrBotRun[seq]) {
                     std::cerr << "ERROR: Traversed sequence but ended up on some interval in PhiInvPhi other than the first interval of the next sequence!\n";
+                    std::cerr << "ERROR: Ended up on interval " << currentIntervalIndex << ". Should have ended up on " << seqNumsTopOrBotRun[seq] << '\n';
+                }
             }
             Timer.stop(); //Sampling in Textorder
         }
