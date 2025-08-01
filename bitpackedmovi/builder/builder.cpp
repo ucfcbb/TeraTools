@@ -686,12 +686,12 @@ int main(int argc, char *argv[]) {
         PhiInvPhi.SeqAt = sdsl::int_vector<>(seqNumsTopOrBotRun.back(), 0, sdsl::bits::hi(alphCounts[0] - 1) + 1);
         PhiInvPhi.PosAt = sdsl::int_vector<>(seqNumsTopOrBotRun.back(), 0, sdsl::bits::hi(maxSeqLen - 1) + 1);
 
-        /*
-        PhiInvPhi.SeqAbove = sdsl::int_vector<>(seqNumsTopOrBotRun.back(), 0, sdsl::bits::hi(alphCounts[0] - 1) + 1);
-        PhiInvPhi.PosInSeqAbove = sdsl::int_vector<>(seqNumsTopOrBotRun.back(), 0, sdsl::bits::hi(maxSeqLen) + 1);
-        PhiInvPhi.SeqBelow = sdsl::int_vector<>(seqNumsTopOrBotRun.back(), 0, sdsl::bits::hi(alphCounts[0] - 1) + 1);
-        PhiInvPhi.PosInSeqBelow = sdsl::int_vector<>(seqNumsTopOrBotRun.back(), 0, sdsl::bits::hi(maxSeqLen) + 1);
-        */
+        PhiInvPhi.IntLen = sdsl::int_vector<>(seqNumsTopOrBotRun.back(), 0, sdsl::bits::hi(maxIntLen) + 1);
+
+        PhiInvPhi.AboveToInterval = sdsl::int_vector<>(seqNumsTopOrBotRun.back(), 0, sdsl::bits::hi(seqNumsTopOrBotRun.back() - 1) + 1);
+        PhiInvPhi.AboveToOffset = sdsl::int_vector<>(seqNumsTopOrBotRun.back(), 0, sdsl::bits::hi(maxIntLen - 1) + 1);
+        PhiInvPhi.BelowToInterval = sdsl::int_vector<>(seqNumsTopOrBotRun.back(), 0, sdsl::bits::hi(seqNumsTopOrBotRun.back() - 1) + 1);
+        PhiInvPhi.BelowToOffset = sdsl::int_vector<>(seqNumsTopOrBotRun.back(), 0, sdsl::bits::hi(maxIntLen - 1) + 1);
 
 
         sdsl::int_vector<> runSampledAt(seqNumsTopOrBotRun.back(), 0, sdsl::bits::hi(runs - 1) + 1);
