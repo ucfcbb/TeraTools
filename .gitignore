@@ -1,4 +1,5 @@
-/data
+/data/*
+!/data/testing
 /Movi
 /pfp-thresholds
 /ropebwt3
