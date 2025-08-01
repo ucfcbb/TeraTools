@@ -97,6 +97,9 @@ struct InvertibleMoveStructure {
     //characters between this sample and the next (including this sample)
     sdsl::int_vector<> PosAt;
 
+    //unnecessary, but makes coding cleaner
+    sdsl::int_vector<> IntLen;
+
     sdsl::int_vector<> AboveToInterval;
     sdsl::int_vector<> AboveToOffset;
     sdsl::int_vector<> BelowToInterval;
@@ -581,6 +584,7 @@ int main(int argc, char *argv[]) {
     //suffix array samples at the top of runs
     //the suffix at the top of run i is the SATopRunInt[i] interval in the text order
     sdsl::int_vector<> SATopRunInt;
+    //SABotRunInt is not needed after the data structure is built but is needed to build the data strcutre (for sampling)
     sdsl::int_vector<> SABotRunInt;
 
     //Samples in Text order
@@ -711,6 +715,7 @@ int main(int argc, char *argv[]) {
             for(uint64_t seq = 0; seq < alphCounts[0]; ++seq) {
                 IntervalPoint current{starts[seq]};
                 uint64_t pos = seqLens[seq] - 1;
+                uint64_t prevPos = seqLens[seq];
                 uint64_t posTopRun = seqNumsTopRun[seq] - 1;
                 uint64_t posBotRun = seqNumsBotRun[seq] - 1;
                 uint64_t posRun = seqNumsTopOrBotRun[seq] - 1;
@@ -753,11 +758,13 @@ int main(int argc, char *argv[]) {
                             }
                             PhiInvPhi.SeqAt[posRun] = seq;
                             PhiInvPhi.PosAt[posRun] = pos;
+                            PhiInvPhi.IntLen[posRun] = prevPos - pos;
                             runSampledAt[posRun] = current.interval;
                             if (posRun == finalRun) {
                                 std::cerr << "ERROR: posRun to reach last position before endmarker found!\n";
                             }
                         }
+                        prevPos = pos;
                         --posRun;
 
                     }
@@ -788,6 +795,7 @@ int main(int argc, char *argv[]) {
 
                     PhiInvPhi.SeqAt[posRun] = seq;
                     PhiInvPhi.PosAt[posRun] = pos;
+                    PhiInvPhi.IntLen[posRun] = prevPos - pos;
                 }
                 else {
                     std::cerr << "ERROR: offset != 0 in last run, endmarker run!\n";
@@ -805,7 +813,6 @@ int main(int argc, char *argv[]) {
             }
             Timer.stop(); //Sampling in SA order
             
-            /*
             Timer.start("Sampling the Text order");
             //#pragma omp parallel for schedule(guided)
             for (uint64_t seq = 0; seq < alphCounts[0]; ++seq) {
@@ -823,58 +830,74 @@ int main(int argc, char *argv[]) {
                 if (SATopRunInt[runSampledAt[currentIntervalIndex]] != SABotRunInt[runSampledAt[currentIntervalIndex]])
                     std::cerr << "ERROR: top and bottom run sequence samples don't match in endmarker run (should be length 1)!\n";
 
-                PhiInvPhi.SeqAbove[currentIntervalIndex] = SABotRunSeq[(runSampledAt[currentIntervalIndex] == 0)? SABotRunSeq.size()-1 : runSampledAt[currentIntervalIndex]-1];
-                PhiInvPhi.PosInSeqAbove[currentIntervalIndex] = SABotRunPos[(runSampledAt[currentIntervalIndex] == 0)? SABotRunSeq.size()-1 : runSampledAt[currentIntervalIndex]-1];
-                PhiInvPhi.SeqBelow[currentIntervalIndex] = SATopRunSeq[(runSampledAt[currentIntervalIndex] == SATopRunSeq.size() - 1)? 0 : runSampledAt[currentIntervalIndex]+1];
-                PhiInvPhi.PosInSeqBelow[currentIntervalIndex] = SATopRunPos[(runSampledAt[currentIntervalIndex] == SATopRunSeq.size() - 1)? 0 : runSampledAt[currentIntervalIndex]+1];
+                PhiInvPhi.AboveToInterval[currentIntervalIndex] = SABotRunInt[(runSampledAt[currentIntervalIndex] == 0)? SABotRunInt.size()-1 : runSampledAt[currentIntervalIndex]-1];
+                PhiInvPhi.AboveToOffset[currentIntervalIndex] = 0;
+                PhiInvPhi.BelowToInterval[currentIntervalIndex] = SATopRunInt[(runSampledAt[currentIntervalIndex] == SATopRunInt.size() - 1)? 0 : runSampledAt[currentIntervalIndex]+1];
+                PhiInvPhi.BelowToOffset[currentIntervalIndex] = 0;
 
-                seqTraversed += PhiInvPhi.IntLength[currentIntervalIndex];
+                seqTraversed += PhiInvPhi.IntLen[currentIntervalIndex];
                 ++currentIntervalIndex;
 
                 while (seqTraversed < seqLens[seq]) {
                     //add next interval
                     uint64_t runIndex = runSampledAt[currentIntervalIndex];
-                    if (!((seq == SATopRunSeq[runIndex] && seqTraversed == SATopRunPos[runIndex]) ||
-                                (seq == SABotRunSeq[runIndex] && seqTraversed == SABotRunPos[runIndex])))
+                    uint64_t topRunInt = SATopRunInt[runIndex];
+                    uint64_t botRunInt = SABotRunInt[runIndex];
+                    if (!((seq == PhiInvPhi.SeqAt[topRunInt] && seqTraversed == PhiInvPhi.PosAt[topRunInt]) ||
+                                (seq == PhiInvPhi.SeqAt[botRunInt] && seqTraversed == PhiInvPhi.PosAt[botRunInt])))
                         std::cerr << "ERROR: Beginning of run interval in sequence is not equal to the sample at"
                            << " the beginning or the end of the corresponding interval!\n";
                     //computing above sample
-                    if (seq == SATopRunSeq[runIndex] && seqTraversed == SATopRunPos[runIndex]) {
+                    if (seq == PhiInvPhi.SeqAt[topRunInt] && seqTraversed == PhiInvPhi.PosAt[topRunInt]) {
                         uint64_t runAboveIndex = (runIndex == 0)? runs - 1 : runIndex - 1;
                         #pragma omp critical
                         {
-                            PhiInvPhi.SeqAbove[currentIntervalIndex] = SABotRunSeq[runAboveIndex];
-                            PhiInvPhi.PosInSeqAbove[currentIntervalIndex] = SABotRunPos[runAboveIndex];
+                            PhiInvPhi.AboveToInterval[currentIntervalIndex] = SABotRunInt[runAboveIndex];
+                            PhiInvPhi.AboveToOffset[currentIntervalIndex] = 0;
                         }
                     }
                     else {
                         //use previous above sample
+                        uint64_t prevInt = PhiInvPhi.AboveToInterval[currentIntervalIndex - 1];
+                        uint64_t prevOffset = PhiInvPhi.AboveToOffset[currentIntervalIndex - 1];
+                        prevOffset += PhiInvPhi.IntLen[currentIntervalIndex - 1];
+                        while (prevOffset >= PhiInvPhi.IntLen[prevInt]) {
+                            prevOffset -= PhiInvPhi.IntLen[prevInt];
+                            ++prevInt;
+                        }
                         #pragma omp critical
                         {
-                            PhiInvPhi.SeqAbove[currentIntervalIndex] = PhiInvPhi.SeqAbove[currentIntervalIndex - 1];
-                            PhiInvPhi.PosInSeqAbove[currentIntervalIndex] = PhiInvPhi.PosInSeqAbove[currentIntervalIndex - 1] + PhiInvPhi.IntLength[currentIntervalIndex - 1];
+                            PhiInvPhi.AboveToInterval[currentIntervalIndex] = prevInt;
+                            PhiInvPhi.AboveToOffset[currentIntervalIndex] = prevOffset;
                         }
                     }
 
                     //computing below sample
-                    if (seq == SABotRunSeq[runIndex] && seqTraversed == SABotRunPos[runIndex]) {
+                    if (seq == PhiInvPhi.SeqAt[botRunInt] && seqTraversed == PhiInvPhi.PosAt[botRunInt]) {
                         uint64_t runBelowIndex = (runIndex == runs - 1)? 0 : runIndex + 1;
                         #pragma omp critical
                         {
-                            PhiInvPhi.SeqBelow[currentIntervalIndex] = SATopRunSeq[runBelowIndex];
-                            PhiInvPhi.PosInSeqAbove[currentIntervalIndex] = SABotRunPos[runBelowIndex];
+                            PhiInvPhi.BelowToInterval[currentIntervalIndex] = SATopRunInt[runBelowIndex];
+                            PhiInvPhi.BelowToOffset[currentIntervalIndex] = 0;
                         }
                     }
                     else {
                         //use previous below sample
+                        uint64_t prevInt = PhiInvPhi.BelowToInterval[currentIntervalIndex - 1];
+                        uint64_t prevOffset = PhiInvPhi.BelowToOffset[currentIntervalIndex - 1];
+                        prevOffset += PhiInvPhi.IntLen[currentIntervalIndex - 1];
+                        while (prevOffset >= PhiInvPhi.IntLen[prevInt]) {
+                            prevOffset -= PhiInvPhi.IntLen[prevInt];
+                            ++prevInt;
+                        }
                         #pragma omp critical
                         {
-                            PhiInvPhi.SeqBelow[currentIntervalIndex] = PhiInvPhi.SeqBelow[currentIntervalIndex - 1];
-                            PhiInvPhi.PosInSeqBelow[currentIntervalIndex] = PhiInvPhi.PosInSeqBelow[currentIntervalIndex - 1] + PhiInvPhi.IntLength[currentIntervalIndex - 1];
+                            PhiInvPhi.BelowToInterval[currentIntervalIndex] = prevInt;
+                            PhiInvPhi.BelowToOffset[currentIntervalIndex] = prevOffset;
                         }
                     }
 
-                    seqTraversed += PhiInvPhi.IntLength[currentIntervalIndex];
+                    seqTraversed += PhiInvPhi.IntLen[currentIntervalIndex];
                     ++currentIntervalIndex;
                 }
 
@@ -890,7 +913,6 @@ int main(int argc, char *argv[]) {
                 }
             }
             Timer.stop(); //Sampling in Textorder
-            */
         }
         Timer.stop(); //Sampling
     }
