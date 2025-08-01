@@ -95,13 +95,7 @@ struct InvertibleMoveStructure {
     //suffix array samples at
     sdsl::int_vector<> SeqAt;
     //characters between this sample and the next (including this sample)
-    sdsl::int_vector<> IntLength;
-
-    //suffix array samples above and below, suffix array position is represented as (seq, pos)
-    sdsl::int_vector<> SeqAbove;
-    sdsl::int_vector<> PosInSeqAbove;
-    sdsl::int_vector<> SeqBelow;
-    sdsl::int_vector<> PosInSeqBelow;
+    sdsl::int_vector<> PosAt;
 
     sdsl::int_vector<> AboveToInterval;
     sdsl::int_vector<> AboveToOffset;
@@ -585,13 +579,9 @@ int main(int argc, char *argv[]) {
     //sequences are 0-indexed
 
     //suffix array samples at the top of runs
-    //the suffix at the top of run i is suffix SATopRunPos[i] of sequence SATopRunSeq[i]
-    sdsl::int_vector<> SATopRunSeq(runs, 0, sdsl::bits::hi(alphCounts[0]) + 1);
-    sdsl::int_vector<> SATopRunPos;
-    //suffix array samples at the bottom of runs
-    //the suffix at the bottom of run i is suffix SABotRunPos[i] of sequence SABotRunSeq[i]
-    sdsl::int_vector<> SABotRunSeq(runs, 0, sdsl::bits::hi(alphCounts[0]) + 1);
-    sdsl::int_vector<> SABotRunPos;
+    //the suffix at the top of run i is the SATopRunInt[i] interval in the text order
+    sdsl::int_vector<> SATopRunInt;
+    sdsl::int_vector<> SABotRunInt;
 
     //Samples in Text order
     InvertibleMoveStructure PhiInvPhi;
@@ -686,16 +676,18 @@ int main(int argc, char *argv[]) {
         std::cout << "Maximum sequence length: " << maxSeqLen << '\n';
         std::cout << "Maximum interval length: " << maxIntLen << '\n';
 
-        SATopRunPos = sdsl::int_vector<>(runs, 0, sdsl::bits::hi(maxSeqLen) + 1);
-        SABotRunPos = sdsl::int_vector<>(runs, 0, sdsl::bits::hi(maxSeqLen) + 1);
+        SATopRunInt = sdsl::int_vector<>(runs, 0, sdsl::bits::hi(seqNumsTopOrBotRun.back() - 1) + 1);
+        SABotRunInt = sdsl::int_vector<>(runs, 0, sdsl::bits::hi(seqNumsTopOrBotRun.back() - 1) + 1);
 
         PhiInvPhi.SeqAt = sdsl::int_vector<>(seqNumsTopOrBotRun.back(), 0, sdsl::bits::hi(alphCounts[0] - 1) + 1);
-        PhiInvPhi.IntLength = sdsl::int_vector<>(seqNumsTopOrBotRun.back(), 0, sdsl::bits::hi(maxIntLen) + 1);
+        PhiInvPhi.PosAt = sdsl::int_vector<>(seqNumsTopOrBotRun.back(), 0, sdsl::bits::hi(maxSeqLen - 1) + 1);
 
+        /*
         PhiInvPhi.SeqAbove = sdsl::int_vector<>(seqNumsTopOrBotRun.back(), 0, sdsl::bits::hi(alphCounts[0] - 1) + 1);
         PhiInvPhi.PosInSeqAbove = sdsl::int_vector<>(seqNumsTopOrBotRun.back(), 0, sdsl::bits::hi(maxSeqLen) + 1);
         PhiInvPhi.SeqBelow = sdsl::int_vector<>(seqNumsTopOrBotRun.back(), 0, sdsl::bits::hi(alphCounts[0] - 1) + 1);
         PhiInvPhi.PosInSeqBelow = sdsl::int_vector<>(seqNumsTopOrBotRun.back(), 0, sdsl::bits::hi(maxSeqLen) + 1);
+        */
 
 
         sdsl::int_vector<> runSampledAt(seqNumsTopOrBotRun.back(), 0, sdsl::bits::hi(runs - 1) + 1);
@@ -719,7 +711,6 @@ int main(int argc, char *argv[]) {
             for(uint64_t seq = 0; seq < alphCounts[0]; ++seq) {
                 IntervalPoint current{starts[seq]};
                 uint64_t pos = seqLens[seq] - 1;
-                uint64_t prevPos = seqLens[seq];
                 uint64_t posTopRun = seqNumsTopRun[seq] - 1;
                 uint64_t posBotRun = seqNumsBotRun[seq] - 1;
                 uint64_t posRun = seqNumsTopOrBotRun[seq] - 1;
@@ -731,11 +722,10 @@ int main(int argc, char *argv[]) {
                         if (current.offset == 0) {
                             #pragma omp critical
                             {
-                                if (SATopRunSeq[current.interval] != 0 || SATopRunPos[current.interval] != 0) {
+                                if (SATopRunInt[current.interval] != 0) {
                                     std::cerr << "ERROR: this run's top sample has already been set!\n";
                                 }
-                                SATopRunSeq[current.interval] = seq;
-                                SATopRunPos[current.interval] = pos;
+                                SATopRunInt[current.interval] = posRun;
                                 if (posTopRun == finalTopRun) {
                                     std::cerr << "ERROR: posTopRun to reach last position before endmarker found!\n";
                                 }
@@ -745,11 +735,10 @@ int main(int argc, char *argv[]) {
                         if (current.offset == runlens[current.interval] - 1) {
                             #pragma omp critical
                             {
-                                if (SABotRunSeq[current.interval] != 0 || SABotRunPos[current.interval] != 0) {
+                                if (SABotRunInt[current.interval] != 0) {
                                     std::cerr << "ERROR: this run's bot sample has already been set!\n";
                                 }
-                                SABotRunSeq[current.interval] = seq;
-                                SABotRunPos[current.interval] = pos;
+                                SABotRunInt[current.interval] = posRun;
                                 if (posBotRun == finalBotRun) {
                                     std::cerr << "ERROR: posBotRun to reach last position before endmarker found!\n";
                                 }
@@ -759,15 +748,14 @@ int main(int argc, char *argv[]) {
 
                         #pragma omp critical
                         {
-                            if (PhiInvPhi.SeqAt[posRun] != 0 || PhiInvPhi.IntLength[posRun] != 0) {
+                            if (PhiInvPhi.SeqAt[posRun] != 0 || PhiInvPhi.PosAt[posRun] != 0) {
                                 std::cerr << "ERROR: this interval's phi sample has already been set!\n";
                             }
                             PhiInvPhi.SeqAt[posRun] = seq;
-                            PhiInvPhi.IntLength[posRun] = prevPos - pos;
+                            PhiInvPhi.PosAt[posRun] = pos;
                             runSampledAt[posRun] = current.interval;
-                            prevPos = pos;
                             if (posRun == finalRun) {
-                                std::cerr << "ERROR: posRunto reach last position before endmarker found!\n";
+                                std::cerr << "ERROR: posRun to reach last position before endmarker found!\n";
                             }
                         }
                         --posRun;
@@ -794,13 +782,12 @@ int main(int argc, char *argv[]) {
                 if (current.offset == 0) {
                     #pragma omp critical
                     {
-                        SATopRunSeq[current.interval] = seq;
-                        SATopRunPos[current.interval] = pos;
+                        SATopRunInt[current.interval] = posRun;
                     }
                     --posTopRun;
 
                     PhiInvPhi.SeqAt[posRun] = seq;
-                    PhiInvPhi.IntLength[posRun] = prevPos - pos;
+                    PhiInvPhi.PosAt[posRun] = pos;
                 }
                 else {
                     std::cerr << "ERROR: offset != 0 in last run, endmarker run!\n";
@@ -808,8 +795,7 @@ int main(int argc, char *argv[]) {
                 if (current.offset == runlens[current.interval] - 1) {
                     #pragma omp critical
                     {
-                        SABotRunSeq[current.interval] = seq;
-                        SABotRunPos[current.interval] = pos;
+                        SABotRunInt[current.interval] = posRun;
                     }
                     --posBotRun;
                 }
@@ -819,6 +805,7 @@ int main(int argc, char *argv[]) {
             }
             Timer.stop(); //Sampling in SA order
             
+            /*
             Timer.start("Sampling the Text order");
             //#pragma omp parallel for schedule(guided)
             for (uint64_t seq = 0; seq < alphCounts[0]; ++seq) {
@@ -833,10 +820,8 @@ int main(int argc, char *argv[]) {
                 }
                 if (PhiInvPhi.SeqAt[currentIntervalIndex] != seq)
                     std::cerr << "ERROR: seq at interval doesn't match seq in Phi!\n";
-                if (SATopRunSeq[runSampledAt[currentIntervalIndex]] != SABotRunSeq[runSampledAt[currentIntervalIndex]])
+                if (SATopRunInt[runSampledAt[currentIntervalIndex]] != SABotRunInt[runSampledAt[currentIntervalIndex]])
                     std::cerr << "ERROR: top and bottom run sequence samples don't match in endmarker run (should be length 1)!\n";
-                if (SATopRunPos[runSampledAt[currentIntervalIndex]] != SABotRunPos[runSampledAt[currentIntervalIndex]])
-                    std::cerr << "ERROR: top and bottom run sequence position samples don't match in endmarker run (should be length 1)!\n";
 
                 PhiInvPhi.SeqAbove[currentIntervalIndex] = SABotRunSeq[(runSampledAt[currentIntervalIndex] == 0)? SABotRunSeq.size()-1 : runSampledAt[currentIntervalIndex]-1];
                 PhiInvPhi.PosInSeqAbove[currentIntervalIndex] = SABotRunPos[(runSampledAt[currentIntervalIndex] == 0)? SABotRunSeq.size()-1 : runSampledAt[currentIntervalIndex]-1];
@@ -905,6 +890,7 @@ int main(int argc, char *argv[]) {
                 }
             }
             Timer.stop(); //Sampling in Textorder
+            */
         }
         Timer.stop(); //Sampling
     }
