@@ -920,9 +920,34 @@ int main(int argc, char *argv[]) {
     
     Timer.start("LCP computation");
     {
+        std::vector<IntervalPoint> starts(alphCounts[0]);
+        IntervalPoint start{ (uint64_t)-1, 0, 0};
+        starts[0] = start;
+        for (uint64_t seq = 1; seq < alphCounts[0]; ++seq) {
+            ++start.offset;
+            if (start.offset == runlens[start.interval]) {
+                start.offset = 0;
+                ++start.interval;
+            }
+            starts[seq] = start;
+        }
+
         Timer.start("Reverse sampling");
         #pragma omp parallel for schedule(guided)
         for (uint64_t seq = 0; seq < alphCounts[0]; ++seq) {
+            //traverse seq in reverse, storing samples of LF position of rev(seq)
+            uint64_t revSeq = (seq%2 == 0)? seq + 1 : seq - 1;
+            IntervalPoint current{starts[seq]};
+            uint64_t posSeq = seqLens[seq] - 1;
+            uint64_t revSeqIntervalIndex = (revSeq == 0)? 0 : seqNumsTopOrBotRun[revSeq - 1];
+            uint64_t revSeqIntervalOffset = 0;
+
+            //check if seq and revSeq lengths are equal
+            if (seqLens[seq] != seqLens[revSeq]) {
+                std::cerr << "ERROR: Length of sequence (" << seq << ") and its reverse (" << revSeq << ") are not equal! Respectively: " 
+                    << seqLens[seq] << " and " << seqLens[revSeq] << "!\n";
+            }
+
 
         }
         Timer.stop(); //Reverse sampling
