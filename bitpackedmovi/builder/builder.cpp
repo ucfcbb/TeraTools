@@ -921,6 +921,7 @@ int main(int argc, char *argv[]) {
     Timer.start("LCP computation");
     {
         std::vector<IntervalPoint> starts(alphCounts[0]);
+        std::vector<IntervalPoint> revEquivLF(seqNumsTopOrBotRun.back());
         IntervalPoint start{ (uint64_t)-1, 0, 0};
         starts[0] = start;
         for (uint64_t seq = 1; seq < alphCounts[0]; ++seq) {
@@ -941,14 +942,27 @@ int main(int argc, char *argv[]) {
             uint64_t posSeq = seqLens[seq] - 1;
             uint64_t revSeqIntervalIndex = (revSeq == 0)? 0 : seqNumsTopOrBotRun[revSeq - 1];
             uint64_t revSeqIntervalOffset = 0;
+            uint64_t finalRevSeqIntervalIndex = seqNumsTopOrBotRun[revSeq];
 
             //check if seq and revSeq lengths are equal
+            #pragma omp critical
             if (seqLens[seq] != seqLens[revSeq]) {
                 std::cerr << "ERROR: Length of sequence (" << seq << ") and its reverse (" << revSeq << ") are not equal! Respectively: " 
                     << seqLens[seq] << " and " << seqLens[revSeq] << "!\n";
             }
 
+            while (revSeqIntervalIndex != finalRevSeqIntervalIndex) {
+                if (revSeqIntervalOffset == 0) {
+                    revEquivLF[revSeqIntervalIndex] = current;
+                }
 
+                current = mapLF(current, runlens, toRun, toOffset);
+                ++revSeqIntervalOffset;
+                if (revSeqIntervalOffset == PhiInvPhi.IntLen[revSeqIntervalIndex]) {
+                    revSeqIntervalOffset = 0;
+                    ++revSeqIntervalIndex;
+                }
+            }
         }
         Timer.stop(); //Reverse sampling
     }
