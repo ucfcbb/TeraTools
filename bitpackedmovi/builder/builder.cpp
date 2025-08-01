@@ -814,7 +814,7 @@ int main(int argc, char *argv[]) {
             Timer.stop(); //Sampling in SA order
             
             Timer.start("Sampling the Text order");
-            //#pragma omp parallel for schedule(guided)
+            #pragma omp parallel for schedule(guided)
             for (uint64_t seq = 0; seq < alphCounts[0]; ++seq) {
                 //go from beginning of sequence to end, by interval in phi
                 uint64_t currentIntervalIndex = (seq == 0)? 0 :  seqNumsTopOrBotRun[seq-1];
@@ -901,12 +901,12 @@ int main(int argc, char *argv[]) {
                     ++currentIntervalIndex;
                 }
 
-#pragma omp critical
+                #pragma omp critical
                 if (seqTraversed != seqLens[seq]) {
                     std::cerr << "ERROR: Traversed a sequence some length not equal to it's actual length!\n";
                     std::cerr << "ERROR: Traversed seq " << seq << " " << seqTraversed << " characters. Actual length: " << seqLens[seq] << '\n';
                 }
-#pragma omp critical
+                #pragma omp critical
                 if (currentIntervalIndex != seqNumsTopOrBotRun[seq]) {
                     std::cerr << "ERROR: Traversed sequence but ended up on some interval in PhiInvPhi other than the first interval of the next sequence!\n";
                     std::cerr << "ERROR: Ended up on interval " << currentIntervalIndex << ". Should have ended up on " << seqNumsTopOrBotRun[seq] << '\n';
@@ -917,6 +917,17 @@ int main(int argc, char *argv[]) {
         Timer.stop(); //Sampling
     }
     Timer.stop(); //SA sampling
+    
+    Timer.start("LCP computation");
+    {
+        Timer.start("Reverse sampling");
+        #pragma omp parallel for schedule(guided)
+        for (uint64_t seq = 0; seq < alphCounts[0]; ++seq) {
+
+        }
+        Timer.stop(); //Reverse sampling
+    }
+    Timer.stop(); //LCP computation
 
     Timer.start("RLBWT Repair");
     {
