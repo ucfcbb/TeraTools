@@ -6,6 +6,7 @@
 #include<chrono>
 #include<stack>
 #include<string>
+#include<iomanip>
 
 class Timer {
     std::stack<std::pair<std::chrono::time_point<std::chrono::high_resolution_clock>, std::string>> processes; 
@@ -141,26 +142,59 @@ IntervalPoint mapLF(const IntervalPoint& intPoint,
 }
 
 void printStructures(
+        uint64_t field_width,
         const sdsl::int_vector<>& rlbwt,
         const sdsl::int_vector<>& runlens,
         const sdsl::int_vector<>& toRun,
-        const sdsl::int_vector<>& toOffset) {
-    std::cout << "Printing run-length data structures. Format:\n"
-        << "\tsymbol\tlength\trun that head of this run maps to with LF\toffset within mapped to run of the LF mapping of head of this run\n";
+        const sdsl::int_vector<>& toOffset,
+        const sdsl::int_vector<>& SATopRunInt,
+        const sdsl::int_vector<>& SABotRunInt,
+        const InvertibleMoveStructure& PhiInvPhi,
+        const sdsl::int_vector<>& runSampledAt) {
+    std::cout << "Printing run-length SA order data structures. Format:\n"
+        << R"("runInd"	"string"	"symbol"	"length"	"run that head of this run maps to with LF"	"offset within mapped to run of the LF mapping of head of this run"	"interval that suffix of top run maps to in phiinvphi"	"interval that suffix of the bottom of the run maps to in phiinvphi")"
+        << '\n';
     uint64_t runs = rlbwt.size();
-    if (runs != runlens.size() || runs != toRun.size() || runs != toOffset.size()) {
-        std::cerr << "ERROR: length of passed run-length compressed data structures for rlbwt, runlens, and LF don't match.\n"
+    if (runs != runlens.size() || runs != toRun.size() || runs != toOffset.size() || runs != SATopRunInt.size() || runs != SABotRunInt.size()) {
+        std::cerr << "ERROR: length of passed run-length compressed data structures for rlbwt, runlens, LF, SATopRunInt, and SABotRunInt don't match.\n"
             << "ERROR:\trlbwt length: " << rlbwt.size() << '\n'
             << "ERROR:\trunlens length: " << runlens.size() << '\n'
             << "ERROR:\ttoRun length: " << toRun.size() << '\n'
-            << "ERROR:\ttoOffset length: " << toOffset.size() << '\n';
+            << "ERROR:\ttoOffset length: " << toOffset.size() << '\n'
+            << "ERROR:\tSATopRunInt length: " << SATopRunInt.size() << '\n'
+            << "ERROR:\tSABotRunInt length: " << SABotRunInt.size() << '\n';
         exit(1);
     }
     for (uint64_t i = 0; i < runs; ++i) {
-        std::cout << '\t' << rlbwt[i]
-            << '\t' << runlens[i]
-            << '\t' << toRun[i]
-            << '\t' << toOffset[i] << '\n';
+        std::cout << std::setw(field_width) << i 
+            << std::setw(field_width) << rlbwt[i]
+            << std::setw(field_width) << runlens[i]
+            << std::setw(field_width) << toRun[i]
+            << std::setw(field_width) << toOffset[i]
+            << std::setw(field_width) << SATopRunInt[i]
+            << std::setw(field_width) << SABotRunInt[i] << '\n';
+    }
+
+    std::cout 
+        << "------------------------------------------------------------------------------------------\n\n\n"
+        << "------------------------------------------------------------------------------------------\n"
+        << "Printing run-length Text order data structures. Format:\n"
+        << R"("interval Ind"	"SeqAt"	"PosAt"	"IntLen"	"runSampledAt")" << '\n';
+    if (2*runs < PhiInvPhi.SeqAt.size() || PhiInvPhi.SeqAt.size() != PhiInvPhi.PosAt.size() || PhiInvPhi.PosAt.size() != PhiInvPhi.IntLen.size() || PhiInvPhi.IntLen.size() != runSampledAt.size()) {
+        std::cerr << "ERROR: length of passed run-length compressed PhiInvPhi data structures not consistent for SeqAt PosAt and IntLen. They should have equal lengths and length <= 2*runs\n"
+            << "ERROR:\truns: " << runs << '\n'
+            << "ERROR:\tSeqAt length: " << PhiInvPhi.SeqAt.size() << '\n'
+            << "ERROR:\tPosAt length: " << PhiInvPhi.PosAt.size() << '\n'
+            << "ERROR:\tIntLen length: " << PhiInvPhi.IntLen.size() << '\n'
+            << "ERROR:\trunSampledAt length: " << runSampledAt.size() << '\n';
+        exit(1);
+    }
+    for (uint64_t i = 0; i < PhiInvPhi.SeqAt.size(); ++i) {
+        std::cout << std::setw(field_width) << i 
+            << std::setw(field_width) << PhiInvPhi.SeqAt[i]
+            << std::setw(field_width) << PhiInvPhi.PosAt[i]
+            << std::setw(field_width) << PhiInvPhi.IntLen[i]
+            << std::setw(field_width) << runSampledAt[i] << '\n';
     }
 }
 
@@ -507,8 +541,6 @@ int main(int argc, char *argv[]) {
         std::cout << "Final toOffset size in bytes: " << sdsl::size_in_bytes(toOffset) << std::endl;
         Timer.stop(); //Computing LF size
 
-        //printStructures(rlbwt, runlens, toRun, toOffset);
-
         /*
         Timer.start("Verifying computed LF by sum of sequence lengths");
         {
@@ -619,11 +651,13 @@ int main(int argc, char *argv[]) {
             #pragma omp parallel for schedule(guided)
             for (uint64_t seq = 0; seq < alphCounts[0]; ++seq) {
                 IntervalPoint current{starts[seq]};
-                uint64_t seqLen = 1, seqNumTopRun = 1, seqNumBotRun = 1, seqNumTopOrBotRun = 1, seqNumOneRun = 1;
-                uint64_t currentTopOrBotIntervalLen = 1; //number of characters in the current interval on the sequence since the last time the sequence was at the top or bottom of a run
+                uint64_t seqLen = 0, seqNumTopRun = 0, seqNumBotRun = 0, seqNumTopOrBotRun = 0, seqNumOneRun = 0;
+                uint64_t currentTopOrBotIntervalLen = 0; //number of characters in the current interval on the sequence since the last time the sequence was at the top or bottom of a run
                 uint64_t maxTopOrBotIntervalLen = 0;
                 while (rlbwt[current.interval] != 0) {
+                    //add suffix at current in SA
                     ++seqLen;
+                    ++currentTopOrBotIntervalLen;
                     seqNumOneRun += runlens[current.interval] == 1;
                     seqNumTopRun += (current.offset == 0);
                     seqNumBotRun += (current.offset == runlens[current.interval] - 1);
@@ -632,9 +666,26 @@ int main(int argc, char *argv[]) {
                         maxTopOrBotIntervalLen = std::max(maxTopOrBotIntervalLen, currentTopOrBotIntervalLen);
                         currentTopOrBotIntervalLen = 0;
                     }
-                    ++currentTopOrBotIntervalLen;
+                    
                     current = mapLF(current, runlens, toRun, toOffset);
                 } 
+                //add suffix 0 of seq
+                ++seqLen;
+                ++currentTopOrBotIntervalLen;
+                seqNumOneRun += runlens[current.interval] == 1;
+                seqNumTopRun += (current.offset == 0);
+                seqNumBotRun += (current.offset == runlens[current.interval] - 1);
+                if ((current.offset == 0) || (current.offset == runlens[current.interval] - 1)) {
+                    seqNumTopOrBotRun++;
+                    maxTopOrBotIntervalLen = std::max(maxTopOrBotIntervalLen, currentTopOrBotIntervalLen);
+                    currentTopOrBotIntervalLen = 0;
+                }
+                else {
+                    std::cerr << "ERROR: suffix 0 of seq " << seq << " not at top or bottom of run (should be both, since in a run of length 1!\n";
+                    exit(1);
+                }
+
+                //save results
                 #pragma omp critical
                 {
                     sumSeqLengths += seqLen;
@@ -645,7 +696,6 @@ int main(int argc, char *argv[]) {
                     seqNumsBotRun[seq] = seqNumBotRun;
                     seqNumsTopOrBotRun[seq] = seqNumTopOrBotRun;
                     
-                    maxTopOrBotIntervalLen = std::max(maxTopOrBotIntervalLen, currentTopOrBotIntervalLen);
                     maxIntLen = std::max(maxIntLen, maxTopOrBotIntervalLen);
 
                     if (seqNumTopOrBotRun != seqNumTopRun + seqNumBotRun - seqNumOneRun) {
@@ -683,6 +733,19 @@ int main(int argc, char *argv[]) {
 
         std::cout << "Maximum sequence length: " << maxSeqLen << '\n';
         std::cout << "Maximum interval length: " << maxIntLen << '\n';
+
+        if (seqNumsTopRun.back() != runs) {
+            std::cerr << "ERROR:seqNumsTopRun.back() != runs, " << seqNumsTopRun.back() << " != " << runs << '\n';
+            exit(1);
+        }
+        if (seqNumsBotRun.back() != runs) {
+            std::cerr << "ERROR: seqNumsBotRun.back() != runs, " << seqNumsBotRun.back() << " != " << runs << '\n';
+            exit(1);
+        }
+        std::cout << "Total run tops: " << seqNumsTopRun.back() << '\n'
+            << "Total run bots: " << seqNumsBotRun.back() << '\n'
+            << "Total run top and bots: " << seqNumsTopOrBotRun.back() << '\n'
+            << "Therefore, total runs of length 1 [(tops + bots) - (tops and bots)]: " << seqNumsTopRun.back() + seqNumsBotRun.back() - seqNumsTopOrBotRun.back() << '\n';
 
         SATopRunInt = sdsl::int_vector<>(runs, 0, sdsl::bits::hi(seqNumsTopOrBotRun.back() - 1) + 1);
         SABotRunInt = sdsl::int_vector<>(runs, 0, sdsl::bits::hi(seqNumsTopOrBotRun.back() - 1) + 1);
@@ -800,6 +863,7 @@ int main(int argc, char *argv[]) {
                     PhiInvPhi.SeqAt[posRun] = seq;
                     PhiInvPhi.PosAt[posRun] = pos;
                     PhiInvPhi.IntLen[posRun] = prevPos - pos;
+                    runSampledAt[posRun] = current.interval;
                 }
                 else {
                     std::cerr << "ERROR: offset != 0 in last run, endmarker run!\n";
@@ -816,6 +880,10 @@ int main(int argc, char *argv[]) {
                 }
             }
             Timer.stop(); //Sampling in SA order
+            
+            Timer.start("Printing Structures");
+            printStructures(10, rlbwt, runlens, toRun, toOffset, SATopRunInt, SABotRunInt, PhiInvPhi, runSampledAt);
+            Timer.stop(); //Printing Structures
             
             Timer.start("Sampling the Text order");
             //#pragma omp parallel for schedule(guided)
@@ -838,6 +906,9 @@ int main(int argc, char *argv[]) {
                 PhiInvPhi.AboveToOffset[currentIntervalIndex] = 0;
                 PhiInvPhi.BelowToInterval[currentIntervalIndex] = SATopRunInt[(runSampledAt[currentIntervalIndex] == SATopRunInt.size() - 1)? 0 : runSampledAt[currentIntervalIndex]+1];
                 PhiInvPhi.BelowToOffset[currentIntervalIndex] = 0;
+
+                std::cout << "PhiInvPhi.AboveToInterval[currentIntervalIndex]: " << PhiInvPhi.AboveToInterval[currentIntervalIndex] << std::endl;
+                std::cout << "PhiInvPhi.BelowToInterval[currentIntervalIndex]: " << PhiInvPhi.BelowToInterval[currentIntervalIndex] << std::endl;
 
                 seqTraversed += PhiInvPhi.IntLen[currentIntervalIndex];
                 ++currentIntervalIndex;
