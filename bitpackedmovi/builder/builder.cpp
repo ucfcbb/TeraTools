@@ -107,6 +107,26 @@ struct InvertibleMoveStructure {
     sdsl::int_vector<> BelowToOffset;
 
     sdsl::int_vector<> AboveLCP;
+
+    IntervalPoint mapPhi(const IntervalPoint& intPoint) {
+        IntervalPoint res;
+        res.position = (uint64_t) -1;
+        res.interval = AboveToInterval[intPoint.interval];
+        res.offset = AboveToOffset[intPoint.interval] + intPoint.offset;
+        while (IntLen[res.interval] <= res.offset)
+            res.offset -= IntLen[res.interval++];
+        return res;
+    }
+
+    IntervalPoint mapInvPhi(const IntervalPoint& intPoint) {
+        IntervalPoint res;
+        res.position = (uint64_t) -1;
+        res.interval = BelowToInterval[intPoint.interval];
+        res.offset = BelowToOffset[intPoint.interval] + intPoint.offset;
+        while(IntLen[res.interval] <= res.offset)
+            res.offset -= IntLen[res.interval++];
+        return res;
+    }
 };
 
 bool operator!=(const IntervalPoint& lhs, const IntervalPoint& rhs) {
@@ -1021,6 +1041,52 @@ int main(int argc, char *argv[]) {
     Timer.start("Printing Structures");
     printStructures(10, rlbwt, runlens, toRun, toOffset, SATopRunInt, SABotRunInt, PhiInvPhi, runSampledAt);
     Timer.stop(); //Printing Structures
+    
+    Timer.start("Verifying Phi");
+    {
+        bool pass = true;
+        #pragma omp parallel for schedule(guided)
+        for (uint64_t run = 0; run < runs; ++run) {
+            //check if bottom of run phis to bottom of next run
+            IntervalPoint start{uint64_t(-1), SABotRunInt[run], 0},
+                          end{uint64_t(-1), SABotRunInt[(run == 0)? SABotRunInt.size() - 1: (run - 1)], 0};
+            for(uint64_t ops = 0; ops < runlens[run]; ++ops)
+                start = PhiInvPhi.mapPhi(start);
+            if (start != end) {
+                #pragma omp critical
+                {
+                    pass = false;
+                    std::cerr << "ERROR: suffix did not end up at the end of previous run in verification of phi when phiing runlen times from the bottom of a run!\n";
+                }
+            }
+        }
+        if (pass)
+            std::cout << "Phi move data structure is likely correct, it is a permutation with one cycle\n";
+    }
+    Timer.stop(); //Verifying Phi
+    
+    Timer.start("Verifying InvPhi");
+    {
+        bool pass = true;
+        #pragma omp parallel for schedule(guided)
+        for (uint64_t run = 0; run < runs; ++run) {
+            //check if bottom of run phis to bottom of next run
+            IntervalPoint start{uint64_t(-1), SATopRunInt[run], 0},
+                          end{uint64_t(-1), SATopRunInt[(run == SABotRunInt.size()-1)? 0 : (run + 1)], 0};
+            for(uint64_t ops = 0; ops < runlens[run]; ++ops)
+                start = PhiInvPhi.mapInvPhi(start);
+            if (start != end) {
+                #pragma omp critical
+                {
+                    pass = false;
+                    std::cerr << "ERROR: suffix did not end up at the end of previous run in verification of phi when phiing runlen times from the bottom of a run!\n";
+                }
+            }
+        }
+        if (pass)
+            std::cout << "InvPhi move data structure is likely correct, it is a permutation with one cycle\n";
+    }
+    Timer.stop(); //Verifying InvPhi
             
     Timer.start("LCP computation");
     {
