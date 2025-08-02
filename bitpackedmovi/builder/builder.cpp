@@ -947,8 +947,8 @@ int main(int argc, char *argv[]) {
                 PhiInvPhi.BelowToInterval[currentIntervalIndex] = SATopRunInt[(runSampledAt[currentIntervalIndex] == SATopRunInt.size() - 1)? 0 : runSampledAt[currentIntervalIndex]+1];
                 PhiInvPhi.BelowToOffset[currentIntervalIndex] = 0;
 
-                std::cout << "PhiInvPhi.AboveToInterval[currentIntervalIndex]: " << PhiInvPhi.AboveToInterval[currentIntervalIndex] << std::endl;
-                std::cout << "PhiInvPhi.BelowToInterval[currentIntervalIndex]: " << PhiInvPhi.BelowToInterval[currentIntervalIndex] << std::endl;
+                //std::cout << "PhiInvPhi.AboveToInterval[currentIntervalIndex]: " << PhiInvPhi.AboveToInterval[currentIntervalIndex] << std::endl;
+                //std::cout << "PhiInvPhi.BelowToInterval[currentIntervalIndex]: " << PhiInvPhi.BelowToInterval[currentIntervalIndex] << std::endl;
 
                 seqTraversed += PhiInvPhi.IntLen[currentIntervalIndex];
                 ++currentIntervalIndex;
@@ -1112,7 +1112,7 @@ int main(int argc, char *argv[]) {
         }
 
         Timer.start("Reverse sampling");
-        //#pragma omp parallel for schedule(guided)
+        #pragma omp parallel for schedule(guided)
         for (uint64_t seq = 0; seq < alphCounts[0]; ++seq) {
             //traverse seq from end to beginning, storing samples of LF position of seq in the intervals of rev(seq) in the PhiInvPHi data structure
             uint64_t revSeq = (seq%2 == 0)? seq + 1 : seq - 1;
@@ -1178,7 +1178,7 @@ int main(int argc, char *argv[]) {
             for (uint64_t al = 0; al < alphStartFound.size(); ++al)
                 alphStartFound[al] = phiAlphStarts[al].offset != 0;
             //compute only for those with AboveToOffset = 0
-            //#pragma omp parallel for schedule(guided)
+            #pragma omp parallel for schedule(guided)
             for (uint64_t currentInterval = 0; currentInterval < seqNumsTopOrBotRun.back(); ++currentInterval) {
                 if (PhiInvPhi.AboveToOffset[currentInterval] != 0) {
                     #pragma omp critical
