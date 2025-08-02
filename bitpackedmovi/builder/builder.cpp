@@ -179,14 +179,22 @@ void printStructures(
         << "------------------------------------------------------------------------------------------\n\n\n"
         << "------------------------------------------------------------------------------------------\n"
         << "Printing run-length Text order data structures. Format:\n"
-        << R"("interval Ind"	"SeqAt"	"PosAt"	"IntLen"	"runSampledAt")" << '\n';
-    if (2*runs < PhiInvPhi.SeqAt.size() || PhiInvPhi.SeqAt.size() != PhiInvPhi.PosAt.size() || PhiInvPhi.PosAt.size() != PhiInvPhi.IntLen.size() || PhiInvPhi.IntLen.size() != runSampledAt.size()) {
+        << R"("interval Ind"	"SeqAt"	"PosAt"	"IntLen"	"runSampledAt"	"AboveToInterval"	"AboveToOffset"	"BelowToInterval"	"BelowToOffset")" << '\n';
+    if (2*runs < PhiInvPhi.SeqAt.size() || PhiInvPhi.SeqAt.size() != PhiInvPhi.PosAt.size() || PhiInvPhi.PosAt.size() != PhiInvPhi.IntLen.size() || PhiInvPhi.IntLen.size() != runSampledAt.size()
+            || PhiInvPhi.AboveToInterval.size() != runSampledAt.size()
+            || PhiInvPhi.AboveToInterval.size() != PhiInvPhi.AboveToOffset.size()
+            || PhiInvPhi.AboveToOffset.size() != PhiInvPhi.BelowToInterval.size()
+            || PhiInvPhi.BelowToInterval.size() != PhiInvPhi.BelowToOffset.size()) {
         std::cerr << "ERROR: length of passed run-length compressed PhiInvPhi data structures not consistent for SeqAt PosAt and IntLen. They should have equal lengths and length <= 2*runs\n"
             << "ERROR:\truns: " << runs << '\n'
             << "ERROR:\tSeqAt length: " << PhiInvPhi.SeqAt.size() << '\n'
             << "ERROR:\tPosAt length: " << PhiInvPhi.PosAt.size() << '\n'
             << "ERROR:\tIntLen length: " << PhiInvPhi.IntLen.size() << '\n'
-            << "ERROR:\trunSampledAt length: " << runSampledAt.size() << '\n';
+            << "ERROR:\trunSampledAt length: " << runSampledAt.size() << '\n'
+            << "ERROR:\tAboveToInterval length: " << PhiInvPhi.AboveToInterval.size() << '\n'
+            << "ERROR:\tAboveToOffset length: " << PhiInvPhi.AboveToOffset.size() << '\n'
+            << "ERROR:\tBelowToInterval length: " << PhiInvPhi.BelowToInterval.size() << '\n'
+            << "ERROR:\tBelowToOffset length: " << PhiInvPhi.BelowToOffset.size() << '\n';
         exit(1);
     }
     for (uint64_t i = 0; i < PhiInvPhi.SeqAt.size(); ++i) {
@@ -194,7 +202,11 @@ void printStructures(
             << std::setw(field_width) << PhiInvPhi.SeqAt[i]
             << std::setw(field_width) << PhiInvPhi.PosAt[i]
             << std::setw(field_width) << PhiInvPhi.IntLen[i]
-            << std::setw(field_width) << runSampledAt[i] << '\n';
+            << std::setw(field_width) << runSampledAt[i]
+            << std::setw(field_width) << PhiInvPhi.AboveToInterval[i]
+            << std::setw(field_width) << PhiInvPhi.AboveToOffset[i]
+            << std::setw(field_width) << PhiInvPhi.BelowToInterval[i]
+            << std::setw(field_width) << PhiInvPhi.BelowToOffset[i] << '\n';
     }
 }
 
@@ -881,10 +893,6 @@ int main(int argc, char *argv[]) {
             }
             Timer.stop(); //Sampling in SA order
             
-            Timer.start("Printing Structures");
-            printStructures(10, rlbwt, runlens, toRun, toOffset, SATopRunInt, SABotRunInt, PhiInvPhi, runSampledAt);
-            Timer.stop(); //Printing Structures
-            
             Timer.start("Sampling the Text order");
             //#pragma omp parallel for schedule(guided)
             for (uint64_t seq = 0; seq < alphCounts[0]; ++seq) {
@@ -1010,6 +1018,10 @@ int main(int argc, char *argv[]) {
     }
     Timer.stop(); //SA sampling
     
+    Timer.start("Printing Structures");
+    printStructures(10, rlbwt, runlens, toRun, toOffset, SATopRunInt, SABotRunInt, PhiInvPhi, runSampledAt);
+    Timer.stop(); //Printing Structures
+            
     Timer.start("LCP computation");
     {
         std::vector<IntervalPoint> starts(alphCounts[0]);
