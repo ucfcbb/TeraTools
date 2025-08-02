@@ -266,6 +266,11 @@ int main(int argc, char *argv[]) {
             std::cerr << "ERROR: fmd is a multirope (mrope)? I don't know what that is." << std::endl;
             return 1;
         }
+
+        if (!rb3_fmi_is_symmetric(&fmi)) {
+            std::cerr << "ERROR: fmd is not 'symmetric' (does this mean bidirectional?) fmd must be bidirectional" << std::endl;
+            return 1;
+        }
     }
     Timer.stop(); //Program Initialization
 
