@@ -170,9 +170,10 @@ void printStructures(
         const sdsl::int_vector<>& SATopRunInt,
         const sdsl::int_vector<>& SABotRunInt,
         const InvertibleMoveStructure& PhiInvPhi,
-        const sdsl::int_vector<>& runSampledAt) {
+        const sdsl::int_vector<>& runSampledAt,
+        const std::vector<IntervalPoint>& revEquivLF) {
     std::cout << "Printing run-length SA order data structures. Format:\n"
-        << R"("runInd"	"string"	"symbol"	"length"	"run that head of this run maps to with LF"	"offset within mapped to run of the LF mapping of head of this run"	"interval that suffix of top run maps to in phiinvphi"	"interval that suffix of the bottom of the run maps to in phiinvphi")"
+        << R"("runInd"	"symbol"	"length"	"run that head of this run maps to with LF"	"offset within mapped to run of the LF mapping of head of this run"	"interval that suffix of top run maps to in phiinvphi"	"interval that suffix of the bottom of the run maps to in phiinvphi")"
         << '\n';
     uint64_t runs = rlbwt.size();
     if (runs != runlens.size() || runs != toRun.size() || runs != toOffset.size() || runs != SATopRunInt.size() || runs != SABotRunInt.size()) {
@@ -199,12 +200,13 @@ void printStructures(
         << "------------------------------------------------------------------------------------------\n\n\n"
         << "------------------------------------------------------------------------------------------\n"
         << "Printing run-length Text order data structures. Format:\n"
-        << R"("interval Ind"	"SeqAt"	"PosAt"	"IntLen"	"runSampledAt"	"AboveToInterval"	"AboveToOffset"	"BelowToInterval"	"BelowToOffset")" << '\n';
+        << R"("interval Ind"	"SeqAt"	"PosAt"	"IntLen"	"runSampledAt"	"AboveToInterval"	"AboveToOffset"	"BelowToInterval"	"BelowToOffset"	"RevEquivLF Interval"	"RevEquivLF Offset"	"AboveLCP")" << '\n';
     if (2*runs < PhiInvPhi.SeqAt.size() || PhiInvPhi.SeqAt.size() != PhiInvPhi.PosAt.size() || PhiInvPhi.PosAt.size() != PhiInvPhi.IntLen.size() || PhiInvPhi.IntLen.size() != runSampledAt.size()
             || PhiInvPhi.AboveToInterval.size() != runSampledAt.size()
             || PhiInvPhi.AboveToInterval.size() != PhiInvPhi.AboveToOffset.size()
             || PhiInvPhi.AboveToOffset.size() != PhiInvPhi.BelowToInterval.size()
-            || PhiInvPhi.BelowToInterval.size() != PhiInvPhi.BelowToOffset.size()) {
+            || PhiInvPhi.BelowToInterval.size() != PhiInvPhi.BelowToOffset.size()
+            || PhiInvPhi.BelowToOffset.size() != revEquivLF.size()) {
         std::cerr << "ERROR: length of passed run-length compressed PhiInvPhi data structures not consistent for SeqAt PosAt and IntLen. They should have equal lengths and length <= 2*runs\n"
             << "ERROR:\truns: " << runs << '\n'
             << "ERROR:\tSeqAt length: " << PhiInvPhi.SeqAt.size() << '\n'
@@ -214,7 +216,9 @@ void printStructures(
             << "ERROR:\tAboveToInterval length: " << PhiInvPhi.AboveToInterval.size() << '\n'
             << "ERROR:\tAboveToOffset length: " << PhiInvPhi.AboveToOffset.size() << '\n'
             << "ERROR:\tBelowToInterval length: " << PhiInvPhi.BelowToInterval.size() << '\n'
-            << "ERROR:\tBelowToOffset length: " << PhiInvPhi.BelowToOffset.size() << '\n';
+            << "ERROR:\tBelowToOffset length: " << PhiInvPhi.BelowToOffset.size() << '\n'
+            << "ERROR:\trevEquivLF length: " << revEquivLF.size() << '\n'
+            << "ERROR:\tAboveLCP length: " << PhiInvPhi.AboveLCP.size() << '\n';
         exit(1);
     }
     for (uint64_t i = 0; i < PhiInvPhi.SeqAt.size(); ++i) {
@@ -226,7 +230,10 @@ void printStructures(
             << std::setw(field_width) << PhiInvPhi.AboveToInterval[i]
             << std::setw(field_width) << PhiInvPhi.AboveToOffset[i]
             << std::setw(field_width) << PhiInvPhi.BelowToInterval[i]
-            << std::setw(field_width) << PhiInvPhi.BelowToOffset[i] << '\n';
+            << std::setw(field_width) << PhiInvPhi.BelowToOffset[i]
+            << std::setw(field_width) << revEquivLF[i].interval
+            << std::setw(field_width) << revEquivLF[i].offset 
+            << std::setw(field_width) << PhiInvPhi.AboveLCP[i] << '\n';
     }
 }
 
@@ -946,11 +953,11 @@ int main(int argc, char *argv[]) {
                 seqTraversed += PhiInvPhi.IntLen[currentIntervalIndex];
                 ++currentIntervalIndex;
 
-                std::cout << "Here" << std::endl;
-                std::cout << "seqTraversed: " << seqTraversed << ". currentIntervalIndex: " << currentIntervalIndex << std::endl;
+                //std::cout << "Here" << std::endl;
+                //std::cout << "seqTraversed: " << seqTraversed << ". currentIntervalIndex: " << currentIntervalIndex << std::endl;
 
                 while (seqTraversed < seqLens[seq]) {
-                    std::cout << "In here" << std::endl;
+                    //std::cout << "In here" << std::endl;
                     //add next interval
                     uint64_t runIndex = runSampledAt[currentIntervalIndex];
                     uint64_t topRunInt = SATopRunInt[runIndex];
@@ -959,7 +966,7 @@ int main(int argc, char *argv[]) {
                                 (seq == PhiInvPhi.SeqAt[botRunInt] && seqTraversed == PhiInvPhi.PosAt[botRunInt])))
                         std::cerr << "ERROR: Beginning of run interval in sequence is not equal to the sample at"
                            << " the beginning or the end of the corresponding interval!\n";
-                    std::cout << "AFter this?" << std::endl;
+                    //std::cout << "AFter this?" << std::endl;
                     //computing above sample
                     if (seq == PhiInvPhi.SeqAt[topRunInt] && seqTraversed == PhiInvPhi.PosAt[topRunInt]) {
                         uint64_t runAboveIndex = (runIndex == 0)? runs - 1 : runIndex - 1;
@@ -985,11 +992,11 @@ int main(int argc, char *argv[]) {
                         }
                     }
 
-                    std::cout << "How about this?" << std::endl;
+                    //std::cout << "How about this?" << std::endl;
 
                     //computing below sample
                     if (seq == PhiInvPhi.SeqAt[botRunInt] && seqTraversed == PhiInvPhi.PosAt[botRunInt]) {
-                        std::cout << "In if" << std::endl;
+                        //std::cout << "In if" << std::endl;
                         uint64_t runBelowIndex = (runIndex == runs - 1)? 0 : runIndex + 1;
                         #pragma omp critical
                         {
@@ -998,19 +1005,19 @@ int main(int argc, char *argv[]) {
                         }
                     }
                     else {
-                        std::cout << "In else" << std::endl;
+                        //std::cout << "In else" << std::endl;
                         //use previous below sample
                         uint64_t prevInt = PhiInvPhi.BelowToInterval[currentIntervalIndex - 1];
                         uint64_t prevOffset = PhiInvPhi.BelowToOffset[currentIntervalIndex - 1];
                         prevOffset += PhiInvPhi.IntLen[currentIntervalIndex - 1];
-                        std::cout << "Got here" << std::endl;
+                        //std::cout << "Got here" << std::endl;
                         while (prevOffset >= PhiInvPhi.IntLen[prevInt]) {
-                            std::cout << "prevInt: " << prevInt << ". prevOffset: " << prevOffset << std::endl;
+                            //std::cout << "prevInt: " << prevInt << ". prevOffset: " << prevOffset << std::endl;
                             prevOffset -= PhiInvPhi.IntLen[prevInt];
                             ++prevInt;
                         }
-                        std::cout << "prevInt: " << prevInt << ". prevOffset: " << prevOffset << std::endl;
-                        std::cout << "passed while loop" << std::endl;
+                        //std::cout << "prevInt: " << prevInt << ". prevOffset: " << prevOffset << std::endl;
+                        //std::cout << "passed while loop" << std::endl;
                         #pragma omp critical
                         {
                             PhiInvPhi.BelowToInterval[currentIntervalIndex] = prevInt;
@@ -1018,13 +1025,13 @@ int main(int argc, char *argv[]) {
                         }
                     }
 
-                    std::cout << "How aboutttt this?" << std::endl;
+                    //std::cout << "How aboutttt this?" << std::endl;
 
                     seqTraversed += PhiInvPhi.IntLen[currentIntervalIndex];
                     ++currentIntervalIndex;
                 }
 
-                std::cout << "Here after" << std::endl;
+                //std::cout << "Here after" << std::endl;
 
                 #pragma omp critical
                 if (seqTraversed != seqLens[seq]) {
@@ -1042,10 +1049,6 @@ int main(int argc, char *argv[]) {
         Timer.stop(); //Sampling
     }
     Timer.stop(); //SA sampling
-    
-    Timer.start("Printing Structures");
-    printStructures(10, rlbwt, runlens, toRun, toOffset, SATopRunInt, SABotRunInt, PhiInvPhi, runSampledAt);
-    Timer.stop(); //Printing Structures
     
     Timer.start("Verifying Phi");
     {
@@ -1111,7 +1114,7 @@ int main(int argc, char *argv[]) {
         Timer.start("Reverse sampling");
         //#pragma omp parallel for schedule(guided)
         for (uint64_t seq = 0; seq < alphCounts[0]; ++seq) {
-            //traverse seq in reverse, storing samples of LF position of rev(seq)
+            //traverse seq from end to beginning, storing samples of LF position of seq in the intervals of rev(seq) in the PhiInvPHi data structure
             uint64_t revSeq = (seq%2 == 0)? seq + 1 : seq - 1;
             IntervalPoint current{starts[seq]};
             //uint64_t posSeq = seqLens[seq] - 1;
@@ -1130,6 +1133,8 @@ int main(int argc, char *argv[]) {
                 if (revSeqIntervalOffset == 0) {
                     #pragma omp critical
                     {
+                        if (revEquivLF[revSeqIntervalIndex].interval != 0 || revEquivLF[revSeqIntervalIndex].offset != 0)
+                            std::cerr << "ERROR: setting already set revEquivLF in reverse sampling!\n";
                         revEquivLF[revSeqIntervalIndex] = current;
                     }
                 }
@@ -1145,42 +1150,109 @@ int main(int argc, char *argv[]) {
         Timer.stop(); //Reverse sampling
 
         Timer.start("LCP Sampling");
+        {
+            PhiInvPhi.AboveLCP.resize(seqNumsTopOrBotRun.back());
 
-        PhiInvPhi.AboveLCP.resize(seqNumsTopOrBotRun.back());
-        //compute only for those with AboveToOffset = 0
-        //#pragma omp parallel for schedule(guided)
-        for (uint64_t currentInterval = 0; currentInterval < seqNumsTopOrBotRun.back(); ++currentInterval) {
-            if (PhiInvPhi.AboveToOffset[currentInterval] != 0) {
+            Timer.start("locating alphStarts in PhiInvPhi");
+            uint64_t sampledAlphStarts = 0;
+            std::vector<IntervalPoint> phiAlphStarts(alphStarts.size()-1);
+            for (uint64_t al = 0; al < phiAlphStarts.size(); ++al) {
+                //std::cout << "Hre" << std::endl;
+                phiAlphStarts[al] = {uint64_t(-1), SATopRunInt[alphStarts[al].interval], 0};
+                for (uint64_t i = 0; i < alphStarts[al].offset; ++i)
+                    phiAlphStarts[al] = PhiInvPhi.mapInvPhi(phiAlphStarts[al]);
+                sampledAlphStarts += phiAlphStarts[al].offset == 0;
+            }
+            Timer.stop(); //locating alphStarts in PhiInvPhi
+            //std::cout << "Hredone" << std::endl;
+
+            std::cout << "Of " << phiAlphStarts.size() << ", " << sampledAlphStarts << " alphStarts are at the beginning or end of a run in the BWT\n";
+            std::cout << "Locations of alphStarts in PhiInvPhi intervals:\n\tsymbol\tinterval\toffset\n";
+            for (uint64_t al = 0; al < phiAlphStarts.size(); ++al)
+                std::cout << '\t' << al
+                    << '\t' << phiAlphStarts[al].interval
+                    << '\t' << phiAlphStarts[al].offset << '\n';
+
+            
+            std::vector<bool> alphStartFound(phiAlphStarts.size());
+            for (uint64_t al = 0; al < alphStartFound.size(); ++al)
+                alphStartFound[al] = phiAlphStarts[al].offset != 0;
+            //compute only for those with AboveToOffset = 0
+            //#pragma omp parallel for schedule(guided)
+            for (uint64_t currentInterval = 0; currentInterval < seqNumsTopOrBotRun.back(); ++currentInterval) {
+                if (PhiInvPhi.AboveToOffset[currentInterval] != 0) {
+                    #pragma omp critical
+                    {
+                        PhiInvPhi.AboveLCP[currentInterval] = PhiInvPhi.AboveLCP[currentInterval -1] - PhiInvPhi.IntLen[currentInterval - 1];
+                        if (PhiInvPhi.AboveLCP[currentInterval] < PhiInvPhi.IntLen[currentInterval]){
+                            bool found = false;
+                            if (PhiInvPhi.AboveLCP[currentInterval] == 0 && PhiInvPhi.IntLen[currentInterval] == 1) {
+                                //possibly at the beginning of alphabet in F column, LCP of 0 is correct
+                                for (uint64_t al = 0; al < phiAlphStarts.size(); ++al) {
+                                    if (phiAlphStarts[al].interval != currentInterval || phiAlphStarts[al].offset != 0)
+                                        continue;
+                                    if (alphStartFound[al])
+                                        std::cerr << "ERROR: already found this alplhStart in phiinv data structure!\n";
+                                    alphStartFound[al] = true;
+                                    found = true;
+                                }
+                            }
+                            if (!found) 
+                                std::cerr << "ERROR: forwarded LCP computed smaller than interval length and is not one of alphStarts!\n"
+                                    << "ERROR: forwarded: " << PhiInvPhi.AboveLCP[currentInterval] << ". Interval length: " << PhiInvPhi.IntLen[currentInterval] << '\n';
+                        }
+                    }
+                    continue;
+                }
+
+                uint64_t matchingLength = 0;
+                IntervalPoint revSeq{revEquivLF[currentInterval]};
+                IntervalPoint revSeqAbove{revEquivLF[PhiInvPhi.AboveToInterval[currentInterval]]};
+
+                while (rlbwt[revSeq.interval] == rlbwt[revSeqAbove.interval]) {
+                    revSeq = mapLF(revSeq, runlens, toRun, toOffset);
+                    revSeqAbove = mapLF(revSeqAbove, runlens, toRun, toOffset);
+                    ++matchingLength;
+                }
+
                 #pragma omp critical
                 {
-                    PhiInvPhi.AboveLCP[currentInterval] = PhiInvPhi.AboveLCP[currentInterval -1] - PhiInvPhi.IntLen[currentInterval - 1];
-                    if (PhiInvPhi.AboveLCP[currentInterval] < PhiInvPhi.IntLen[currentInterval])
-                        std::cerr << "ERROR: forwarded LCP computed smaller than interval length!\n"
-                            << "ERROR: forwarded: " << PhiInvPhi.AboveLCP[currentInterval] << ". Interval length: " << PhiInvPhi.IntLen[currentInterval] << '\n';
-                }
-                continue;
-            }
-
-            uint64_t matchingLength = 0;
-            IntervalPoint revSeq{revEquivLF[currentInterval]};
-            IntervalPoint revSeqAbove{revEquivLF[PhiInvPhi.AboveToInterval[currentInterval]]};
-
-            while (rlbwt[revSeq.interval] == rlbwt[revSeqAbove.interval]) {
-                revSeq = mapLF(revSeq, runlens, toRun, toOffset);
-                revSeqAbove = mapLF(revSeqAbove, runlens, toRun, toOffset);
-                ++matchingLength;
-            }
-
-            #pragma omp critical
-            {
-                PhiInvPhi.AboveLCP[currentInterval] = matchingLength;
-                if (matchingLength < PhiInvPhi.IntLen[currentInterval]) {
-                    std::cerr << "ERROR: Computed LCP smaller than interval length!\n";
-                    std::cerr << "ERROR: Computed: " << matchingLength <<". Interval length: " << PhiInvPhi.IntLen[currentInterval] << '\n';
+                    PhiInvPhi.AboveLCP[currentInterval] = matchingLength;
+                    if (matchingLength < PhiInvPhi.IntLen[currentInterval]) {
+                        bool found = false;
+                        if (matchingLength == 0 && PhiInvPhi.IntLen[currentInterval] == 1) {
+                            //possibly at the beginning of alphabet in F column, LCP of 0 is correct
+                            for (uint64_t al = 0; al < phiAlphStarts.size(); ++al) {
+                                if (phiAlphStarts[al].interval != currentInterval || phiAlphStarts[al].offset != 0)
+                                    continue;
+                                if (alphStartFound[al])
+                                    std::cerr << "ERROR: already found this alphStart in the PhiInvPhi data structure!\n";
+                                alphStartFound[al] = true;
+                                found = true;
+                            }
+                        }
+                        if (!found)
+                            std::cerr << "ERROR: Computed LCP smaller than interval length and is not one of alphStarts!\n"
+                                << "ERROR: Computed: " << matchingLength <<". Interval length: " << PhiInvPhi.IntLen[currentInterval] << '\n';
+                    }
                 }
             }
+
+            bool re = true;
+            for (auto t : alphStartFound)
+                re = re && t;
+            if (re)
+                std::cout << "Found all " << sampledAlphStarts << " sampled alplh starts.\n";
+            else 
+                std::cerr << "ERROR: Didn't find all alph starts!\n";
+
+            Timer.stop(); //LCP Sampling
+            /*
+            Timer.start("Printing Structures");
+            printStructures(10, rlbwt, runlens, toRun, toOffset, SATopRunInt, SABotRunInt, PhiInvPhi, runSampledAt, revEquivLF);
+            Timer.stop(); //Printing Structures
+            */
         }
-        Timer.stop(); //LCP Sampling
     }
     Timer.stop(); //LCP computation
 
@@ -1190,7 +1262,7 @@ int main(int argc, char *argv[]) {
     sdsl::util::bit_compress(PhiInvPhi.AboveLCP);
     std::cout << "New element width in bits: " << (int)PhiInvPhi.AboveLCP.width() << '\n';
     Timer.stop(); //Shrinking LCP
-
+    
     Timer.start("RLBWT Repair");
     {
         Timer.start("Detecting endmarkers in runs in RLBWT");
