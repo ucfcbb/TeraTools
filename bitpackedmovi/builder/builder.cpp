@@ -94,9 +94,9 @@ bool operator==(const IntervalPoint& lhs, const IntervalPoint& rhs) {
 struct InvertibleMoveStructure {
     //suffix array samples at
     sdsl::int_vector<> SeqAt;
-    //characters between this sample and the next (including this sample)
     sdsl::int_vector<> PosAt;
 
+    //characters between this sample and the next (including this sample)
     //unnecessary, but makes coding cleaner
     sdsl::int_vector<> IntLen;
 
@@ -104,6 +104,8 @@ struct InvertibleMoveStructure {
     sdsl::int_vector<> AboveToOffset;
     sdsl::int_vector<> BelowToInterval;
     sdsl::int_vector<> BelowToOffset;
+
+    sdsl::int_vector<> AboveLCP;
 };
 
 bool operator!=(const IntervalPoint& lhs, const IntervalPoint& rhs) {
@@ -587,6 +589,8 @@ int main(int argc, char *argv[]) {
     //SABotRunInt is not needed after the data structure is built but is needed to build the data strcutre (for sampling)
     sdsl::int_vector<> SABotRunInt;
 
+    sdsl::int_vector<> runSampledAt;
+
     //Samples in Text order
     InvertibleMoveStructure PhiInvPhi;
 
@@ -694,7 +698,7 @@ int main(int argc, char *argv[]) {
         PhiInvPhi.BelowToOffset = sdsl::int_vector<>(seqNumsTopOrBotRun.back(), 0, sdsl::bits::hi(maxIntLen - 1) + 1);
 
 
-        sdsl::int_vector<> runSampledAt(seqNumsTopOrBotRun.back(), 0, sdsl::bits::hi(runs - 1) + 1);
+        runSampledAt = sdsl::int_vector<>(seqNumsTopOrBotRun.back(), 0, sdsl::bits::hi(runs - 1) + 1);
 
         Timer.start("Sampling");
         {
@@ -814,7 +818,7 @@ int main(int argc, char *argv[]) {
             Timer.stop(); //Sampling in SA order
             
             Timer.start("Sampling the Text order");
-            #pragma omp parallel for schedule(guided)
+            //#pragma omp parallel for schedule(guided)
             for (uint64_t seq = 0; seq < alphCounts[0]; ++seq) {
                 //go from beginning of sequence to end, by interval in phi
                 uint64_t currentIntervalIndex = (seq == 0)? 0 :  seqNumsTopOrBotRun[seq-1];
@@ -838,7 +842,11 @@ int main(int argc, char *argv[]) {
                 seqTraversed += PhiInvPhi.IntLen[currentIntervalIndex];
                 ++currentIntervalIndex;
 
+                std::cout << "Here" << std::endl;
+                std::cout << "seqTraversed: " << seqTraversed << ". currentIntervalIndex: " << currentIntervalIndex << std::endl;
+
                 while (seqTraversed < seqLens[seq]) {
+                    std::cout << "In here" << std::endl;
                     //add next interval
                     uint64_t runIndex = runSampledAt[currentIntervalIndex];
                     uint64_t topRunInt = SATopRunInt[runIndex];
@@ -847,6 +855,7 @@ int main(int argc, char *argv[]) {
                                 (seq == PhiInvPhi.SeqAt[botRunInt] && seqTraversed == PhiInvPhi.PosAt[botRunInt])))
                         std::cerr << "ERROR: Beginning of run interval in sequence is not equal to the sample at"
                            << " the beginning or the end of the corresponding interval!\n";
+                    std::cout << "AFter this?" << std::endl;
                     //computing above sample
                     if (seq == PhiInvPhi.SeqAt[topRunInt] && seqTraversed == PhiInvPhi.PosAt[topRunInt]) {
                         uint64_t runAboveIndex = (runIndex == 0)? runs - 1 : runIndex - 1;
@@ -872,8 +881,11 @@ int main(int argc, char *argv[]) {
                         }
                     }
 
+                    std::cout << "How about this?" << std::endl;
+
                     //computing below sample
                     if (seq == PhiInvPhi.SeqAt[botRunInt] && seqTraversed == PhiInvPhi.PosAt[botRunInt]) {
+                        std::cout << "In if" << std::endl;
                         uint64_t runBelowIndex = (runIndex == runs - 1)? 0 : runIndex + 1;
                         #pragma omp critical
                         {
@@ -882,14 +894,19 @@ int main(int argc, char *argv[]) {
                         }
                     }
                     else {
+                        std::cout << "In else" << std::endl;
                         //use previous below sample
                         uint64_t prevInt = PhiInvPhi.BelowToInterval[currentIntervalIndex - 1];
                         uint64_t prevOffset = PhiInvPhi.BelowToOffset[currentIntervalIndex - 1];
                         prevOffset += PhiInvPhi.IntLen[currentIntervalIndex - 1];
+                        std::cout << "Got here" << std::endl;
                         while (prevOffset >= PhiInvPhi.IntLen[prevInt]) {
+                            std::cout << "prevInt: " << prevInt << ". prevOffset: " << prevOffset << std::endl;
                             prevOffset -= PhiInvPhi.IntLen[prevInt];
                             ++prevInt;
                         }
+                        std::cout << "prevInt: " << prevInt << ". prevOffset: " << prevOffset << std::endl;
+                        std::cout << "passed while loop" << std::endl;
                         #pragma omp critical
                         {
                             PhiInvPhi.BelowToInterval[currentIntervalIndex] = prevInt;
@@ -897,9 +914,13 @@ int main(int argc, char *argv[]) {
                         }
                     }
 
+                    std::cout << "How aboutttt this?" << std::endl;
+
                     seqTraversed += PhiInvPhi.IntLen[currentIntervalIndex];
                     ++currentIntervalIndex;
                 }
+
+                std::cout << "Here after" << std::endl;
 
                 #pragma omp critical
                 if (seqTraversed != seqLens[seq]) {
@@ -934,12 +955,12 @@ int main(int argc, char *argv[]) {
         }
 
         Timer.start("Reverse sampling");
-        #pragma omp parallel for schedule(guided)
+        //#pragma omp parallel for schedule(guided)
         for (uint64_t seq = 0; seq < alphCounts[0]; ++seq) {
             //traverse seq in reverse, storing samples of LF position of rev(seq)
             uint64_t revSeq = (seq%2 == 0)? seq + 1 : seq - 1;
             IntervalPoint current{starts[seq]};
-            uint64_t posSeq = seqLens[seq] - 1;
+            //uint64_t posSeq = seqLens[seq] - 1;
             uint64_t revSeqIntervalIndex = (revSeq == 0)? 0 : seqNumsTopOrBotRun[revSeq - 1];
             uint64_t revSeqIntervalOffset = 0;
             uint64_t finalRevSeqIntervalIndex = seqNumsTopOrBotRun[revSeq];
@@ -953,7 +974,10 @@ int main(int argc, char *argv[]) {
 
             while (revSeqIntervalIndex != finalRevSeqIntervalIndex) {
                 if (revSeqIntervalOffset == 0) {
-                    revEquivLF[revSeqIntervalIndex] = current;
+                    #pragma omp critical
+                    {
+                        revEquivLF[revSeqIntervalIndex] = current;
+                    }
                 }
 
                 current = mapLF(current, runlens, toRun, toOffset);
@@ -965,8 +989,53 @@ int main(int argc, char *argv[]) {
             }
         }
         Timer.stop(); //Reverse sampling
+
+        Timer.start("LCP Sampling");
+
+        PhiInvPhi.AboveLCP.resize(seqNumsTopOrBotRun.back());
+        //compute only for those with AboveToOffset = 0
+        //#pragma omp parallel for schedule(guided)
+        for (uint64_t currentInterval = 0; currentInterval < seqNumsTopOrBotRun.back(); ++currentInterval) {
+            if (PhiInvPhi.AboveToOffset[currentInterval] != 0) {
+                #pragma omp critical
+                {
+                    PhiInvPhi.AboveLCP[currentInterval] = PhiInvPhi.AboveLCP[currentInterval -1] - PhiInvPhi.IntLen[currentInterval - 1];
+                    if (PhiInvPhi.AboveLCP[currentInterval] < PhiInvPhi.IntLen[currentInterval])
+                        std::cerr << "ERROR: forwarded LCP computed smaller than interval length!\n"
+                            << "ERROR: forwarded: " << PhiInvPhi.AboveLCP[currentInterval] << ". Interval length: " << PhiInvPhi.IntLen[currentInterval] << '\n';
+                }
+                continue;
+            }
+
+            uint64_t matchingLength = 0;
+            IntervalPoint revSeq{revEquivLF[currentInterval]};
+            IntervalPoint revSeqAbove{revEquivLF[PhiInvPhi.AboveToInterval[currentInterval]]};
+
+            while (rlbwt[revSeq.interval] == rlbwt[revSeqAbove.interval]) {
+                revSeq = mapLF(revSeq, runlens, toRun, toOffset);
+                revSeqAbove = mapLF(revSeqAbove, runlens, toRun, toOffset);
+                ++matchingLength;
+            }
+
+            #pragma omp critical
+            {
+                PhiInvPhi.AboveLCP[currentInterval] = matchingLength;
+                if (matchingLength < PhiInvPhi.IntLen[currentInterval]) {
+                    std::cerr << "ERROR: Computed LCP smaller than interval length!\n";
+                    std::cerr << "ERROR: Computed: " << matchingLength <<". Interval length: " << PhiInvPhi.IntLen[currentInterval] << '\n';
+                }
+            }
+        }
+        Timer.stop(); //LCP Sampling
     }
     Timer.stop(); //LCP computation
+
+    Timer.start("Shrinking LCP");
+    std::cout << "Shrinking AboveLCP to size\n";
+    std::cout << "Previous element width in bits: " << (int)PhiInvPhi.AboveLCP.width() << '\n';
+    sdsl::util::bit_compress(PhiInvPhi.AboveLCP);
+    std::cout << "New element width in bits: " << (int)PhiInvPhi.AboveLCP.width() << '\n';
+    Timer.stop(); //Shrinking LCP
 
     Timer.start("RLBWT Repair");
     {

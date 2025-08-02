@@ -2,7 +2,7 @@ all: builder
 
 .PHONY: all clean test
 
-testinds = ../../data/testing/idx.fmd ../../data/testing/mtb152.fmd
+testinds = ../../data/testing/idx.fmd #../../data/testing/mtb152.fmd
 
 sdslincdir = ../include
 sdsllibdir = ../lib
@@ -26,7 +26,8 @@ objs = $(ropebwt3dir)/bre.o\
 libs = -lsdsl -lpthread -lz -lm
 incs = -I$(sdslincdir) -I$(ropebwt3dir)
 
-cppflags+=-Wall -O3 -DNDEBUG
+#cppflags+=-Wall -O3 -DNDEBUG
+cppflags+=-Wall -g
 
 ifneq ($(asan),)
 	cppflags+=-fsanitize=address
