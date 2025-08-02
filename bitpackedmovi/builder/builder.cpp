@@ -1179,61 +1179,64 @@ int main(int argc, char *argv[]) {
                 alphStartFound[al] = phiAlphStarts[al].offset != 0;
             //compute only for those with AboveToOffset = 0
             #pragma omp parallel for schedule(guided)
-            for (uint64_t currentInterval = 0; currentInterval < seqNumsTopOrBotRun.back(); ++currentInterval) {
-                if (PhiInvPhi.AboveToOffset[currentInterval] != 0) {
+            for (uint64_t seq = 0; seq < alphCounts[0]; ++seq) {
+                uint64_t startInterval = (seq == 0)? 0 : seqNumsTopOrBotRun[seq - 1];
+                for (uint64_t currentInterval = startInterval; currentInterval < seqNumsTopOrBotRun[seq]; ++currentInterval) {
+                    if (PhiInvPhi.AboveToOffset[currentInterval] != 0) {
+                        #pragma omp critical
+                        {
+                            PhiInvPhi.AboveLCP[currentInterval] = PhiInvPhi.AboveLCP[currentInterval -1] - PhiInvPhi.IntLen[currentInterval - 1];
+                            if (PhiInvPhi.AboveLCP[currentInterval] < PhiInvPhi.IntLen[currentInterval]){
+                                bool found = false;
+                                if (PhiInvPhi.AboveLCP[currentInterval] == 0 && PhiInvPhi.IntLen[currentInterval] == 1) {
+                                    //possibly at the beginning of alphabet in F column, LCP of 0 is correct
+                                    for (uint64_t al = 0; al < phiAlphStarts.size(); ++al) {
+                                        if (phiAlphStarts[al].interval != currentInterval || phiAlphStarts[al].offset != 0)
+                                            continue;
+                                        if (alphStartFound[al])
+                                            std::cerr << "ERROR: already found this alplhStart in phiinv data structure!\n";
+                                        alphStartFound[al] = true;
+                                        found = true;
+                                    }
+                                }
+                                if (!found) 
+                                    std::cerr << "ERROR: forwarded LCP computed smaller than interval length and is not one of alphStarts!\n"
+                                        << "ERROR: forwarded: " << PhiInvPhi.AboveLCP[currentInterval] << ". Interval length: " << PhiInvPhi.IntLen[currentInterval] << '\n';
+                            }
+                        }
+                        continue;
+                    }
+
+                    uint64_t matchingLength = 0;
+                    IntervalPoint revSeq{revEquivLF[currentInterval]};
+                    IntervalPoint revSeqAbove{revEquivLF[PhiInvPhi.AboveToInterval[currentInterval]]};
+
+                    while (rlbwt[revSeq.interval] == rlbwt[revSeqAbove.interval]) {
+                        revSeq = mapLF(revSeq, runlens, toRun, toOffset);
+                        revSeqAbove = mapLF(revSeqAbove, runlens, toRun, toOffset);
+                        ++matchingLength;
+                    }
+
                     #pragma omp critical
                     {
-                        PhiInvPhi.AboveLCP[currentInterval] = PhiInvPhi.AboveLCP[currentInterval -1] - PhiInvPhi.IntLen[currentInterval - 1];
-                        if (PhiInvPhi.AboveLCP[currentInterval] < PhiInvPhi.IntLen[currentInterval]){
+                        PhiInvPhi.AboveLCP[currentInterval] = matchingLength;
+                        if (matchingLength < PhiInvPhi.IntLen[currentInterval]) {
                             bool found = false;
-                            if (PhiInvPhi.AboveLCP[currentInterval] == 0 && PhiInvPhi.IntLen[currentInterval] == 1) {
+                            if (matchingLength == 0 && PhiInvPhi.IntLen[currentInterval] == 1) {
                                 //possibly at the beginning of alphabet in F column, LCP of 0 is correct
                                 for (uint64_t al = 0; al < phiAlphStarts.size(); ++al) {
                                     if (phiAlphStarts[al].interval != currentInterval || phiAlphStarts[al].offset != 0)
                                         continue;
                                     if (alphStartFound[al])
-                                        std::cerr << "ERROR: already found this alplhStart in phiinv data structure!\n";
+                                        std::cerr << "ERROR: already found this alphStart in the PhiInvPhi data structure!\n";
                                     alphStartFound[al] = true;
                                     found = true;
                                 }
                             }
-                            if (!found) 
-                                std::cerr << "ERROR: forwarded LCP computed smaller than interval length and is not one of alphStarts!\n"
-                                    << "ERROR: forwarded: " << PhiInvPhi.AboveLCP[currentInterval] << ". Interval length: " << PhiInvPhi.IntLen[currentInterval] << '\n';
+                            if (!found)
+                                std::cerr << "ERROR: Computed LCP smaller than interval length and is not one of alphStarts!\n"
+                                    << "ERROR: Computed: " << matchingLength <<". Interval length: " << PhiInvPhi.IntLen[currentInterval] << '\n';
                         }
-                    }
-                    continue;
-                }
-
-                uint64_t matchingLength = 0;
-                IntervalPoint revSeq{revEquivLF[currentInterval]};
-                IntervalPoint revSeqAbove{revEquivLF[PhiInvPhi.AboveToInterval[currentInterval]]};
-
-                while (rlbwt[revSeq.interval] == rlbwt[revSeqAbove.interval]) {
-                    revSeq = mapLF(revSeq, runlens, toRun, toOffset);
-                    revSeqAbove = mapLF(revSeqAbove, runlens, toRun, toOffset);
-                    ++matchingLength;
-                }
-
-                #pragma omp critical
-                {
-                    PhiInvPhi.AboveLCP[currentInterval] = matchingLength;
-                    if (matchingLength < PhiInvPhi.IntLen[currentInterval]) {
-                        bool found = false;
-                        if (matchingLength == 0 && PhiInvPhi.IntLen[currentInterval] == 1) {
-                            //possibly at the beginning of alphabet in F column, LCP of 0 is correct
-                            for (uint64_t al = 0; al < phiAlphStarts.size(); ++al) {
-                                if (phiAlphStarts[al].interval != currentInterval || phiAlphStarts[al].offset != 0)
-                                    continue;
-                                if (alphStartFound[al])
-                                    std::cerr << "ERROR: already found this alphStart in the PhiInvPhi data structure!\n";
-                                alphStartFound[al] = true;
-                                found = true;
-                            }
-                        }
-                        if (!found)
-                            std::cerr << "ERROR: Computed LCP smaller than interval length and is not one of alphStarts!\n"
-                                << "ERROR: Computed: " << matchingLength <<". Interval length: " << PhiInvPhi.IntLen[currentInterval] << '\n';
                     }
                 }
             }
