@@ -1199,6 +1199,14 @@ int main(int argc, char *argv[]) {
                                         found = true;
                                     }
                                 }
+                                if (currentInterval == seqNumsTopOrBotRun[seq] - 1) {
+                                    //LCP should be interval length - 1
+                                    if (PhiInvPhi.AboveLCP[currentInterval] != PhiInvPhi.IntLen[currentInterval] - 1) {
+                                        std::cerr << "ERROR: Last interval of sequence has weird matching length, maybe including endmarker!\n";
+                                    }
+                                    else 
+                                        found = true;
+                                }
                                 if (!found) 
                                     std::cerr << "ERROR: forwarded LCP computed smaller than interval length and is not one of alphStarts!\n"
                                         << "ERROR: forwarded: " << PhiInvPhi.AboveLCP[currentInterval] << ". Interval length: " << PhiInvPhi.IntLen[currentInterval] << '\n';
@@ -1211,7 +1219,7 @@ int main(int argc, char *argv[]) {
                     IntervalPoint revSeq{revEquivLF[currentInterval]};
                     IntervalPoint revSeqAbove{revEquivLF[PhiInvPhi.AboveToInterval[currentInterval]]};
 
-                    while (rlbwt[revSeq.interval] == rlbwt[revSeqAbove.interval]) {
+                    while (rlbwt[revSeq.interval] != 0 && rlbwt[revSeqAbove.interval] != 0 && rlbwt[revSeq.interval] == rlbwt[revSeqAbove.interval]) {
                         revSeq = mapLF(revSeq, runlens, toRun, toOffset);
                         revSeqAbove = mapLF(revSeqAbove, runlens, toRun, toOffset);
                         ++matchingLength;
@@ -1232,6 +1240,14 @@ int main(int argc, char *argv[]) {
                                     alphStartFound[al] = true;
                                     found = true;
                                 }
+                            }
+                            if (currentInterval == seqNumsTopOrBotRun[seq] - 1) {
+                                //LCP should be interval length - 1
+                                if (matchingLength !=  PhiInvPhi.IntLen[currentInterval] - 1) {
+                                    std::cerr << "ERROR: Last interval of sequence has weird matching that might include the endmarker!\n";
+                                }
+                                else 
+                                    found = true;
                             }
                             if (!found)
                                 std::cerr << "ERROR: Computed LCP smaller than interval length and is not one of alphStarts!\n"
