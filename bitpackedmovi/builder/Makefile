@@ -2,7 +2,7 @@ all: builder
 
 .PHONY: all clean test
 
-testinds = ../../data/testing/idx.fmd #../../data/testing/mtb152.fmd
+testinds = ../../data/testing/idx.fmd ../../data/testing/mtb152.fmd
 
 sdslincdir = ../include
 sdsllibdir = ../lib

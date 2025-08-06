@@ -1174,9 +1174,7 @@ int main(int argc, char *argv[]) {
                     << '\t' << phiAlphStarts[al].offset << '\n';
 
             
-            std::vector<bool> alphStartFound(phiAlphStarts.size());
-            for (uint64_t al = 0; al < alphStartFound.size(); ++al)
-                alphStartFound[al] = phiAlphStarts[al].offset != 0;
+            std::vector<bool> alphStartFound(phiAlphStarts.size(), false);
             //compute only for those with AboveToOffset = 0
             #pragma omp parallel for schedule(guided)
             for (uint64_t seq = 0; seq < alphCounts[0]; ++seq) {
@@ -1230,7 +1228,7 @@ int main(int argc, char *argv[]) {
                         PhiInvPhi.AboveLCP[currentInterval] = matchingLength;
                         if (matchingLength < PhiInvPhi.IntLen[currentInterval]) {
                             bool found = false;
-                            if (matchingLength == 0 && PhiInvPhi.IntLen[currentInterval] == 1) {
+                            if (matchingLength == PhiInvPhi.IntLen[currentInterval] - 1) {
                                 //possibly at the beginning of alphabet in F column, LCP of 0 is correct
                                 for (uint64_t al = 0; al < phiAlphStarts.size(); ++al) {
                                     if (phiAlphStarts[al].interval != currentInterval || phiAlphStarts[al].offset != 0)
@@ -1251,7 +1249,7 @@ int main(int argc, char *argv[]) {
                             }
                             if (!found)
                                 std::cerr << "ERROR: Computed LCP smaller than interval length and is not one of alphStarts!\n"
-                                    << "ERROR: Computed: " << matchingLength <<". Interval length: " << PhiInvPhi.IntLen[currentInterval] << '\n';
+                                    << "ERROR: Computed: " << matchingLength <<". Interval length: " << PhiInvPhi.IntLen[currentInterval] << " for interval: " << currentInterval << '\n';
                         }
                     }
                 }
