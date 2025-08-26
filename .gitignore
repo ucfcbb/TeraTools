@@ -1,5 +1,6 @@
 /data/*
 !/data/testing
+!/data/generation
 /Movi
 /pfp-thresholds
 /ropebwt3
