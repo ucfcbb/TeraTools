@@ -1186,10 +1186,10 @@ int main(int argc, char *argv[]) {
                             PhiInvPhi.AboveLCP[currentInterval] = PhiInvPhi.AboveLCP[currentInterval -1] - PhiInvPhi.IntLen[currentInterval - 1];
                             if (PhiInvPhi.AboveLCP[currentInterval] < PhiInvPhi.IntLen[currentInterval]){
                                 bool found = false;
-                                if (PhiInvPhi.AboveLCP[currentInterval] == 0 && PhiInvPhi.IntLen[currentInterval] == 1) {
+                                if (PhiInvPhi.AboveLCP[currentInterval] == PhiInvPhi.IntLen[currentInterval] - 1) {
                                     //possibly at the beginning of alphabet in F column, LCP of 0 is correct
                                     for (uint64_t al = 0; al < phiAlphStarts.size(); ++al) {
-                                        if (phiAlphStarts[al].interval != currentInterval || phiAlphStarts[al].offset != 0)
+                                        if (phiAlphStarts[al].interval != currentInterval || phiAlphStarts[al].offset != PhiInvPhi.AboveLCP[currentInterval])
                                             continue;
                                         if (alphStartFound[al])
                                             std::cerr << "ERROR: already found this alplhStart in phiinv data structure!\n";
@@ -1231,7 +1231,7 @@ int main(int argc, char *argv[]) {
                             if (matchingLength == PhiInvPhi.IntLen[currentInterval] - 1) {
                                 //possibly at the beginning of alphabet in F column, LCP of 0 is correct
                                 for (uint64_t al = 0; al < phiAlphStarts.size(); ++al) {
-                                    if (phiAlphStarts[al].interval != currentInterval || phiAlphStarts[al].offset != 0)
+                                    if (phiAlphStarts[al].interval != currentInterval || phiAlphStarts[al].offset != matchingLength)
                                         continue;
                                     if (alphStartFound[al])
                                         std::cerr << "ERROR: already found this alphStart in the PhiInvPhi data structure!\n";
