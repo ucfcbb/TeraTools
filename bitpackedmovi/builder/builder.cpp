@@ -237,6 +237,16 @@ void printStructures(
     }
 }
 
+class OptBWTRL {
+    uint64_t runs;
+    sdsl::int_vector<> rlbwt, runlens;
+
+    struct MoveStructure {
+        sdsl::int_vector<> D_index;
+        sdsl::int_vector<> D_offset;
+    };
+};
+
 int main(int argc, char *argv[]) {
     Timer.start("builder");
     Timer.start("Program Initialization");
