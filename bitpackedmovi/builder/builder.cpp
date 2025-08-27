@@ -242,16 +242,80 @@ class OptBWTRL {
     sdsl::int_vector<> rlbwt, runlens;
 
     struct MoveStructure {
+        sdsl::int_vector<>* intLens;
         sdsl::int_vector<> D_index;
         sdsl::int_vector<> D_offset;
+    } LF;
+
+    struct InvertibleMoveStructure {
+        //suffix array samples at
+        sdsl::int_vector<> SeqAt;
+        sdsl::int_vector<> PosAt;
+
+        //characters between this sample and the next (including this sample)
+        //unnecessary, but makes coding cleaner
+        sdsl::int_vector<> IntLen;
+
+        MoveStructure phi;
+        MoveStructure invPhi;
+        //sdsl::int_vector<> AboveToInterval;
+        //sdsl::int_vector<> AboveToOffset;
+        //sdsl::int_vector<> BelowToInterval;
+        //sdsl::int_vector<> BelowToOffset;
+
+        sdsl::int_vector<> AboveLCP;
+
+        /*
+        IntervalPoint mapPhi(const IntervalPoint& intPoint) {
+            IntervalPoint res;
+            res.position = (uint64_t) -1;
+            res.interval = AboveToInterval[intPoint.interval];
+            res.offset = AboveToOffset[intPoint.interval] + intPoint.offset;
+            while (IntLen[res.interval] <= res.offset)
+                res.offset -= IntLen[res.interval++];
+            return res;
+        }
+
+        IntervalPoint mapInvPhi(const IntervalPoint& intPoint) {
+            IntervalPoint res;
+            res.position = (uint64_t) -1;
+            res.interval = BelowToInterval[intPoint.interval];
+            res.offset = BelowToOffset[intPoint.interval] + intPoint.offset;
+            while(IntLen[res.interval] <= res.offset)
+                res.offset -= IntLen[res.interval++];
+            return res;
+        }
+        */
     };
+
+    public:
+    OptBWTRL(const rb3_fmi_t* rb3){
+        validateRB3(rb3);
+
+    }
+
+    static bool validateRB3(const rb3_fmi_t* rb3);
 };
+
+bool OptBWTRL::validateRB3(const rb3_fmi_t* rb3){
+    if (!rb3->e) {
+        std::cerr << "ERROR: fmd is a multirope (mrope)? I don't know what that is." << std::endl;
+        return false;
+    }
+
+    if (!rb3_fmi_is_symmetric(rb3)) {
+        std::cerr << "ERROR: fmd is not 'symmetric' (does this mean bidirectional?) fmd must be bidirectional" << std::endl;
+        return false;
+    }
+    return true;
+}
 
 int main(int argc, char *argv[]) {
     Timer.start("builder");
     Timer.start("Program Initialization");
     int use_mmap;
     rb3_fmi_t fmi;
+    //OptBWTRL ourIndex;
     {
         Timer.start("Reading Arguments");
         //const char characters[7] = "$ACGTN";
@@ -278,14 +342,9 @@ int main(int argc, char *argv[]) {
         }
 
         Timer.stop(); //(use_mmap)? "Loading fmd with mmap" : "Loading fmd"
-
-        if (!fmi.e) {
-            std::cerr << "ERROR: fmd is a multirope (mrope)? I don't know what that is." << std::endl;
-            return 1;
-        }
-
-        if (!rb3_fmi_is_symmetric(&fmi)) {
-            std::cerr << "ERROR: fmd is not 'symmetric' (does this mean bidirectional?) fmd must be bidirectional" << std::endl;
+        
+        if (!OptBWTRL::validateRB3(&fmi)) {
+            std::cerr << "ERROR: invalid ropebwt3 inputted!" << std::endl;
             return 1;
         }
     }
