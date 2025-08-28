@@ -146,6 +146,7 @@ void AdvanceIntervalPoint(IntervalPoint& intPoint, uint64_t distance, const sdsl
     intPoint.position += distance;
 }
 
+/*
 //NOTE: interval points returned by mapLF don't have valid position fields, they are set to -1
 //assumptions: inputs are valid and correspond to each other
 IntervalPoint mapLF(const IntervalPoint& intPoint, 
@@ -160,6 +161,7 @@ IntervalPoint mapLF(const IntervalPoint& intPoint,
         res.offset -= runlens[res.interval++];
     return res;
 }
+*/
 
 void printStructures(
         uint64_t field_width,
@@ -238,13 +240,26 @@ void printStructures(
 }
 
 class OptBWTRL {
-    uint64_t totalLen;
+    uint64_t totalLen = 0;
     sdsl::int_vector<> rlbwt, runlens;
+    sdsl::int_vector<> SATopRunInt;
 
     struct MoveStructure {
         sdsl::int_vector<>* intLens;
         sdsl::int_vector<> D_index;
         sdsl::int_vector<> D_offset;
+
+        //NOTE: interval points returned by mapLF don't have valid position fields, they are set to -1
+        //assumptions: inputs are valid and correspond to runs and runlens
+        IntervalPoint map(const IntervalPoint& intPoint) {
+            IntervalPoint res;
+            res.position = (uint64_t)-1;
+            res.interval = D_index[intPoint.interval];
+            res.offset = D_offset[intPoint.interval] + intPoint.offset;
+            while ((*intLens)[res.interval] <= res.offset)
+                res.offset -= (*intLens)[res.interval++];
+            return res;
+        }
     } LF;
 
     struct InvertibleMoveStructure {
@@ -286,13 +301,14 @@ class OptBWTRL {
             return res;
         }
         */
-    };
+    } PL;
 
     void RLBWTconstruction(const rb3_fmi_t* rb3, uRange & alphRange, std::vector<uint64_t>& alphCounts) {
         Timer.start("Constructing RLBWT from FMD");
         //'repaired' values. These are the values of our constructed index.
         //They may differ from ropebwt3's values because we split endmarkers into separate runs
         uint64_t runs = 0, alphbits, lenbits;
+        totalLen = 0;
         uRange lenRange;
         std::vector<uint64_t> alphRuns;
 
@@ -364,7 +380,6 @@ class OptBWTRL {
                 << "\nInput number of bits per run for encoding length (i.e. before splitting endmarker runs): " << RB3_lenbits
                 << "\nThis index number of bits per run for encoding length (i.e. after splitting endmarker runs): " << lenbits
                 << std::endl;
-
 
             std::cout << "Alphabet range: " << alphRange 
                 << "\nInput run lengths range (i.e. before splitting endmarker runs): " << RB3_lenRange
@@ -593,75 +608,531 @@ class OptBWTRL {
             std::cout << "Final LF.D_offset size in bytes: " << sdsl::size_in_bytes(LF.D_offset) << std::endl;
             Timer.stop(); //Computing LF size
 
-            /*
-               Timer.start("Verifying computed LF by sum of sequence lengths");
-               {
-               uint64_t sumSeqLengths = 0;
-            //This below comment is outdated. It is kept for informational purposes and posterity.
-            //We now keep each dollar in a separate run. We still verify by sequence
-            //because it is easily parallelizable and complete LF traversal is by far the slowest part of construction.
-            //(Naturally, since it is the only O(n) instead of O(r) part. It's not even O(n) because I haven't
-            //split the intervals of the move data structure yet.)
-            //-----------------------------------------------------------------------------------------------------------
-            //In theory, this is a multi-dollar BWT. I.E. for strings, s_0, s_1, s_2,..., s_k,
-            //the text is s_0,$_0,s_1,$_1,s_2,$_2,...,s_k,$_k concatenated in that order,
-            //where $_i < $_j for i < j and $_i < a for all non $_* characters in the text
-            //HOWEVER: In practice, the multi-dollars incur a big cost by increasing the alphabet size
-            //therefore they are usually all treated as $. This costs us something: we are no longer able
-            //to perform LF on the BWT locations with $. If desired, the value i in BWT[x] = $_i must be recovered.
-            //then LF[x] = i. We forgo this ability in implementation because we don't care about it and costs index size
+//            /*
+//            Timer.start("Verifying computed LF by sum of sequence lengths");
+//            {
+//                uint64_t sumSeqLengths = 0;
+//                //This below comment is outdated. It is kept for informational purposes and posterity.
+//                //We now keep each dollar in a separate run. We still verify by sequence
+//                //because it is easily parallelizable and complete LF traversal is by far the slowest part of construction.
+//                //(Naturally, since it is the only O(n) instead of O(r) part. It's not even O(n) because I haven't
+//                //split the intervals of the move data structure yet.)
+//                //-----------------------------------------------------------------------------------------------------------
+//                //In theory, this is a multi-dollar BWT. I.E. for strings, s_0, s_1, s_2,..., s_k,
+//                //the text is s_0,$_0,s_1,$_1,s_2,$_2,...,s_k,$_k concatenated in that order,
+//                //where $_i < $_j for i < j and $_i < a for all non $_* characters in the text
+//                //HOWEVER: In practice, the multi-dollars incur a big cost by increasing the alphabet size
+//                //therefore they are usually all treated as $. This costs us something: we are no longer able
+//                //to perform LF on the BWT locations with $. If desired, the value i in BWT[x] = $_i must be recovered.
+//                //then LF[x] = i. We forgo this ability in implementation because we don't care about it and costs index size
+//
+//                //However this does make verifying the LF function more difficult. (Typically, we could just LF n times
+//                //and verify that we return to the origin, then LF is a permutation with one cycle and likely correct.)
+//                //Here instead, we indpentently LF through each string contained in the text, sum up their lengths, 
+//                //and claim that if the sum of the lengths is accurate then the LF is likely correct. We could
+//                //also keep a bool array and make sure every position of the BWT is traversed exactly once,
+//                //but this would be costly in terms of memory for large compressed BWTs (150 GB for human472)
+//                //compute starts
+//                //-----------------------------------------------------------------------------------------------------------
+//                std::vector<IntervalPoint> starts(alphCounts[0]);
+//                IntervalPoint start{ (uint64_t)-1, 0, 0};
+//                starts[0] = start;
+//                for (uint64_t seq = 1; seq < alphCounts[0]; ++seq) {
+//                    ++start.offset;
+//                    if (start.offset == runlens[start.interval]) {
+//                        start.offset = 0;
+//                        ++start.interval;
+//                    }
+//                    starts[seq] = start;
+//                }
+//
+//                //count the length of sequence seq
+//                #pragma omp parallel for schedule(guided)
+//                for (uint64_t seq = 0; seq < alphCounts[0]; ++seq) {
+//                    IntervalPoint current{starts[seq]};
+//                    uint64_t seqLen = 1; //counting LF to endmarker, which isn't performed in actuality (simulated by incrementing start.offset...)
+//                    while (rlbwt[current.interval] != 0) {
+//                        ++seqLen;
+//                        current = mapLF(current, runlens, toRun, toOffset);
+//                    }
+//                    #pragma omp critical 
+//                    {
+//                        sumSeqLengths += seqLen;
+//                        stringStarts[seq] = current;
+//                    }
+//                }
+//
+//                if (sumSeqLengths != totalLen) {
+//                    std::cerr << "ERROR: Sum of sequence length not equal to the length of the BWT! Sequence length is computed by LF.\n"
+//                        << "ERROR: A total of " << sumSeqLengths << " LFs were computed. This is not equal to the length of the BWT, which is "
+//                        << totalLen << "." << std::endl;
+//                    return 1;
+//                }
+//                std::cout << "LF is likely correct, the sum of sequence lengths computed by it is " << sumSeqLengths << ". " 
+//                    << sumSeqLengths - alphCounts[0] << " LFs were computed in order to verify this.\n";
+//            }
+//            Timer.stop(); //Verifying computed LF by sum of sequence lengths
+//            */
+        }
+        Timer.stop(); //Constructing LF from RLBWT
+    }
 
-            //However this does make verifying the LF function more difficult. (Typically, we could just LF n times
-            //and verify that we return to the origin, then LF is a permutation with one cycle and likely correct.)
-            //Here instead, we indpentently LF through each string contained in the text, sum up their lengths, 
-            //and claim that if the sum of the lengths is accurate then the LF is likely correct. We could
-            //also keep a bool array and make sure every position of the BWT is traversed exactly once,
-            //but this would be costly in terms of memory for large compressed BWTs (150 GB for human472)
-            //compute starts
-            //-----------------------------------------------------------------------------------------------------------
-            std::vector<IntervalPoint> starts(alphCounts[0]);
-            IntervalPoint start{ (uint64_t)-1, 0, 0};
-            starts[0] = start;
+    void SAconstruction(const std::vector<uint64_t> & alphCounts) {
+        Timer.start("SA sampling");
+        std::vector<IntervalPoint> stringStarts(alphCounts[0]);
+
+        //suffixes are 0-indexed
+        //sequences are 0-indexed
+
+        //suffix array samples at the top of runs
+        //the suffix at the top of run i is the SATopRunInt[i] interval in the text order
+        //sdsl::int_vector<> SATopRunInt;
+        //SABotRunInt is not needed after the data structure is built but is needed to build the data structre (for sampling)
+        sdsl::int_vector<> SABotRunInt;
+
+        sdsl::int_vector<> runSampledAt;
+
+        //Samples in Text order
+        //InvertibleMoveStructure PhiInvPhi;
+
+        uint64_t maxSeqLen = 0;
+        std::vector<uint64_t> seqLens(alphCounts[0]); //seq lengths, counts endmarker so the empty string has length 1
+                                                      //number of times each string is at the top (and bottom respectively) of a run, 
+                                                      //counts endmarker, so value for the empty string would be 1
+        std::vector<uint64_t> seqNumsTopRun(alphCounts[0]), seqNumsBotRun(alphCounts[0]), seqNumsTopOrBotRun(alphCounts[0]); 
+        {
+            uint64_t sumSeqLengths = 0;
+            uint64_t maxIntLen = 0;
+            Timer.start("Auxiliary info computation (seqLens, seqNumsTopRun, seqNumsBotRun, seqNumsTopOrBotRun)");
+            {
+                std::vector<IntervalPoint> starts(alphCounts[0]);
+                IntervalPoint start{ (uint64_t)-1, 0, 0};
+                starts[0] = start;
+                for (uint64_t seq = 1; seq < alphCounts[0]; ++seq) {
+                    ++start.offset;
+                    if (start.offset == runlens[start.interval]) {
+                        start.offset = 0;
+                        ++start.interval;
+                    }
+                    starts[seq] = start;
+                }
+
+                #pragma omp parallel for schedule(guided)
+                for (uint64_t seq = 0; seq < alphCounts[0]; ++seq) {
+                    IntervalPoint current{starts[seq]};
+                    uint64_t seqLen = 0, seqNumTopRun = 0, seqNumBotRun = 0, seqNumTopOrBotRun = 0, seqNumOneRun = 0;
+                    uint64_t currentTopOrBotIntervalLen = 0; //number of characters in the current interval on the sequence since the last time the sequence was at the top or bottom of a run
+                    uint64_t maxTopOrBotIntervalLen = 0;
+                    while (rlbwt[current.interval] != 0) {
+                        //add suffix at current in SA
+                        ++seqLen;
+                        ++currentTopOrBotIntervalLen;
+                        seqNumOneRun += runlens[current.interval] == 1;
+                        seqNumTopRun += (current.offset == 0);
+                        seqNumBotRun += (current.offset == runlens[current.interval] - 1);
+                        if ((current.offset == 0) || (current.offset == runlens[current.interval] - 1)) {
+                            seqNumTopOrBotRun++;
+                            maxTopOrBotIntervalLen = std::max(maxTopOrBotIntervalLen, currentTopOrBotIntervalLen);
+                            currentTopOrBotIntervalLen = 0;
+                        }
+
+                        current = LF.map(current);
+                    } 
+                    //add suffix 0 of seq
+                    ++seqLen;
+                    ++currentTopOrBotIntervalLen;
+                    seqNumOneRun += runlens[current.interval] == 1;
+                    seqNumTopRun += (current.offset == 0);
+                    seqNumBotRun += (current.offset == runlens[current.interval] - 1);
+                    if ((current.offset == 0) || (current.offset == runlens[current.interval] - 1)) {
+                        seqNumTopOrBotRun++;
+                        maxTopOrBotIntervalLen = std::max(maxTopOrBotIntervalLen, currentTopOrBotIntervalLen);
+                        currentTopOrBotIntervalLen = 0;
+                    }
+                    else {
+                        std::cerr << "ERROR: suffix 0 of seq " << seq << " not at top or bottom of run (should be both, since in a run of length 1!\n";
+                        exit(1);
+                    }
+
+                    //save results
+#pragma omp critical
+                    {
+                        sumSeqLengths += seqLen;
+                        stringStarts[seq] = current;
+
+                        seqLens[seq] = seqLen;
+                        seqNumsTopRun[seq] = seqNumTopRun;
+                        seqNumsBotRun[seq] = seqNumBotRun;
+                        seqNumsTopOrBotRun[seq] = seqNumTopOrBotRun;
+
+                        maxIntLen = std::max(maxIntLen, maxTopOrBotIntervalLen);
+
+                        if (seqNumTopOrBotRun != seqNumTopRun + seqNumBotRun - seqNumOneRun) {
+                            std::cerr << "Number of times at bottom, top, boundary, and number runs of length one not consistent for seq " 
+                                << seq << "!\nTop: " << seqNumTopRun
+                                << "\nBot: " << seqNumBotRun 
+                                << "\nTop or Bot (Boundary): " << seqNumTopOrBotRun
+                                << "\nRuns of length one: " << seqNumOneRun << "\n";
+                            exit(1);
+                        }
+                    }
+                }
+            }
+            Timer.stop(); //Auxiliary info computation (seqLens, seqNumsTopRun, seqNumsBotRun)
+
+            if (sumSeqLengths != totalLen) {
+                std::cerr << "ERROR: Sum of sequence length not equal to the length of the BWT! Sequence length is computed by LF.\n"
+                    << "ERROR: A total of " << sumSeqLengths << " LFs were computed. This is not equal to the length of the BWT, which is "
+                    << totalLen << "." << std::endl;
+                exit(1);
+            }
+            std::cout << "LF is likely correct, the sum of sequence lengths computed by it is " << sumSeqLengths << ". " 
+                << sumSeqLengths - alphCounts[0] << " LFs were computed in order to verify this.\n";
+
+            Timer.start("Prefix summing auxiliary info");
+            maxSeqLen = seqLens[0];
             for (uint64_t seq = 1; seq < alphCounts[0]; ++seq) {
-            ++start.offset;
-            if (start.offset == runlens[start.interval]) {
-            start.offset = 0;
-            ++start.interval;
-            }
-            starts[seq] = start;
-            }
+                maxSeqLen = std::max(maxSeqLen, seqLens[seq]);
 
-            //count the length of sequence seq
+                seqNumsTopRun[seq] += seqNumsTopRun[seq-1];
+                seqNumsBotRun[seq] += seqNumsBotRun[seq-1];
+                seqNumsTopOrBotRun[seq] += seqNumsTopOrBotRun[seq-1];
+            }
+            Timer.stop(); //Prefix summing auxiliary info
+
+            std::cout << "Maximum sequence length: " << maxSeqLen << '\n';
+            std::cout << "Maximum interval length: " << maxIntLen << '\n';
+
+            uint64_t runs = rlbwt.size();
+
+            if (seqNumsTopRun.back() != runs) {
+                std::cerr << "ERROR:seqNumsTopRun.back() != runs, " << seqNumsTopRun.back() << " != " << runs << '\n';
+                exit(1);
+            }
+            if (seqNumsBotRun.back() != runs) {
+                std::cerr << "ERROR: seqNumsBotRun.back() != runs, " << seqNumsBotRun.back() << " != " << runs << '\n';
+                exit(1);
+            }
+            std::cout << "Total run tops: " << seqNumsTopRun.back() << '\n'
+                << "Total run bots: " << seqNumsBotRun.back() << '\n'
+                << "Total run top and bots: " << seqNumsTopOrBotRun.back() << '\n'
+                << "Therefore, total runs of length 1 [(tops + bots) - (tops and bots)]: " << seqNumsTopRun.back() + seqNumsBotRun.back() - seqNumsTopOrBotRun.back() << '\n';
+
+            SATopRunInt = sdsl::int_vector<>(runs, 0, sdsl::bits::hi(seqNumsTopOrBotRun.back() - 1) + 1);
+            SABotRunInt = sdsl::int_vector<>(runs, 0, sdsl::bits::hi(seqNumsTopOrBotRun.back() - 1) + 1);
+
+            PL.SeqAt = sdsl::int_vector<>(seqNumsTopOrBotRun.back(), 0, sdsl::bits::hi(alphCounts[0] - 1) + 1);
+            PL.PosAt = sdsl::int_vector<>(seqNumsTopOrBotRun.back(), 0, sdsl::bits::hi(maxSeqLen - 1) + 1);
+
+            PL.IntLen = sdsl::int_vector<>(seqNumsTopOrBotRun.back(), 0, sdsl::bits::hi(maxIntLen) + 1);
+
+            PL.phi.D_index = sdsl::int_vector<>(seqNumsTopOrBotRun.back(), 0, sdsl::bits::hi(seqNumsTopOrBotRun.back() - 1) + 1);
+            PL.phi.D_offset = sdsl::int_vector<>(seqNumsTopOrBotRun.back(), 0, sdsl::bits::hi(maxIntLen - 1) + 1);
+            PL.invPhi.D_index = sdsl::int_vector<>(seqNumsTopOrBotRun.back(), 0, sdsl::bits::hi(seqNumsTopOrBotRun.back() - 1) + 1);
+            PL.invPhi.D_offset = sdsl::int_vector<>(seqNumsTopOrBotRun.back(), 0, sdsl::bits::hi(maxIntLen - 1) + 1);
+
+
+            runSampledAt = sdsl::int_vector<>(seqNumsTopOrBotRun.back(), 0, sdsl::bits::hi(runs - 1) + 1);
+
+            Timer.start("Sampling");
+            {
+                std::vector<IntervalPoint> starts(alphCounts[0]);
+                IntervalPoint start{ (uint64_t)-1, 0, 0};
+                starts[0] = start;
+                for (uint64_t seq = 1; seq < alphCounts[0]; ++seq) {
+                    ++start.offset;
+                    if (start.offset == runlens[start.interval]) {
+                        start.offset = 0;
+                        ++start.interval;
+                    }
+                    starts[seq] = start;
+                }
+
+                Timer.start("Sampling the SA order");
 #pragma omp parallel for schedule(guided)
-for (uint64_t seq = 0; seq < alphCounts[0]; ++seq) {
-IntervalPoint current{starts[seq]};
-uint64_t seqLen = 1; //counting LF to endmarker, which isn't performed in actuality (simulated by incrementing start.offset...)
-while (rlbwt[current.interval] != 0) {
-++seqLen;
-current = mapLF(current, runlens, toRun, toOffset);
-}
-#pragma omp critical 
-{
-sumSeqLengths += seqLen;
-stringStarts[seq] = current;
-}
-}
+                for(uint64_t seq = 0; seq < alphCounts[0]; ++seq) {
+                    IntervalPoint current{starts[seq]};
+                    uint64_t pos = seqLens[seq] - 1;
+                    uint64_t prevPos = seqLens[seq];
+                    uint64_t posTopRun = seqNumsTopRun[seq] - 1;
+                    uint64_t posBotRun = seqNumsBotRun[seq] - 1;
+                    uint64_t posRun = seqNumsTopOrBotRun[seq] - 1;
+                    uint64_t finalTopRun = (seq == 0)? 0 : seqNumsTopRun[seq-1];
+                    uint64_t finalBotRun = (seq == 0)? 0 : seqNumsBotRun[seq-1];
+                    uint64_t finalRun = (seq == 0)? 0 : seqNumsTopOrBotRun[seq-1];
+                    while (rlbwt[current.interval] != 0) {
+                        if (current.offset == 0 || current.offset == runlens[current.interval] - 1) {
+                            if (current.offset == 0) {
+#pragma omp critical
+                                {
+                                    if (SATopRunInt[current.interval] != 0) {
+                                        std::cerr << "ERROR: this run's top sample has already been set!\n";
+                                    }
+                                    SATopRunInt[current.interval] = posRun;
+                                    if (posTopRun == finalTopRun) {
+                                        std::cerr << "ERROR: posTopRun to reach last position before endmarker found!\n";
+                                    }
+                                }
+                                --posTopRun;
+                            }
+                            if (current.offset == runlens[current.interval] - 1) {
+#pragma omp critical
+                                {
+                                    if (SABotRunInt[current.interval] != 0) {
+                                        std::cerr << "ERROR: this run's bot sample has already been set!\n";
+                                    }
+                                    SABotRunInt[current.interval] = posRun;
+                                    if (posBotRun == finalBotRun) {
+                                        std::cerr << "ERROR: posBotRun to reach last position before endmarker found!\n";
+                                    }
+                                }
+                                --posBotRun;
+                            }
 
-if (sumSeqLengths != totalLen) {
-std::cerr << "ERROR: Sum of sequence length not equal to the length of the BWT! Sequence length is computed by LF.\n"
-<< "ERROR: A total of " << sumSeqLengths << " LFs were computed. This is not equal to the length of the BWT, which is "
-<< totalLen << "." << std::endl;
-return 1;
-}
-std::cout << "LF is likely correct, the sum of sequence lengths computed by it is " << sumSeqLengths << ". " 
-<< sumSeqLengths - alphCounts[0] << " LFs were computed in order to verify this.\n";
-}
-Timer.stop(); //Verifying computed LF by sum of sequence lengths
-*/
+#pragma omp critical
+                            {
+                                if (PL.SeqAt[posRun] != 0 || PL.PosAt[posRun] != 0) {
+                                    std::cerr << "ERROR: this interval's phi sample has already been set!\n";
+                                }
+                                PL.SeqAt[posRun] = seq;
+                                PL.PosAt[posRun] = pos;
+                                PL.IntLen[posRun] = prevPos - pos;
+                                runSampledAt[posRun] = current.interval;
+                                if (posRun == finalRun) {
+                                    std::cerr << "ERROR: posRun to reach last position before endmarker found!\n";
+                                }
+                            }
+                            prevPos = pos;
+                            --posRun;
+
+                        }
+                        if (pos == 0) {
+                            std::cerr << "ERROR: pos in sequence to reach -1 before endmarker found!\n";
+                        }
+                        --pos;
+                        current = LF.map(current);
+                    }
+                    if (pos != 0) {
+                        std::cerr << "ERROR: full sequence not traversed!\n";
+                    }
+                    if (posTopRun != finalTopRun) {
+                        std::cerr << "ERROR: didn't traverse all top samples of this sequence!\n";
+                    }
+                    if (posBotRun != finalBotRun) {
+                        std::cerr << "ERROR: didn't traverse all bottom samples of this sequence!\n";
+                    }
+                    if (posRun != finalRun) {
+                        std::cerr << "ERROR: didn't traverse all interval samples of this sequence!\n";
+                    }
+                    if (current.offset == 0) {
+#pragma omp critical
+                        {
+                            SATopRunInt[current.interval] = posRun;
+                        }
+                        --posTopRun;
+
+                        PL.SeqAt[posRun] = seq;
+                        PL.PosAt[posRun] = pos;
+                        PL.IntLen[posRun] = prevPos - pos;
+                        runSampledAt[posRun] = current.interval;
+                    }
+                    else {
+                        std::cerr << "ERROR: offset != 0 in last run, endmarker run!\n";
+                    }
+                    if (current.offset == runlens[current.interval] - 1) {
+#pragma omp critical
+                        {
+                            SABotRunInt[current.interval] = posRun;
+                        }
+                        --posBotRun;
+                    }
+                    else {
+                        std::cerr << "ERROR: offset not at end of run in last run, endmarker run!\n";
+                    }
+                }
+                Timer.stop(); //Sampling in SA order
+
+                Timer.start("Sampling the Text order");
+                //#pragma omp parallel for schedule(guided)
+                for (uint64_t seq = 0; seq < alphCounts[0]; ++seq) {
+                    //go from beginning of sequence to end, by interval in phi
+                    uint64_t currentIntervalIndex = (seq == 0)? 0 :  seqNumsTopOrBotRun[seq-1];
+                    uint64_t seqTraversed = 0;
+
+                    //do first interval
+                    if (runlens[runSampledAt[currentIntervalIndex]] != 1) {
+                        std::cerr << "ERROR: first interval of sequences starts at a run of length not equal to 1"
+                            << " (should be 1 since bwt value should be endmarker of previous sequence)!\n";
+                    }
+                    if (PL.SeqAt[currentIntervalIndex] != seq)
+                        std::cerr << "ERROR: seq at interval doesn't match seq in Phi!\n";
+                    if (SATopRunInt[runSampledAt[currentIntervalIndex]] != SABotRunInt[runSampledAt[currentIntervalIndex]])
+                        std::cerr << "ERROR: top and bottom run sequence samples don't match in endmarker run (should be length 1)!\n";
+
+                    PL.phi.D_index[currentIntervalIndex] = SABotRunInt[(runSampledAt[currentIntervalIndex] == 0)? SABotRunInt.size()-1 : runSampledAt[currentIntervalIndex]-1];
+                    PL.phi.D_offset[currentIntervalIndex] = 0;
+                    PL.phi.intLens = &PL.IntLen;
+                    PL.invPhi.D_index[currentIntervalIndex] = SATopRunInt[(runSampledAt[currentIntervalIndex] == SATopRunInt.size() - 1)? 0 : runSampledAt[currentIntervalIndex]+1];
+                    PL.invPhi.D_offset[currentIntervalIndex] = 0;
+                    PL.invPhi.intLens = &PL.IntLen;
+
+                    //std::cout << "PhiInvPhi.phi.D_index[currentIntervalIndex]: " << PhiInvPhi.phi.D_index[currentIntervalIndex] << std::endl;
+                    //std::cout << "PhiInvPhi.invPhi.D_index[currentIntervalIndex]: " << PhiInvPhi.invPhi.D_index[currentIntervalIndex] << std::endl;
+
+                    seqTraversed += PL.IntLen[currentIntervalIndex];
+                    ++currentIntervalIndex;
+
+                    //std::cout << "Here" << std::endl;
+                    //std::cout << "seqTraversed: " << seqTraversed << ". currentIntervalIndex: " << currentIntervalIndex << std::endl;
+
+                    while (seqTraversed < seqLens[seq]) {
+                        //std::cout << "In here" << std::endl;
+                        //add next interval
+                        uint64_t runIndex = runSampledAt[currentIntervalIndex];
+                        uint64_t topRunInt = SATopRunInt[runIndex];
+                        uint64_t botRunInt = SABotRunInt[runIndex];
+                        if (!((seq == PL.SeqAt[topRunInt] && seqTraversed == PL.PosAt[topRunInt]) ||
+                                    (seq == PL.SeqAt[botRunInt] && seqTraversed == PL.PosAt[botRunInt])))
+                            std::cerr << "ERROR: Beginning of run interval in sequence is not equal to the sample at"
+                                << " the beginning or the end of the corresponding interval!\n";
+                        //std::cout << "AFter this?" << std::endl;
+                        //computing above sample
+                        if (seq == PL.SeqAt[topRunInt] && seqTraversed == PL.PosAt[topRunInt]) {
+                            uint64_t runAboveIndex = (runIndex == 0)? runs - 1 : runIndex - 1;
+#pragma omp critical
+                            {
+                                PL.phi.D_index[currentIntervalIndex] = SABotRunInt[runAboveIndex];
+                                PL.phi.D_offset[currentIntervalIndex] = 0;
+                            }
+                        }
+                        else {
+                            //use previous above sample
+                            uint64_t prevInt = PL.phi.D_index[currentIntervalIndex - 1];
+                            uint64_t prevOffset = PL.phi.D_offset[currentIntervalIndex - 1];
+                            prevOffset += PL.IntLen[currentIntervalIndex - 1];
+                            while (prevOffset >= PL.IntLen[prevInt]) {
+                                prevOffset -= PL.IntLen[prevInt];
+                                ++prevInt;
+                            }
+#pragma omp critical
+                            {
+                                PL.phi.D_index[currentIntervalIndex] = prevInt;
+                                PL.phi.D_offset[currentIntervalIndex] = prevOffset;
+                            }
+                        }
+
+                        //std::cout << "How about this?" << std::endl;
+
+                        //computing below sample
+                        if (seq == PL.SeqAt[botRunInt] && seqTraversed == PL.PosAt[botRunInt]) {
+                            //std::cout << "In if" << std::endl;
+                            uint64_t runBelowIndex = (runIndex == runs - 1)? 0 : runIndex + 1;
+#pragma omp critical
+                            {
+                                PL.invPhi.D_index[currentIntervalIndex] = SATopRunInt[runBelowIndex];
+                                PL.invPhi.D_offset[currentIntervalIndex] = 0;
+                            }
+                        }
+                        else {
+                            //std::cout << "In else" << std::endl;
+                            //use previous below sample
+                            uint64_t prevInt = PL.invPhi.D_index[currentIntervalIndex - 1];
+                            uint64_t prevOffset = PL.invPhi.D_offset[currentIntervalIndex - 1];
+                            prevOffset += PL.IntLen[currentIntervalIndex - 1];
+                            //std::cout << "Got here" << std::endl;
+                            while (prevOffset >= PL.IntLen[prevInt]) {
+                                //std::cout << "prevInt: " << prevInt << ". prevOffset: " << prevOffset << std::endl;
+                                prevOffset -= PL.IntLen[prevInt];
+                                ++prevInt;
+                            }
+                            //std::cout << "prevInt: " << prevInt << ". prevOffset: " << prevOffset << std::endl;
+                            //std::cout << "passed while loop" << std::endl;
+#pragma omp critical
+                            {
+                                PL.invPhi.D_index[currentIntervalIndex] = prevInt;
+                                PL.invPhi.D_offset[currentIntervalIndex] = prevOffset;
+                            }
+                        }
+
+                        //std::cout << "How aboutttt this?" << std::endl;
+
+                        seqTraversed += PL.IntLen[currentIntervalIndex];
+                        ++currentIntervalIndex;
+                    }
+
+                    //std::cout << "Here after" << std::endl;
+
+#pragma omp critical
+                    if (seqTraversed != seqLens[seq]) {
+                        std::cerr << "ERROR: Traversed a sequence some length not equal to it's actual length!\n";
+                        std::cerr << "ERROR: Traversed seq " << seq << " " << seqTraversed << " characters. Actual length: " << seqLens[seq] << '\n';
+                    }
+#pragma omp critical
+                    if (currentIntervalIndex != seqNumsTopOrBotRun[seq]) {
+                        std::cerr << "ERROR: Traversed sequence but ended up on some interval in PL other than the first interval of the next sequence!\n";
+                        std::cerr << "ERROR: Ended up on interval " << currentIntervalIndex << ". Should have ended up on " << seqNumsTopOrBotRun[seq] << '\n';
+                    }
+                }
+                Timer.stop(); //Sampling in Textorder
             }
-Timer.stop(); //Constructing LF from RLBWT
+            Timer.stop(); //Sampling
+        }
+        Timer.stop(); //SA sampling
+    }
 
-}
+    bool verifyPhi() {
+        Timer.start("Verifying Phi");
+
+        uint64_t runs = rlbwt.size();
+        bool pass = true;
+        #pragma omp parallel for schedule(guided)
+        for (uint64_t run = 0; run < runs; ++run) {
+            //check if top of run phis to top of previous run
+            IntervalPoint start{uint64_t(-1), SATopRunInt[(run == SATopRunInt.size()-1)? 0 : (run + 1)], 0},
+                          end{uint64_t(-1), SATopRunInt[run], 0};
+            for(uint64_t ops = 0; ops < runlens[run]; ++ops)
+                start = PL.phi.map(start);
+            if (start != end) {
+                #pragma omp critical
+                {
+                    pass = false;
+                    std::cerr << "ERROR: suffix did not end up at the beginning of run in verification of phi when phiing runlen times from the top of next run!\n";
+                }
+            }
+        }
+        if (pass)
+            std::cout << "Phi move data structure is likely correct, it is a permutation with one cycle\n";
+
+        Timer.stop(); //Verifying Phi
+        return pass;
+    }
+
+    bool verifyInvPhi() {
+        Timer.start("Verifying InvPhi");
+
+        uint64_t runs = rlbwt.size();
+        bool pass = true;
+        #pragma omp parallel for schedule(guided)
+        for (uint64_t run = 0; run < runs; ++run) {
+            //check if top of run phis to top of next run
+            IntervalPoint start{uint64_t(-1), SATopRunInt[run], 0},
+                          end{uint64_t(-1), SATopRunInt[(run == SATopRunInt.size()-1)? 0 : (run + 1)], 0};
+            for(uint64_t ops = 0; ops < runlens[run]; ++ops)
+                start = PL.invPhi.map(start);
+            if (start != end) {
+                #pragma omp critical
+                {
+                    pass = false;
+                    std::cerr << "ERROR: suffix did not end up at the beginning of next run in verification of inverse phi when invPhiing runlen times from the top of a run!\n";
+                }
+            }
+        }
+        if (pass)
+            std::cout << "InvPhi move data structure is likely correct, it is a permutation with one cycle\n";
+
+        Timer.stop(); //Verifying InvPhi
+        return pass;
+    }
 
     public:
     OptBWTRL(rb3_fmi_t* rb3){
@@ -674,6 +1145,11 @@ Timer.stop(); //Constructing LF from RLBWT
         rb3_fmi_free(rb3);
 
         LFconstruction(alphRange, alphCounts);
+
+        SAconstruction(alphCounts);
+
+        if (!verifyPhi() || !verifyInvPhi())
+            exit(1);
     }
 
     static bool validateRB3(const rb3_fmi_t* rb3);
@@ -735,450 +1211,8 @@ int main(int argc, char *argv[]) {
     OptBWTRL ourIndex(&fmi);
     Timer.stop(); //OptBWTRL construction
 
-//
-//    Timer.start("SA sampling");
-//    std::vector<IntervalPoint> stringStarts(alphCounts[0]);
-//
-//    //suffixes are 0-indexed
-//    //sequences are 0-indexed
-//
-//    //suffix array samples at the top of runs
-//    //the suffix at the top of run i is the SATopRunInt[i] interval in the text order
-//    sdsl::int_vector<> SATopRunInt;
-//    //SABotRunInt is not needed after the data structure is built but is needed to build the data strcutre (for sampling)
-//    sdsl::int_vector<> SABotRunInt;
-//
-//    sdsl::int_vector<> runSampledAt;
-//
-//    //Samples in Text order
-//    InvertibleMoveStructure PhiInvPhi;
-//
-//    uint64_t maxSeqLen = 0;
-//    std::vector<uint64_t> seqLens(alphCounts[0]); //seq lengths, counts endmarker so the empty string has length 1
-//    //number of times each string is at the top (and bottom respectively) of a run, 
-//    //counts endmarker, so value for the empty string would be 1
-//    std::vector<uint64_t> seqNumsTopRun(alphCounts[0]), seqNumsBotRun(alphCounts[0]), seqNumsTopOrBotRun(alphCounts[0]); 
-//    {
-//        uint64_t sumSeqLengths = 0;
-//        uint64_t maxIntLen = 0;
-//        Timer.start("Auxiliary info computation (seqLens, seqNumsTopRun, seqNumsBotRun, seqNumsTopOrBotRun)");
-//        {
-//            std::vector<IntervalPoint> starts(alphCounts[0]);
-//            IntervalPoint start{ (uint64_t)-1, 0, 0};
-//            starts[0] = start;
-//            for (uint64_t seq = 1; seq < alphCounts[0]; ++seq) {
-//                ++start.offset;
-//                if (start.offset == runlens[start.interval]) {
-//                    start.offset = 0;
-//                    ++start.interval;
-//                }
-//                starts[seq] = start;
-//            }
-//
-//            #pragma omp parallel for schedule(guided)
-//            for (uint64_t seq = 0; seq < alphCounts[0]; ++seq) {
-//                IntervalPoint current{starts[seq]};
-//                uint64_t seqLen = 0, seqNumTopRun = 0, seqNumBotRun = 0, seqNumTopOrBotRun = 0, seqNumOneRun = 0;
-//                uint64_t currentTopOrBotIntervalLen = 0; //number of characters in the current interval on the sequence since the last time the sequence was at the top or bottom of a run
-//                uint64_t maxTopOrBotIntervalLen = 0;
-//                while (rlbwt[current.interval] != 0) {
-//                    //add suffix at current in SA
-//                    ++seqLen;
-//                    ++currentTopOrBotIntervalLen;
-//                    seqNumOneRun += runlens[current.interval] == 1;
-//                    seqNumTopRun += (current.offset == 0);
-//                    seqNumBotRun += (current.offset == runlens[current.interval] - 1);
-//                    if ((current.offset == 0) || (current.offset == runlens[current.interval] - 1)) {
-//                        seqNumTopOrBotRun++;
-//                        maxTopOrBotIntervalLen = std::max(maxTopOrBotIntervalLen, currentTopOrBotIntervalLen);
-//                        currentTopOrBotIntervalLen = 0;
-//                    }
-//                    
-//                    current = mapLF(current, runlens, toRun, toOffset);
-//                } 
-//                //add suffix 0 of seq
-//                ++seqLen;
-//                ++currentTopOrBotIntervalLen;
-//                seqNumOneRun += runlens[current.interval] == 1;
-//                seqNumTopRun += (current.offset == 0);
-//                seqNumBotRun += (current.offset == runlens[current.interval] - 1);
-//                if ((current.offset == 0) || (current.offset == runlens[current.interval] - 1)) {
-//                    seqNumTopOrBotRun++;
-//                    maxTopOrBotIntervalLen = std::max(maxTopOrBotIntervalLen, currentTopOrBotIntervalLen);
-//                    currentTopOrBotIntervalLen = 0;
-//                }
-//                else {
-//                    std::cerr << "ERROR: suffix 0 of seq " << seq << " not at top or bottom of run (should be both, since in a run of length 1!\n";
-//                    exit(1);
-//                }
-//
-//                //save results
-//                #pragma omp critical
-//                {
-//                    sumSeqLengths += seqLen;
-//                    stringStarts[seq] = current;
-//
-//                    seqLens[seq] = seqLen;
-//                    seqNumsTopRun[seq] = seqNumTopRun;
-//                    seqNumsBotRun[seq] = seqNumBotRun;
-//                    seqNumsTopOrBotRun[seq] = seqNumTopOrBotRun;
-//                    
-//                    maxIntLen = std::max(maxIntLen, maxTopOrBotIntervalLen);
-//
-//                    if (seqNumTopOrBotRun != seqNumTopRun + seqNumBotRun - seqNumOneRun) {
-//                        std::cerr << "Number of times at bottom, top, boundary, and number runs of length one not consistent for seq " 
-//                            << seq << "!\nTop: " << seqNumTopRun
-//                            << "\nBot: " << seqNumBotRun 
-//                            << "\nTop or Bot (Boundary): " << seqNumTopOrBotRun
-//                            << "\nRuns of length one: " << seqNumOneRun << "\n";
-//                        exit(1);
-//                    }
-//                }
-//            }
-//        }
-//        Timer.stop(); //Auxiliary info computation (seqLens, seqNumsTopRun, seqNumsBotRun)
-//
-//        if (sumSeqLengths != totalLen) {
-//            std::cerr << "ERROR: Sum of sequence length not equal to the length of the BWT! Sequence length is computed by LF.\n"
-//                << "ERROR: A total of " << sumSeqLengths << " LFs were computed. This is not equal to the length of the BWT, which is "
-//                << totalLen << "." << std::endl;
-//            return 1;
-//        }
-//        std::cout << "LF is likely correct, the sum of sequence lengths computed by it is " << sumSeqLengths << ". " 
-//            << sumSeqLengths - alphCounts[0] << " LFs were computed in order to verify this.\n";
-//
-//        Timer.start("Prefix summing auxiliary info");
-//        maxSeqLen = seqLens[0];
-//        for (uint64_t seq = 1; seq < alphCounts[0]; ++seq) {
-//            maxSeqLen = std::max(maxSeqLen, seqLens[seq]);
-//
-//            seqNumsTopRun[seq] += seqNumsTopRun[seq-1];
-//            seqNumsBotRun[seq] += seqNumsBotRun[seq-1];
-//            seqNumsTopOrBotRun[seq] += seqNumsTopOrBotRun[seq-1];
-//        }
-//        Timer.stop(); //Prefix summing auxiliary info
-//
-//        std::cout << "Maximum sequence length: " << maxSeqLen << '\n';
-//        std::cout << "Maximum interval length: " << maxIntLen << '\n';
-//
-//        if (seqNumsTopRun.back() != runs) {
-//            std::cerr << "ERROR:seqNumsTopRun.back() != runs, " << seqNumsTopRun.back() << " != " << runs << '\n';
-//            exit(1);
-//        }
-//        if (seqNumsBotRun.back() != runs) {
-//            std::cerr << "ERROR: seqNumsBotRun.back() != runs, " << seqNumsBotRun.back() << " != " << runs << '\n';
-//            exit(1);
-//        }
-//        std::cout << "Total run tops: " << seqNumsTopRun.back() << '\n'
-//            << "Total run bots: " << seqNumsBotRun.back() << '\n'
-//            << "Total run top and bots: " << seqNumsTopOrBotRun.back() << '\n'
-//            << "Therefore, total runs of length 1 [(tops + bots) - (tops and bots)]: " << seqNumsTopRun.back() + seqNumsBotRun.back() - seqNumsTopOrBotRun.back() << '\n';
-//
-//        SATopRunInt = sdsl::int_vector<>(runs, 0, sdsl::bits::hi(seqNumsTopOrBotRun.back() - 1) + 1);
-//        SABotRunInt = sdsl::int_vector<>(runs, 0, sdsl::bits::hi(seqNumsTopOrBotRun.back() - 1) + 1);
-//
-//        PhiInvPhi.SeqAt = sdsl::int_vector<>(seqNumsTopOrBotRun.back(), 0, sdsl::bits::hi(alphCounts[0] - 1) + 1);
-//        PhiInvPhi.PosAt = sdsl::int_vector<>(seqNumsTopOrBotRun.back(), 0, sdsl::bits::hi(maxSeqLen - 1) + 1);
-//
-//        PhiInvPhi.IntLen = sdsl::int_vector<>(seqNumsTopOrBotRun.back(), 0, sdsl::bits::hi(maxIntLen) + 1);
-//
-//        PhiInvPhi.AboveToInterval = sdsl::int_vector<>(seqNumsTopOrBotRun.back(), 0, sdsl::bits::hi(seqNumsTopOrBotRun.back() - 1) + 1);
-//        PhiInvPhi.AboveToOffset = sdsl::int_vector<>(seqNumsTopOrBotRun.back(), 0, sdsl::bits::hi(maxIntLen - 1) + 1);
-//        PhiInvPhi.BelowToInterval = sdsl::int_vector<>(seqNumsTopOrBotRun.back(), 0, sdsl::bits::hi(seqNumsTopOrBotRun.back() - 1) + 1);
-//        PhiInvPhi.BelowToOffset = sdsl::int_vector<>(seqNumsTopOrBotRun.back(), 0, sdsl::bits::hi(maxIntLen - 1) + 1);
-//
-//
-//        runSampledAt = sdsl::int_vector<>(seqNumsTopOrBotRun.back(), 0, sdsl::bits::hi(runs - 1) + 1);
-//
-//        Timer.start("Sampling");
-//        {
-//            std::vector<IntervalPoint> starts(alphCounts[0]);
-//            IntervalPoint start{ (uint64_t)-1, 0, 0};
-//            starts[0] = start;
-//            for (uint64_t seq = 1; seq < alphCounts[0]; ++seq) {
-//                ++start.offset;
-//                if (start.offset == runlens[start.interval]) {
-//                    start.offset = 0;
-//                    ++start.interval;
-//                }
-//                starts[seq] = start;
-//            }
-//
-//            Timer.start("Sampling the SA order");
-//            #pragma omp parallel for schedule(guided)
-//            for(uint64_t seq = 0; seq < alphCounts[0]; ++seq) {
-//                IntervalPoint current{starts[seq]};
-//                uint64_t pos = seqLens[seq] - 1;
-//                uint64_t prevPos = seqLens[seq];
-//                uint64_t posTopRun = seqNumsTopRun[seq] - 1;
-//                uint64_t posBotRun = seqNumsBotRun[seq] - 1;
-//                uint64_t posRun = seqNumsTopOrBotRun[seq] - 1;
-//                uint64_t finalTopRun = (seq == 0)? 0 : seqNumsTopRun[seq-1];
-//                uint64_t finalBotRun = (seq == 0)? 0 : seqNumsBotRun[seq-1];
-//                uint64_t finalRun = (seq == 0)? 0 : seqNumsTopOrBotRun[seq-1];
-//                while (rlbwt[current.interval] != 0) {
-//                    if (current.offset == 0 || current.offset == runlens[current.interval] - 1) {
-//                        if (current.offset == 0) {
-//                            #pragma omp critical
-//                            {
-//                                if (SATopRunInt[current.interval] != 0) {
-//                                    std::cerr << "ERROR: this run's top sample has already been set!\n";
-//                                }
-//                                SATopRunInt[current.interval] = posRun;
-//                                if (posTopRun == finalTopRun) {
-//                                    std::cerr << "ERROR: posTopRun to reach last position before endmarker found!\n";
-//                                }
-//                            }
-//                            --posTopRun;
-//                        }
-//                        if (current.offset == runlens[current.interval] - 1) {
-//                            #pragma omp critical
-//                            {
-//                                if (SABotRunInt[current.interval] != 0) {
-//                                    std::cerr << "ERROR: this run's bot sample has already been set!\n";
-//                                }
-//                                SABotRunInt[current.interval] = posRun;
-//                                if (posBotRun == finalBotRun) {
-//                                    std::cerr << "ERROR: posBotRun to reach last position before endmarker found!\n";
-//                                }
-//                            }
-//                            --posBotRun;
-//                        }
-//
-//                        #pragma omp critical
-//                        {
-//                            if (PhiInvPhi.SeqAt[posRun] != 0 || PhiInvPhi.PosAt[posRun] != 0) {
-//                                std::cerr << "ERROR: this interval's phi sample has already been set!\n";
-//                            }
-//                            PhiInvPhi.SeqAt[posRun] = seq;
-//                            PhiInvPhi.PosAt[posRun] = pos;
-//                            PhiInvPhi.IntLen[posRun] = prevPos - pos;
-//                            runSampledAt[posRun] = current.interval;
-//                            if (posRun == finalRun) {
-//                                std::cerr << "ERROR: posRun to reach last position before endmarker found!\n";
-//                            }
-//                        }
-//                        prevPos = pos;
-//                        --posRun;
-//
-//                    }
-//                    if (pos == 0) {
-//                        std::cerr << "ERROR: pos in sequence to reach -1 before endmarker found!\n";
-//                    }
-//                    --pos;
-//                    current = mapLF(current,runlens, toRun, toOffset);
-//                }
-//                if (pos != 0) {
-//                    std::cerr << "ERROR: full sequence not traversed!\n";
-//                }
-//                if (posTopRun != finalTopRun) {
-//                    std::cerr << "ERROR: didn't traverse all top samples of this sequence!\n";
-//                }
-//                if (posBotRun != finalBotRun) {
-//                    std::cerr << "ERROR: didn't traverse all bottom samples of this sequence!\n";
-//                }
-//                if (posRun != finalRun) {
-//                    std::cerr << "ERROR: didn't traverse all interval samples of this sequence!\n";
-//                }
-//                if (current.offset == 0) {
-//                    #pragma omp critical
-//                    {
-//                        SATopRunInt[current.interval] = posRun;
-//                    }
-//                    --posTopRun;
-//
-//                    PhiInvPhi.SeqAt[posRun] = seq;
-//                    PhiInvPhi.PosAt[posRun] = pos;
-//                    PhiInvPhi.IntLen[posRun] = prevPos - pos;
-//                    runSampledAt[posRun] = current.interval;
-//                }
-//                else {
-//                    std::cerr << "ERROR: offset != 0 in last run, endmarker run!\n";
-//                }
-//                if (current.offset == runlens[current.interval] - 1) {
-//                    #pragma omp critical
-//                    {
-//                        SABotRunInt[current.interval] = posRun;
-//                    }
-//                    --posBotRun;
-//                }
-//                else {
-//                    std::cerr << "ERROR: offset not at end of run in last run, endmarker run!\n";
-//                }
-//            }
-//            Timer.stop(); //Sampling in SA order
-//            
-//            Timer.start("Sampling the Text order");
-//            //#pragma omp parallel for schedule(guided)
-//            for (uint64_t seq = 0; seq < alphCounts[0]; ++seq) {
-//                //go from beginning of sequence to end, by interval in phi
-//                uint64_t currentIntervalIndex = (seq == 0)? 0 :  seqNumsTopOrBotRun[seq-1];
-//                uint64_t seqTraversed = 0;
-//
-//                //do first interval
-//                if (runlens[runSampledAt[currentIntervalIndex]] != 1) {
-//                    std::cerr << "ERROR: first interval of sequences starts at a run of length not equal to 1"
-//                       << " (should be 1 since bwt value should be endmarker of previous sequence)!\n";
-//                }
-//                if (PhiInvPhi.SeqAt[currentIntervalIndex] != seq)
-//                    std::cerr << "ERROR: seq at interval doesn't match seq in Phi!\n";
-//                if (SATopRunInt[runSampledAt[currentIntervalIndex]] != SABotRunInt[runSampledAt[currentIntervalIndex]])
-//                    std::cerr << "ERROR: top and bottom run sequence samples don't match in endmarker run (should be length 1)!\n";
-//
-//                PhiInvPhi.AboveToInterval[currentIntervalIndex] = SABotRunInt[(runSampledAt[currentIntervalIndex] == 0)? SABotRunInt.size()-1 : runSampledAt[currentIntervalIndex]-1];
-//                PhiInvPhi.AboveToOffset[currentIntervalIndex] = 0;
-//                PhiInvPhi.BelowToInterval[currentIntervalIndex] = SATopRunInt[(runSampledAt[currentIntervalIndex] == SATopRunInt.size() - 1)? 0 : runSampledAt[currentIntervalIndex]+1];
-//                PhiInvPhi.BelowToOffset[currentIntervalIndex] = 0;
-//
-//                //std::cout << "PhiInvPhi.AboveToInterval[currentIntervalIndex]: " << PhiInvPhi.AboveToInterval[currentIntervalIndex] << std::endl;
-//                //std::cout << "PhiInvPhi.BelowToInterval[currentIntervalIndex]: " << PhiInvPhi.BelowToInterval[currentIntervalIndex] << std::endl;
-//
-//                seqTraversed += PhiInvPhi.IntLen[currentIntervalIndex];
-//                ++currentIntervalIndex;
-//
-//                //std::cout << "Here" << std::endl;
-//                //std::cout << "seqTraversed: " << seqTraversed << ". currentIntervalIndex: " << currentIntervalIndex << std::endl;
-//
-//                while (seqTraversed < seqLens[seq]) {
-//                    //std::cout << "In here" << std::endl;
-//                    //add next interval
-//                    uint64_t runIndex = runSampledAt[currentIntervalIndex];
-//                    uint64_t topRunInt = SATopRunInt[runIndex];
-//                    uint64_t botRunInt = SABotRunInt[runIndex];
-//                    if (!((seq == PhiInvPhi.SeqAt[topRunInt] && seqTraversed == PhiInvPhi.PosAt[topRunInt]) ||
-//                                (seq == PhiInvPhi.SeqAt[botRunInt] && seqTraversed == PhiInvPhi.PosAt[botRunInt])))
-//                        std::cerr << "ERROR: Beginning of run interval in sequence is not equal to the sample at"
-//                           << " the beginning or the end of the corresponding interval!\n";
-//                    //std::cout << "AFter this?" << std::endl;
-//                    //computing above sample
-//                    if (seq == PhiInvPhi.SeqAt[topRunInt] && seqTraversed == PhiInvPhi.PosAt[topRunInt]) {
-//                        uint64_t runAboveIndex = (runIndex == 0)? runs - 1 : runIndex - 1;
-//                        #pragma omp critical
-//                        {
-//                            PhiInvPhi.AboveToInterval[currentIntervalIndex] = SABotRunInt[runAboveIndex];
-//                            PhiInvPhi.AboveToOffset[currentIntervalIndex] = 0;
-//                        }
-//                    }
-//                    else {
-//                        //use previous above sample
-//                        uint64_t prevInt = PhiInvPhi.AboveToInterval[currentIntervalIndex - 1];
-//                        uint64_t prevOffset = PhiInvPhi.AboveToOffset[currentIntervalIndex - 1];
-//                        prevOffset += PhiInvPhi.IntLen[currentIntervalIndex - 1];
-//                        while (prevOffset >= PhiInvPhi.IntLen[prevInt]) {
-//                            prevOffset -= PhiInvPhi.IntLen[prevInt];
-//                            ++prevInt;
-//                        }
-//                        #pragma omp critical
-//                        {
-//                            PhiInvPhi.AboveToInterval[currentIntervalIndex] = prevInt;
-//                            PhiInvPhi.AboveToOffset[currentIntervalIndex] = prevOffset;
-//                        }
-//                    }
-//
-//                    //std::cout << "How about this?" << std::endl;
-//
-//                    //computing below sample
-//                    if (seq == PhiInvPhi.SeqAt[botRunInt] && seqTraversed == PhiInvPhi.PosAt[botRunInt]) {
-//                        //std::cout << "In if" << std::endl;
-//                        uint64_t runBelowIndex = (runIndex == runs - 1)? 0 : runIndex + 1;
-//                        #pragma omp critical
-//                        {
-//                            PhiInvPhi.BelowToInterval[currentIntervalIndex] = SATopRunInt[runBelowIndex];
-//                            PhiInvPhi.BelowToOffset[currentIntervalIndex] = 0;
-//                        }
-//                    }
-//                    else {
-//                        //std::cout << "In else" << std::endl;
-//                        //use previous below sample
-//                        uint64_t prevInt = PhiInvPhi.BelowToInterval[currentIntervalIndex - 1];
-//                        uint64_t prevOffset = PhiInvPhi.BelowToOffset[currentIntervalIndex - 1];
-//                        prevOffset += PhiInvPhi.IntLen[currentIntervalIndex - 1];
-//                        //std::cout << "Got here" << std::endl;
-//                        while (prevOffset >= PhiInvPhi.IntLen[prevInt]) {
-//                            //std::cout << "prevInt: " << prevInt << ". prevOffset: " << prevOffset << std::endl;
-//                            prevOffset -= PhiInvPhi.IntLen[prevInt];
-//                            ++prevInt;
-//                        }
-//                        //std::cout << "prevInt: " << prevInt << ". prevOffset: " << prevOffset << std::endl;
-//                        //std::cout << "passed while loop" << std::endl;
-//                        #pragma omp critical
-//                        {
-//                            PhiInvPhi.BelowToInterval[currentIntervalIndex] = prevInt;
-//                            PhiInvPhi.BelowToOffset[currentIntervalIndex] = prevOffset;
-//                        }
-//                    }
-//
-//                    //std::cout << "How aboutttt this?" << std::endl;
-//
-//                    seqTraversed += PhiInvPhi.IntLen[currentIntervalIndex];
-//                    ++currentIntervalIndex;
-//                }
-//
-//                //std::cout << "Here after" << std::endl;
-//
-//                #pragma omp critical
-//                if (seqTraversed != seqLens[seq]) {
-//                    std::cerr << "ERROR: Traversed a sequence some length not equal to it's actual length!\n";
-//                    std::cerr << "ERROR: Traversed seq " << seq << " " << seqTraversed << " characters. Actual length: " << seqLens[seq] << '\n';
-//                }
-//                #pragma omp critical
-//                if (currentIntervalIndex != seqNumsTopOrBotRun[seq]) {
-//                    std::cerr << "ERROR: Traversed sequence but ended up on some interval in PhiInvPhi other than the first interval of the next sequence!\n";
-//                    std::cerr << "ERROR: Ended up on interval " << currentIntervalIndex << ". Should have ended up on " << seqNumsTopOrBotRun[seq] << '\n';
-//                }
-//            }
-//            Timer.stop(); //Sampling in Textorder
-//        }
-//        Timer.stop(); //Sampling
-//    }
-//    Timer.stop(); //SA sampling
-//    
-//    Timer.start("Verifying Phi");
-//    {
-//        bool pass = true;
-//        #pragma omp parallel for schedule(guided)
-//        for (uint64_t run = 0; run < runs; ++run) {
-//            //check if bottom of run phis to bottom of next run
-//            IntervalPoint start{uint64_t(-1), SABotRunInt[run], 0},
-//                          end{uint64_t(-1), SABotRunInt[(run == 0)? SABotRunInt.size() - 1: (run - 1)], 0};
-//            for(uint64_t ops = 0; ops < runlens[run]; ++ops)
-//                start = PhiInvPhi.mapPhi(start);
-//            if (start != end) {
-//                #pragma omp critical
-//                {
-//                    pass = false;
-//                    std::cerr << "ERROR: suffix did not end up at the end of previous run in verification of phi when phiing runlen times from the bottom of a run!\n";
-//                }
-//            }
-//        }
-//        if (pass)
-//            std::cout << "Phi move data structure is likely correct, it is a permutation with one cycle\n";
-//    }
-//    Timer.stop(); //Verifying Phi
-//    
-//    Timer.start("Verifying InvPhi");
-//    {
-//        bool pass = true;
-//        #pragma omp parallel for schedule(guided)
-//        for (uint64_t run = 0; run < runs; ++run) {
-//            //check if bottom of run phis to bottom of next run
-//            IntervalPoint start{uint64_t(-1), SATopRunInt[run], 0},
-//                          end{uint64_t(-1), SATopRunInt[(run == SABotRunInt.size()-1)? 0 : (run + 1)], 0};
-//            for(uint64_t ops = 0; ops < runlens[run]; ++ops)
-//                start = PhiInvPhi.mapInvPhi(start);
-//            if (start != end) {
-//                #pragma omp critical
-//                {
-//                    pass = false;
-//                    std::cerr << "ERROR: suffix did not end up at the end of previous run in verification of phi when phiing runlen times from the bottom of a run!\n";
-//                }
-//            }
-//        }
-//        if (pass)
-//            std::cout << "InvPhi move data structure is likely correct, it is a permutation with one cycle\n";
-//    }
-//    Timer.stop(); //Verifying InvPhi
-//            
+    
+    
 //    Timer.start("LCP computation");
 //    {
 //        std::vector<IntervalPoint> starts(alphCounts[0]);
