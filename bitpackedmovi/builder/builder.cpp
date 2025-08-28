@@ -516,17 +516,17 @@ class OptBWTRL {
                 if (thisAlph != alphRange.max) {
                     std::cerr << "ERROR: When computing alphStarts, didn't end up on largest alphabet value! Largest value: "
                         << alphRange.max << ". Ended up on: " << thisAlph << std::endl;
-                    return 1;
+                    exit(1);
                 }
                 if (thisAlphLeft) {
                     std::cerr << "ERROR: When computing alphStarts, there are a nonzero amount of "
                         << alphRange.max << " characters left to look for, but the end of the rlbwt has been reached." << std::endl;
-                    return 1;
+                    exit(1);
                 }
                 if (thisRunStart != totalLen) {
                     std::cerr << "Final position is not total length of bwt in alphStart computation! Final position: " 
                         << thisRunStart << ". Total length: " << totalLen;
-                    return 1;
+                    exit(1);
                 }
 
                 //equivalent to alphStarts[thisAlph] = { thisRunStart + thisAlphLeft, i, thisAlphLeft };
@@ -555,8 +555,8 @@ class OptBWTRL {
                 for (uint64_t i = 0; i < runs; ++i) {
                     uint64_t l = runlens[i], c = rlbwt[i];
 
-                    toRun[i] = currentAlphLFs[c].interval;
-                    toOffset[i] = currentAlphLFs[c].offset;
+                    LF.D_index[i] = currentAlphLFs[c].interval;
+                    LF.D_offset[i] = currentAlphLFs[c].offset;
 
                     AdvanceIntervalPoint(currentAlphLFs[c], l, runlens);
                 }
@@ -583,14 +583,14 @@ class OptBWTRL {
                     std::cout << "The LFs of all symbols ended up at the start of the next symbol.\n";
                 else {
                     std::cerr << "ERROR: The LFs of some symbols didn't end up at the start of the next symbol. (See above)." << std::endl;
-                    return 1;
+                    exit(1);
                 }
             }
             Timer.stop(); //Computing run and offsets for LF from run starts
 
             Timer.start("Computing LF size");
-            std::cout << "Final toRun size in bytes: " << sdsl::size_in_bytes(toRun) << std::endl;
-            std::cout << "Final toOffset size in bytes: " << sdsl::size_in_bytes(toOffset) << std::endl;
+            std::cout << "Final LF.D_index size in bytes: " << sdsl::size_in_bytes(LF.D_index) << std::endl;
+            std::cout << "Final LF.D_offset size in bytes: " << sdsl::size_in_bytes(LF.D_offset) << std::endl;
             Timer.stop(); //Computing LF size
 
             /*
@@ -673,7 +673,7 @@ Timer.stop(); //Constructing LF from RLBWT
 
         rb3_fmi_free(rb3);
 
-        LFconstruction(alphRange);
+        LFconstruction(alphRange, alphCounts);
     }
 
     static bool validateRB3(const rb3_fmi_t* rb3);
