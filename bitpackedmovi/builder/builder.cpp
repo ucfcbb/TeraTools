@@ -1217,39 +1217,43 @@ class OptBWTRL {
             
             std::vector<bool> alphStartFound(phiAlphStarts.size(), false);
             //compute only for those with phi.D_offset = 0
-            #pragma omp parallel for schedule(guided)
+            std::vector<uint64_t> lcpSamples(seqNumsTopOrBotRun.back());
+            Timer.start("Heavy cost LCP computation");
+            #pragma omp parallel for schedule(dynamic,1)
             for (uint64_t seq = 0; seq < numStrings; ++seq) {
                 uint64_t startInterval = (seq == 0)? 0 : seqNumsTopOrBotRun[seq - 1];
-                for (uint64_t currentInterval = startInterval; currentInterval < seqNumsTopOrBotRun[seq]; ++currentInterval) {
+                uint64_t endInterval = seqNumsTopOrBotRun[seq];
+                std::vector<bool> isTop(endInterval - startInterval);
+                //std::vector<uint64_t> lcpSamples(endInterval - startInterval);
+                for (uint64_t currentInterval = startInterval; currentInterval < endInterval; ++currentInterval) {
                     if (PL.phi.D_offset[currentInterval] != 0) {
-                        #pragma omp critical
-                        {
-                            PL.AboveLCP[currentInterval] = PL.AboveLCP[currentInterval -1] - PL.IntLen[currentInterval - 1];
-                            if (PL.AboveLCP[currentInterval] < PL.IntLen[currentInterval]){
-                                bool found = false;
-                                if (PL.AboveLCP[currentInterval] == PL.IntLen[currentInterval] - 1) {
-                                    //possibly at the beginning of alphabet in F column, LCP of 0 is correct
-                                    for (uint64_t al = 0; al < phiAlphStarts.size(); ++al) {
-                                        if (phiAlphStarts[al].interval != currentInterval || phiAlphStarts[al].offset != PL.AboveLCP[currentInterval])
-                                            continue;
-                                        if (alphStartFound[al])
-                                            std::cerr << "ERROR: already found this alplhStart in phiinv data structure!\n";
-                                        alphStartFound[al] = true;
-                                        found = true;
-                                    }
+                        lcpSamples[currentInterval] = lcpSamples[currentInterval - 1] - PL.IntLen[currentInterval - 1];
+                        //error checking if statement
+                        if (lcpSamples[currentInterval] < PL.IntLen[currentInterval]){
+                            bool found = false;
+                            //FIX THIS IF STATEMENT, VERY DUMB AND INEFFICIENT
+                            if (lcpSamples[currentInterval] == PL.IntLen[currentInterval] - 1) {
+                                //possibly at the beginning of alphabet in F column, LCP of 0 is correct
+                                for (uint64_t al = 0; al < phiAlphStarts.size(); ++al) {
+                                    if (phiAlphStarts[al].interval != currentInterval || phiAlphStarts[al].offset != lcpSamples[currentInterval])
+                                        continue;
+                                    if (alphStartFound[al])
+                                        std::cerr << "ERROR: already found this alplhStart in phiinv data structure!\n";
+                                    alphStartFound[al] = true;
+                                    found = true;
                                 }
-                                if (currentInterval == seqNumsTopOrBotRun[seq] - 1) {
-                                    //LCP should be interval length - 1
-                                    if (PL.AboveLCP[currentInterval] != PL.IntLen[currentInterval] - 1) {
-                                        std::cerr << "ERROR: Last interval of sequence has weird matching length, maybe including endmarker!\n";
-                                    }
-                                    else 
-                                        found = true;
-                                }
-                                if (!found) 
-                                    std::cerr << "ERROR: forwarded LCP computed smaller than interval length and is not one of alphStarts!\n"
-                                        << "ERROR: forwarded: " << PL.AboveLCP[currentInterval] << ". Interval length: " << PL.IntLen[currentInterval] << '\n';
                             }
+                            if (currentInterval == endInterval - 1) {
+                                //LCP should be interval length - 1
+                                if (lcpSamples[currentInterval] != PL.IntLen[currentInterval] - 1) {
+                                    std::cerr << "ERROR: Last interval of sequence has weird matching length, maybe including endmarker!\n";
+                                }
+                                else 
+                                    found = true;
+                            }
+                            if (!found) 
+                                std::cerr << "ERROR: forwarded LCP computed smaller than interval length and is not one of alphStarts!\n"
+                                    << "ERROR: forwarded: " << lcpSamples[currentInterval] << ". Interval length: " << PL.IntLen[currentInterval] << '\n';
                         }
                         continue;
                     }
@@ -1264,37 +1268,47 @@ class OptBWTRL {
                         ++matchingLength;
                     }
 
-                    #pragma omp critical
-                    {
-                        PL.AboveLCP[currentInterval] = matchingLength;
-                        if (matchingLength < PL.IntLen[currentInterval]) {
-                            bool found = false;
-                            if (matchingLength == PL.IntLen[currentInterval] - 1) {
-                                //possibly at the beginning of alphabet in F column, LCP of 0 is correct
-                                for (uint64_t al = 0; al < phiAlphStarts.size(); ++al) {
-                                    if (phiAlphStarts[al].interval != currentInterval || phiAlphStarts[al].offset != matchingLength)
-                                        continue;
-                                    if (alphStartFound[al])
-                                        std::cerr << "ERROR: already found this alphStart in the PL data structure!\n";
-                                    alphStartFound[al] = true;
-                                    found = true;
-                                }
+                    lcpSamples[currentInterval] = matchingLength;
+                    //error checking if statement
+                    if (matchingLength < PL.IntLen[currentInterval]) {
+                        bool found = false;
+                        if (matchingLength == PL.IntLen[currentInterval] - 1) {
+                            //possibly at the beginning of alphabet in F column, LCP of 0 is correct
+                            for (uint64_t al = 0; al < phiAlphStarts.size(); ++al) {
+                                if (phiAlphStarts[al].interval != currentInterval || phiAlphStarts[al].offset != matchingLength)
+                                    continue;
+                                if (alphStartFound[al])
+                                    std::cerr << "ERROR: already found this alphStart in the PL data structure!\n";
+                                alphStartFound[al] = true;
+                                found = true;
                             }
-                            if (currentInterval == seqNumsTopOrBotRun[seq] - 1) {
-                                //LCP should be interval length - 1
-                                if (matchingLength !=  PL.IntLen[currentInterval] - 1) {
-                                    std::cerr << "ERROR: Last interval of sequence has weird matching that might include the endmarker!\n";
-                                }
-                                else 
-                                    found = true;
-                            }
-                            if (!found)
-                                std::cerr << "ERROR: Computed LCP smaller than interval length and is not one of alphStarts!\n"
-                                    << "ERROR: Computed: " << matchingLength <<". Interval length: " << PL.IntLen[currentInterval] << " for interval: " << currentInterval << '\n';
                         }
+                        if (currentInterval == endInterval - 1) {
+                            //LCP should be interval length - 1
+                            if (matchingLength !=  PL.IntLen[currentInterval] - 1) {
+                                std::cerr << "ERROR: Last interval of sequence has weird matching that might include the endmarker!\n";
+                            }
+                            else 
+                                found = true;
+                        }
+                        if (!found)
+                            std::cerr << "ERROR: Computed LCP smaller than interval length and is not one of alphStarts!\n"
+                                << "ERROR: Computed: " << matchingLength <<". Interval length: " << PL.IntLen[currentInterval] << " for interval: " << currentInterval << '\n';
                     }
                 }
+
+                /*
+                #pragma omp critical
+                {
+                    for (uint64_t i = 0; i < endInterval - startInterval; ++i)
+                        PL.AboveLCP[startInterval + i] = lcpSamples[i];
+                }
+                */
             }
+            Timer.stop() //Heavy cost LCP computation
+
+            for (uint64_t i = 0; i < lcpSamples.size(); ++i)
+                PL.AboveLCP[i] = lcpSamples[i];
 
             bool re = true;
             for (auto t : alphStartFound)
