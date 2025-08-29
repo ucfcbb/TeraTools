@@ -491,13 +491,13 @@ class OptBWTRL {
         Timer.stop(); //Constructing RLBWT from FMD
     }
 
-    void LFconstruction(uRange alphRange, const std::vector<uint64_t> & alphCounts) {
+    void LFconstruction(uRange alphRange, const std::vector<uint64_t> & alphCounts, std::vector<IntervalPoint> & alphStarts) {
         Timer.start("Constructing LF from RLBWT");
         uint64_t runs = rlbwt.size();
         LF.intLens = &runlens;
         LF.D_index = sdsl::int_vector<>(rlbwt.size(), 0, sdsl::bits::hi(runs) + 1);
         LF.D_offset= sdsl::int_vector<>(rlbwt.size(), 0, runlens.width());
-        std::vector<IntervalPoint> alphStarts(alphRange.max+2);
+        alphStarts.resize(alphRange.max+2);
         {
             Timer.start("Computing alphStarts");
             {
@@ -653,7 +653,7 @@ class OptBWTRL {
 //                    uint64_t seqLen = 1; //counting LF to endmarker, which isn't performed in actuality (simulated by incrementing start.offset...)
 //                    while (rlbwt[current.interval] != 0) {
 //                        ++seqLen;
-//                        current = mapLF(current, runlens, toRun, toOffset);
+//                        current = );
 //                    }
 //                    #pragma omp critical 
 //                    {
@@ -677,7 +677,7 @@ class OptBWTRL {
         Timer.stop(); //Constructing LF from RLBWT
     }
 
-    void SAconstruction(const std::vector<uint64_t> & alphCounts) {
+    void SAconstruction(const std::vector<uint64_t> & alphCounts, std::vector<uint64_t> & seqNumsTopOrBotRun, std::vector<uint64_t> & seqLens) {
         Timer.start("SA sampling");
         std::vector<IntervalPoint> stringStarts(alphCounts[0]);
 
@@ -696,10 +696,11 @@ class OptBWTRL {
         //InvertibleMoveStructure PhiInvPhi;
 
         uint64_t maxSeqLen = 0;
-        std::vector<uint64_t> seqLens(alphCounts[0]); //seq lengths, counts endmarker so the empty string has length 1
-                                                      //number of times each string is at the top (and bottom respectively) of a run, 
-                                                      //counts endmarker, so value for the empty string would be 1
-        std::vector<uint64_t> seqNumsTopRun(alphCounts[0]), seqNumsBotRun(alphCounts[0]), seqNumsTopOrBotRun(alphCounts[0]); 
+        seqLens.resize(alphCounts[0]); //seq lengths, counts endmarker so the empty string has length 1
+                                       //number of times each string is at the top (and bottom respectively) of a run, 
+                                       //counts endmarker, so value for the empty string would be 1
+        std::vector<uint64_t> seqNumsTopRun(alphCounts[0]), seqNumsBotRun(alphCounts[0]); 
+        seqNumsTopOrBotRun.resize(alphCounts[0]); 
         {
             uint64_t sumSeqLengths = 0;
             uint64_t maxIntLen = 0;
@@ -755,7 +756,7 @@ class OptBWTRL {
                     }
 
                     //save results
-#pragma omp critical
+                    #pragma omp critical
                     {
                         sumSeqLengths += seqLen;
                         stringStarts[seq] = current;
@@ -849,7 +850,7 @@ class OptBWTRL {
                 }
 
                 Timer.start("Sampling the SA order");
-#pragma omp parallel for schedule(guided)
+                #pragma omp parallel for schedule(guided)
                 for(uint64_t seq = 0; seq < alphCounts[0]; ++seq) {
                     IntervalPoint current{starts[seq]};
                     uint64_t pos = seqLens[seq] - 1;
@@ -863,7 +864,7 @@ class OptBWTRL {
                     while (rlbwt[current.interval] != 0) {
                         if (current.offset == 0 || current.offset == runlens[current.interval] - 1) {
                             if (current.offset == 0) {
-#pragma omp critical
+                                #pragma omp critical
                                 {
                                     if (SATopRunInt[current.interval] != 0) {
                                         std::cerr << "ERROR: this run's top sample has already been set!\n";
@@ -876,7 +877,7 @@ class OptBWTRL {
                                 --posTopRun;
                             }
                             if (current.offset == runlens[current.interval] - 1) {
-#pragma omp critical
+                                #pragma omp critical
                                 {
                                     if (SABotRunInt[current.interval] != 0) {
                                         std::cerr << "ERROR: this run's bot sample has already been set!\n";
@@ -889,7 +890,7 @@ class OptBWTRL {
                                 --posBotRun;
                             }
 
-#pragma omp critical
+                            #pragma omp critical
                             {
                                 if (PL.SeqAt[posRun] != 0 || PL.PosAt[posRun] != 0) {
                                     std::cerr << "ERROR: this interval's phi sample has already been set!\n";
@@ -925,7 +926,7 @@ class OptBWTRL {
                         std::cerr << "ERROR: didn't traverse all interval samples of this sequence!\n";
                     }
                     if (current.offset == 0) {
-#pragma omp critical
+                        #pragma omp critical
                         {
                             SATopRunInt[current.interval] = posRun;
                         }
@@ -940,7 +941,7 @@ class OptBWTRL {
                         std::cerr << "ERROR: offset != 0 in last run, endmarker run!\n";
                     }
                     if (current.offset == runlens[current.interval] - 1) {
-#pragma omp critical
+                        #pragma omp critical
                         {
                             SABotRunInt[current.interval] = posRun;
                         }
@@ -999,7 +1000,7 @@ class OptBWTRL {
                         //computing above sample
                         if (seq == PL.SeqAt[topRunInt] && seqTraversed == PL.PosAt[topRunInt]) {
                             uint64_t runAboveIndex = (runIndex == 0)? runs - 1 : runIndex - 1;
-#pragma omp critical
+                            #pragma omp critical
                             {
                                 PL.phi.D_index[currentIntervalIndex] = SABotRunInt[runAboveIndex];
                                 PL.phi.D_offset[currentIntervalIndex] = 0;
@@ -1014,7 +1015,7 @@ class OptBWTRL {
                                 prevOffset -= PL.IntLen[prevInt];
                                 ++prevInt;
                             }
-#pragma omp critical
+                            #pragma omp critical
                             {
                                 PL.phi.D_index[currentIntervalIndex] = prevInt;
                                 PL.phi.D_offset[currentIntervalIndex] = prevOffset;
@@ -1027,7 +1028,7 @@ class OptBWTRL {
                         if (seq == PL.SeqAt[botRunInt] && seqTraversed == PL.PosAt[botRunInt]) {
                             //std::cout << "In if" << std::endl;
                             uint64_t runBelowIndex = (runIndex == runs - 1)? 0 : runIndex + 1;
-#pragma omp critical
+                            #pragma omp critical
                             {
                                 PL.invPhi.D_index[currentIntervalIndex] = SATopRunInt[runBelowIndex];
                                 PL.invPhi.D_offset[currentIntervalIndex] = 0;
@@ -1047,7 +1048,7 @@ class OptBWTRL {
                             }
                             //std::cout << "prevInt: " << prevInt << ". prevOffset: " << prevOffset << std::endl;
                             //std::cout << "passed while loop" << std::endl;
-#pragma omp critical
+                            #pragma omp critical
                             {
                                 PL.invPhi.D_index[currentIntervalIndex] = prevInt;
                                 PL.invPhi.D_offset[currentIntervalIndex] = prevOffset;
@@ -1062,12 +1063,12 @@ class OptBWTRL {
 
                     //std::cout << "Here after" << std::endl;
 
-#pragma omp critical
+                    #pragma omp critical
                     if (seqTraversed != seqLens[seq]) {
                         std::cerr << "ERROR: Traversed a sequence some length not equal to it's actual length!\n";
                         std::cerr << "ERROR: Traversed seq " << seq << " " << seqTraversed << " characters. Actual length: " << seqLens[seq] << '\n';
                     }
-#pragma omp critical
+                    #pragma omp critical
                     if (currentIntervalIndex != seqNumsTopOrBotRun[seq]) {
                         std::cerr << "ERROR: Traversed sequence but ended up on some interval in PL other than the first interval of the next sequence!\n";
                         std::cerr << "ERROR: Ended up on interval " << currentIntervalIndex << ". Should have ended up on " << seqNumsTopOrBotRun[seq] << '\n';
@@ -1134,6 +1135,192 @@ class OptBWTRL {
         return pass;
     }
 
+    void LCPconstruction(const std::vector<IntervalPoint> & alphStarts, const std::vector<uint64_t> & seqNumsTopOrBotRun, const std::vector<uint64_t> & seqLens) {
+        Timer.start("LCP computation");
+        uint64_t numStrings = alphStarts[1].position;
+
+        std::vector<IntervalPoint> starts(numStrings);
+        std::vector<IntervalPoint> revEquivLF(seqNumsTopOrBotRun.back());
+        IntervalPoint start{ (uint64_t)-1, 0, 0};
+        starts[0] = start;
+        for (uint64_t seq = 1; seq < numStrings; ++seq) {
+            ++start.offset;
+            if (start.offset == runlens[start.interval]) {
+                start.offset = 0;
+                ++start.interval;
+            }
+            starts[seq] = start;
+        }
+
+        Timer.start("Reverse sampling");
+        #pragma omp parallel for schedule(guided)
+        for (uint64_t seq = 0; seq < numStrings; ++seq) {
+            //traverse seq from end to beginning, storing samples of LF position of seq in the intervals of rev(seq) in the PhiInvPHi data structure
+            uint64_t revSeq = (seq%2 == 0)? seq + 1 : seq - 1;
+            IntervalPoint current{starts[seq]};
+            //uint64_t posSeq = seqLens[seq] - 1;
+            uint64_t revSeqIntervalIndex = (revSeq == 0)? 0 : seqNumsTopOrBotRun[revSeq - 1];
+            uint64_t revSeqIntervalOffset = 0;
+            uint64_t finalRevSeqIntervalIndex = seqNumsTopOrBotRun[revSeq];
+
+            //check if seq and revSeq lengths are equal
+            #pragma omp critical
+            if (seqLens[seq] != seqLens[revSeq]) {
+                std::cerr << "ERROR: Length of sequence (" << seq << ") and its reverse (" << revSeq << ") are not equal! Respectively: " 
+                    << seqLens[seq] << " and " << seqLens[revSeq] << "!\n";
+            }
+
+            while (revSeqIntervalIndex != finalRevSeqIntervalIndex) {
+                if (revSeqIntervalOffset == 0) {
+                    #pragma omp critical
+                    {
+                        if (revEquivLF[revSeqIntervalIndex].interval != 0 || revEquivLF[revSeqIntervalIndex].offset != 0)
+                            std::cerr << "ERROR: setting already set revEquivLF in reverse sampling!\n";
+                        revEquivLF[revSeqIntervalIndex] = current;
+                    }
+                }
+
+                current = LF.map(current);
+                ++revSeqIntervalOffset;
+                if (revSeqIntervalOffset == PL.IntLen[revSeqIntervalIndex]) {
+                    revSeqIntervalOffset = 0;
+                    ++revSeqIntervalIndex;
+                }
+            }
+        }
+        Timer.stop(); //Reverse sampling
+
+        Timer.start("LCP Sampling");
+        {
+            PL.AboveLCP.resize(seqNumsTopOrBotRun.back());
+
+            Timer.start("locating alphStarts in PL");
+            uint64_t sampledAlphStarts = 0;
+            std::vector<IntervalPoint> phiAlphStarts(alphStarts.size()-1);
+            for (uint64_t al = 0; al < phiAlphStarts.size(); ++al) {
+                //std::cout << "Hre" << std::endl;
+                phiAlphStarts[al] = {uint64_t(-1), SATopRunInt[alphStarts[al].interval], 0};
+                for (uint64_t i = 0; i < alphStarts[al].offset; ++i)
+                    phiAlphStarts[al] = PL.invPhi.map(phiAlphStarts[al]);
+                sampledAlphStarts += phiAlphStarts[al].offset == 0;
+            }
+            Timer.stop(); //locating alphStarts in PL
+            //std::cout << "Hredone" << std::endl;
+
+            std::cout << "Of " << phiAlphStarts.size() << ", " << sampledAlphStarts << " alphStarts are at the beginning or end of a run in the BWT\n";
+            std::cout << "Locations of alphStarts in PL intervals:\n\tsymbol\tinterval\toffset\n";
+            for (uint64_t al = 0; al < phiAlphStarts.size(); ++al)
+                std::cout << '\t' << al
+                    << '\t' << phiAlphStarts[al].interval
+                    << '\t' << phiAlphStarts[al].offset << '\n';
+
+            
+            std::vector<bool> alphStartFound(phiAlphStarts.size(), false);
+            //compute only for those with phi.D_offset = 0
+            #pragma omp parallel for schedule(guided)
+            for (uint64_t seq = 0; seq < numStrings; ++seq) {
+                uint64_t startInterval = (seq == 0)? 0 : seqNumsTopOrBotRun[seq - 1];
+                for (uint64_t currentInterval = startInterval; currentInterval < seqNumsTopOrBotRun[seq]; ++currentInterval) {
+                    if (PL.phi.D_offset[currentInterval] != 0) {
+                        #pragma omp critical
+                        {
+                            PL.AboveLCP[currentInterval] = PL.AboveLCP[currentInterval -1] - PL.IntLen[currentInterval - 1];
+                            if (PL.AboveLCP[currentInterval] < PL.IntLen[currentInterval]){
+                                bool found = false;
+                                if (PL.AboveLCP[currentInterval] == PL.IntLen[currentInterval] - 1) {
+                                    //possibly at the beginning of alphabet in F column, LCP of 0 is correct
+                                    for (uint64_t al = 0; al < phiAlphStarts.size(); ++al) {
+                                        if (phiAlphStarts[al].interval != currentInterval || phiAlphStarts[al].offset != PL.AboveLCP[currentInterval])
+                                            continue;
+                                        if (alphStartFound[al])
+                                            std::cerr << "ERROR: already found this alplhStart in phiinv data structure!\n";
+                                        alphStartFound[al] = true;
+                                        found = true;
+                                    }
+                                }
+                                if (currentInterval == seqNumsTopOrBotRun[seq] - 1) {
+                                    //LCP should be interval length - 1
+                                    if (PL.AboveLCP[currentInterval] != PL.IntLen[currentInterval] - 1) {
+                                        std::cerr << "ERROR: Last interval of sequence has weird matching length, maybe including endmarker!\n";
+                                    }
+                                    else 
+                                        found = true;
+                                }
+                                if (!found) 
+                                    std::cerr << "ERROR: forwarded LCP computed smaller than interval length and is not one of alphStarts!\n"
+                                        << "ERROR: forwarded: " << PL.AboveLCP[currentInterval] << ". Interval length: " << PL.IntLen[currentInterval] << '\n';
+                            }
+                        }
+                        continue;
+                    }
+
+                    uint64_t matchingLength = 0;
+                    IntervalPoint revSeq{revEquivLF[currentInterval]};
+                    IntervalPoint revSeqAbove{revEquivLF[PL.phi.D_index[currentInterval]]};
+
+                    while (rlbwt[revSeq.interval] != 0 && rlbwt[revSeqAbove.interval] != 0 && rlbwt[revSeq.interval] == rlbwt[revSeqAbove.interval]) {
+                        revSeq = LF.map(revSeq);
+                        revSeqAbove = LF.map(revSeqAbove);
+                        ++matchingLength;
+                    }
+
+                    #pragma omp critical
+                    {
+                        PL.AboveLCP[currentInterval] = matchingLength;
+                        if (matchingLength < PL.IntLen[currentInterval]) {
+                            bool found = false;
+                            if (matchingLength == PL.IntLen[currentInterval] - 1) {
+                                //possibly at the beginning of alphabet in F column, LCP of 0 is correct
+                                for (uint64_t al = 0; al < phiAlphStarts.size(); ++al) {
+                                    if (phiAlphStarts[al].interval != currentInterval || phiAlphStarts[al].offset != matchingLength)
+                                        continue;
+                                    if (alphStartFound[al])
+                                        std::cerr << "ERROR: already found this alphStart in the PL data structure!\n";
+                                    alphStartFound[al] = true;
+                                    found = true;
+                                }
+                            }
+                            if (currentInterval == seqNumsTopOrBotRun[seq] - 1) {
+                                //LCP should be interval length - 1
+                                if (matchingLength !=  PL.IntLen[currentInterval] - 1) {
+                                    std::cerr << "ERROR: Last interval of sequence has weird matching that might include the endmarker!\n";
+                                }
+                                else 
+                                    found = true;
+                            }
+                            if (!found)
+                                std::cerr << "ERROR: Computed LCP smaller than interval length and is not one of alphStarts!\n"
+                                    << "ERROR: Computed: " << matchingLength <<". Interval length: " << PL.IntLen[currentInterval] << " for interval: " << currentInterval << '\n';
+                        }
+                    }
+                }
+            }
+
+            bool re = true;
+            for (auto t : alphStartFound)
+                re = re && t;
+            if (re)
+                std::cout << "Found all " << sampledAlphStarts << " sampled alplh starts.\n";
+            else 
+                std::cerr << "ERROR: Didn't find all alph starts!\n";
+
+            Timer.stop(); //LCP Sampling
+            /*
+            Timer.start("Printing Structures");
+            printStructures(10, rlbwt, runlens, toRun, toOffset, SATopRunInt, SABotRunInt, PhiInvPhi, runSampledAt, revEquivLF);
+            Timer.stop(); //Printing Structures
+            */
+        }
+        Timer.stop(); //LCP computation
+
+        Timer.start("Shrinking LCP");
+        std::cout << "Shrinking AboveLCP to size\n";
+        std::cout << "Previous element width in bits: " << (int)PL.AboveLCP.width() << '\n';
+        sdsl::util::bit_compress(PL.AboveLCP);
+        std::cout << "New element width in bits: " << (int)PL.AboveLCP.width() << '\n';
+        Timer.stop(); //Shrinking LCP
+    }
+
     public:
     OptBWTRL(rb3_fmi_t* rb3){
         validateRB3(rb3);
@@ -1144,12 +1331,16 @@ class OptBWTRL {
 
         rb3_fmi_free(rb3);
 
-        LFconstruction(alphRange, alphCounts);
+        std::vector<IntervalPoint> alphStarts;
+        LFconstruction(alphRange, alphCounts, alphStarts);
 
-        SAconstruction(alphCounts);
+        std::vector<uint64_t> seqNumsTopOrBotRun, seqLens;
+        SAconstruction(alphCounts, seqNumsTopOrBotRun, seqLens);
 
         if (!verifyPhi() || !verifyInvPhi())
             exit(1);
+
+        LCPconstruction(alphStarts, seqNumsTopOrBotRun, seqLens);
     }
 
     static bool validateRB3(const rb3_fmi_t* rb3);
@@ -1213,190 +1404,6 @@ int main(int argc, char *argv[]) {
 
     
     
-//    Timer.start("LCP computation");
-//    {
-//        std::vector<IntervalPoint> starts(alphCounts[0]);
-//        std::vector<IntervalPoint> revEquivLF(seqNumsTopOrBotRun.back());
-//        IntervalPoint start{ (uint64_t)-1, 0, 0};
-//        starts[0] = start;
-//        for (uint64_t seq = 1; seq < alphCounts[0]; ++seq) {
-//            ++start.offset;
-//            if (start.offset == runlens[start.interval]) {
-//                start.offset = 0;
-//                ++start.interval;
-//            }
-//            starts[seq] = start;
-//        }
-//
-//        Timer.start("Reverse sampling");
-//        #pragma omp parallel for schedule(guided)
-//        for (uint64_t seq = 0; seq < alphCounts[0]; ++seq) {
-//            //traverse seq from end to beginning, storing samples of LF position of seq in the intervals of rev(seq) in the PhiInvPHi data structure
-//            uint64_t revSeq = (seq%2 == 0)? seq + 1 : seq - 1;
-//            IntervalPoint current{starts[seq]};
-//            //uint64_t posSeq = seqLens[seq] - 1;
-//            uint64_t revSeqIntervalIndex = (revSeq == 0)? 0 : seqNumsTopOrBotRun[revSeq - 1];
-//            uint64_t revSeqIntervalOffset = 0;
-//            uint64_t finalRevSeqIntervalIndex = seqNumsTopOrBotRun[revSeq];
-//
-//            //check if seq and revSeq lengths are equal
-//            #pragma omp critical
-//            if (seqLens[seq] != seqLens[revSeq]) {
-//                std::cerr << "ERROR: Length of sequence (" << seq << ") and its reverse (" << revSeq << ") are not equal! Respectively: " 
-//                    << seqLens[seq] << " and " << seqLens[revSeq] << "!\n";
-//            }
-//
-//            while (revSeqIntervalIndex != finalRevSeqIntervalIndex) {
-//                if (revSeqIntervalOffset == 0) {
-//                    #pragma omp critical
-//                    {
-//                        if (revEquivLF[revSeqIntervalIndex].interval != 0 || revEquivLF[revSeqIntervalIndex].offset != 0)
-//                            std::cerr << "ERROR: setting already set revEquivLF in reverse sampling!\n";
-//                        revEquivLF[revSeqIntervalIndex] = current;
-//                    }
-//                }
-//
-//                current = mapLF(current, runlens, toRun, toOffset);
-//                ++revSeqIntervalOffset;
-//                if (revSeqIntervalOffset == PhiInvPhi.IntLen[revSeqIntervalIndex]) {
-//                    revSeqIntervalOffset = 0;
-//                    ++revSeqIntervalIndex;
-//                }
-//            }
-//        }
-//        Timer.stop(); //Reverse sampling
-//
-//        Timer.start("LCP Sampling");
-//        {
-//            PhiInvPhi.AboveLCP.resize(seqNumsTopOrBotRun.back());
-//
-//            Timer.start("locating alphStarts in PhiInvPhi");
-//            uint64_t sampledAlphStarts = 0;
-//            std::vector<IntervalPoint> phiAlphStarts(alphStarts.size()-1);
-//            for (uint64_t al = 0; al < phiAlphStarts.size(); ++al) {
-//                //std::cout << "Hre" << std::endl;
-//                phiAlphStarts[al] = {uint64_t(-1), SATopRunInt[alphStarts[al].interval], 0};
-//                for (uint64_t i = 0; i < alphStarts[al].offset; ++i)
-//                    phiAlphStarts[al] = PhiInvPhi.mapInvPhi(phiAlphStarts[al]);
-//                sampledAlphStarts += phiAlphStarts[al].offset == 0;
-//            }
-//            Timer.stop(); //locating alphStarts in PhiInvPhi
-//            //std::cout << "Hredone" << std::endl;
-//
-//            std::cout << "Of " << phiAlphStarts.size() << ", " << sampledAlphStarts << " alphStarts are at the beginning or end of a run in the BWT\n";
-//            std::cout << "Locations of alphStarts in PhiInvPhi intervals:\n\tsymbol\tinterval\toffset\n";
-//            for (uint64_t al = 0; al < phiAlphStarts.size(); ++al)
-//                std::cout << '\t' << al
-//                    << '\t' << phiAlphStarts[al].interval
-//                    << '\t' << phiAlphStarts[al].offset << '\n';
-//
-//            
-//            std::vector<bool> alphStartFound(phiAlphStarts.size(), false);
-//            //compute only for those with AboveToOffset = 0
-//            #pragma omp parallel for schedule(guided)
-//            for (uint64_t seq = 0; seq < alphCounts[0]; ++seq) {
-//                uint64_t startInterval = (seq == 0)? 0 : seqNumsTopOrBotRun[seq - 1];
-//                for (uint64_t currentInterval = startInterval; currentInterval < seqNumsTopOrBotRun[seq]; ++currentInterval) {
-//                    if (PhiInvPhi.AboveToOffset[currentInterval] != 0) {
-//                        #pragma omp critical
-//                        {
-//                            PhiInvPhi.AboveLCP[currentInterval] = PhiInvPhi.AboveLCP[currentInterval -1] - PhiInvPhi.IntLen[currentInterval - 1];
-//                            if (PhiInvPhi.AboveLCP[currentInterval] < PhiInvPhi.IntLen[currentInterval]){
-//                                bool found = false;
-//                                if (PhiInvPhi.AboveLCP[currentInterval] == PhiInvPhi.IntLen[currentInterval] - 1) {
-//                                    //possibly at the beginning of alphabet in F column, LCP of 0 is correct
-//                                    for (uint64_t al = 0; al < phiAlphStarts.size(); ++al) {
-//                                        if (phiAlphStarts[al].interval != currentInterval || phiAlphStarts[al].offset != PhiInvPhi.AboveLCP[currentInterval])
-//                                            continue;
-//                                        if (alphStartFound[al])
-//                                            std::cerr << "ERROR: already found this alplhStart in phiinv data structure!\n";
-//                                        alphStartFound[al] = true;
-//                                        found = true;
-//                                    }
-//                                }
-//                                if (currentInterval == seqNumsTopOrBotRun[seq] - 1) {
-//                                    //LCP should be interval length - 1
-//                                    if (PhiInvPhi.AboveLCP[currentInterval] != PhiInvPhi.IntLen[currentInterval] - 1) {
-//                                        std::cerr << "ERROR: Last interval of sequence has weird matching length, maybe including endmarker!\n";
-//                                    }
-//                                    else 
-//                                        found = true;
-//                                }
-//                                if (!found) 
-//                                    std::cerr << "ERROR: forwarded LCP computed smaller than interval length and is not one of alphStarts!\n"
-//                                        << "ERROR: forwarded: " << PhiInvPhi.AboveLCP[currentInterval] << ". Interval length: " << PhiInvPhi.IntLen[currentInterval] << '\n';
-//                            }
-//                        }
-//                        continue;
-//                    }
-//
-//                    uint64_t matchingLength = 0;
-//                    IntervalPoint revSeq{revEquivLF[currentInterval]};
-//                    IntervalPoint revSeqAbove{revEquivLF[PhiInvPhi.AboveToInterval[currentInterval]]};
-//
-//                    while (rlbwt[revSeq.interval] != 0 && rlbwt[revSeqAbove.interval] != 0 && rlbwt[revSeq.interval] == rlbwt[revSeqAbove.interval]) {
-//                        revSeq = mapLF(revSeq, runlens, toRun, toOffset);
-//                        revSeqAbove = mapLF(revSeqAbove, runlens, toRun, toOffset);
-//                        ++matchingLength;
-//                    }
-//
-//                    #pragma omp critical
-//                    {
-//                        PhiInvPhi.AboveLCP[currentInterval] = matchingLength;
-//                        if (matchingLength < PhiInvPhi.IntLen[currentInterval]) {
-//                            bool found = false;
-//                            if (matchingLength == PhiInvPhi.IntLen[currentInterval] - 1) {
-//                                //possibly at the beginning of alphabet in F column, LCP of 0 is correct
-//                                for (uint64_t al = 0; al < phiAlphStarts.size(); ++al) {
-//                                    if (phiAlphStarts[al].interval != currentInterval || phiAlphStarts[al].offset != matchingLength)
-//                                        continue;
-//                                    if (alphStartFound[al])
-//                                        std::cerr << "ERROR: already found this alphStart in the PhiInvPhi data structure!\n";
-//                                    alphStartFound[al] = true;
-//                                    found = true;
-//                                }
-//                            }
-//                            if (currentInterval == seqNumsTopOrBotRun[seq] - 1) {
-//                                //LCP should be interval length - 1
-//                                if (matchingLength !=  PhiInvPhi.IntLen[currentInterval] - 1) {
-//                                    std::cerr << "ERROR: Last interval of sequence has weird matching that might include the endmarker!\n";
-//                                }
-//                                else 
-//                                    found = true;
-//                            }
-//                            if (!found)
-//                                std::cerr << "ERROR: Computed LCP smaller than interval length and is not one of alphStarts!\n"
-//                                    << "ERROR: Computed: " << matchingLength <<". Interval length: " << PhiInvPhi.IntLen[currentInterval] << " for interval: " << currentInterval << '\n';
-//                        }
-//                    }
-//                }
-//            }
-//
-//            bool re = true;
-//            for (auto t : alphStartFound)
-//                re = re && t;
-//            if (re)
-//                std::cout << "Found all " << sampledAlphStarts << " sampled alplh starts.\n";
-//            else 
-//                std::cerr << "ERROR: Didn't find all alph starts!\n";
-//
-//            Timer.stop(); //LCP Sampling
-//            /*
-//            Timer.start("Printing Structures");
-//            printStructures(10, rlbwt, runlens, toRun, toOffset, SATopRunInt, SABotRunInt, PhiInvPhi, runSampledAt, revEquivLF);
-//            Timer.stop(); //Printing Structures
-//            */
-//        }
-//    }
-//    Timer.stop(); //LCP computation
-//
-//    Timer.start("Shrinking LCP");
-//    std::cout << "Shrinking AboveLCP to size\n";
-//    std::cout << "Previous element width in bits: " << (int)PhiInvPhi.AboveLCP.width() << '\n';
-//    sdsl::util::bit_compress(PhiInvPhi.AboveLCP);
-//    std::cout << "New element width in bits: " << (int)PhiInvPhi.AboveLCP.width() << '\n';
-//    Timer.stop(); //Shrinking LCP
-//    
 //    Timer.start("RLBWT Repair");
 //    {
 //        Timer.start("Detecting endmarkers in runs in RLBWT");
