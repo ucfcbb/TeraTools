@@ -1335,12 +1335,14 @@ class OptBWTRL {
         Timer.stop(); //Detecting endmarkers in runs in RLBWT
 
         Timer.start("Correcting LFs of endmarkers");
-        LF.D_index[stringStarts[0].interval] = alphCounts[0] - 1;
-        LF.D_offset[stringStarts[0].interval] = 0;
+        IntervalPoint dollarSignF{ (uint64_t)-1, 0, 0};
         for (uint64_t seq = 1; seq < alphCounts[0]; ++seq) {
-            LF.D_index[stringStarts[seq].interval] = seq - 1;
-            LF.D_offset[stringStarts[seq].interval] = 0;
+            LF.D_index[stringStarts[seq].interval] = dollarSignF.interval;
+            LF.D_offset[stringStarts[seq].interval] = dollarSignF.offset;
+            AdvanceIntervalPoint(dollarSignF, 1, *LF.intLens);
         }
+        LF.D_index[stringStarts[0].interval] = dollarSignF.interval;
+        LF.D_offset[stringStarts[0].interval] = dollarSignF.offset;
         Timer.stop(); //Correcting LFs of endmarkers
 
         /*
