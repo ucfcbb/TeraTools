@@ -677,9 +677,9 @@ class OptBWTRL {
         Timer.stop(); //Constructing LF from RLBWT
     }
 
-    void SAconstruction(const std::vector<uint64_t> & alphCounts, std::vector<uint64_t> & seqNumsTopOrBotRun, std::vector<uint64_t> & seqLens) {
+    void SAconstruction(const std::vector<uint64_t> & alphCounts, std::vector<uint64_t> & seqNumsTopOrBotRun, std::vector<uint64_t> & seqLens, std::vector<IntervalPoint>& stringStarts) {
         Timer.start("SA sampling");
-        std::vector<IntervalPoint> stringStarts(alphCounts[0]);
+        stringStarts.resize(alphCounts[0]);
 
         //suffixes are 0-indexed
         //sequences are 0-indexed
@@ -1321,6 +1321,61 @@ class OptBWTRL {
         Timer.stop(); //Shrinking LCP
     }
 
+    void endmarkerRepair(const std::vector<uint64_t> & alphCounts, const std::vector<IntervalPoint>& stringStarts) {
+        Timer.start("RLBWT Repair");
+        Timer.start("Detecting endmarkers in runs in RLBWT");
+        //set of runIDs that are runs of multiple endmarkers in the RLBWT
+        for (const auto& intPoint : stringStarts) {
+            if (intPoint.offset) {
+                std::cerr << "ERROR: There is a run of endmarkers in the RLBWT with length > 1!\n";
+                exit(1);
+            }
+        }
+        std::cout << "Every endmarker in the RLBWT is in a run of length 1.\n";
+        Timer.stop(); //Detecting endmarkers in runs in RLBWT
+
+        Timer.start("Correcting LFs of endmarkers");
+        LF.D_index[stringStarts[0].interval] = alphCounts[0] - 1;
+        LF.D_offset[stringStarts[0].interval] = 0;
+        for (uint64_t seq = 1; seq < alphCounts[0]; ++seq) {
+            LF.D_index[stringStarts[seq].interval] = seq - 1;
+            LF.D_offset[stringStarts[seq].interval] = 0;
+        }
+        Timer.stop(); //Correcting LFs of endmarkers
+
+        /*
+        //This code is correct, but is commented out because it takes very long for BWTs with large n (O(n) non-constant LF calls)
+        Timer.start("Testing all LFs by permutation with one cycle");
+        IntervalPoint start{ (uint64_t)-1, 0, 0}, current{ (uint64_t)-1, 0, 0};
+        uint64_t lfsDone = 0;
+        uint64_t outputInterval = 1e8;
+
+        Timer.start("Timing LFs 0 to " + std::to_string(std::min(totalLen, outputInterval - 1)));
+        do {
+            current = mapLF(current, runlens, toRun, toOffset);
+            ++lfsDone;
+            if (lfsDone % outputInterval == outputInterval - 1) {
+                Timer.stop();
+                Timer.start("Timing LFs " + std::to_string(lfsDone + 1) + " to " + std::to_string(std::min(totalLen, lfsDone + outputInterval)));
+            }
+        } while (lfsDone <= totalLen && current != start);
+        Timer.stop();
+
+        if (lfsDone != totalLen) {
+            std::cerr << "ERROR: LF Invalid after endmarker repair. " << lfsDone 
+                << " LFs done in an attempt to traverse one cycle of the BWT. Length is actually " << totalLen
+                << ". NOTE: if sumSeqLengths = length + 1, LF (very likely) was terminated early and didn't compute "
+                << "the full sequence lengths. This is because verification is automatically terminated after length + 1"
+                << " LFs because the LF function is then known to be incorrect." << std::endl;
+            return 1;
+        }
+
+        std::cout << "LF is a permutation with one cycle, therefore it is very likely correct.\n";
+        Timer.stop(); //Testing all LFs by permutation with one cycle
+        */
+        Timer.stop(); //RLBWT Repair
+    }
+
     public:
     struct LFPhiCoordinate {
         MoveStructure* LF;
@@ -1383,12 +1438,15 @@ class OptBWTRL {
         LFconstruction(alphRange, alphCounts, alphStarts);
 
         std::vector<uint64_t> seqNumsTopOrBotRun, seqLens;
-        SAconstruction(alphCounts, seqNumsTopOrBotRun, seqLens);
+        std::vector<IntervalPoint> stringStarts;
+        SAconstruction(alphCounts, seqNumsTopOrBotRun, seqLens, stringStarts);
 
         if (!verifyPhi() || !verifyInvPhi())
             exit(1);
 
         LCPconstruction(alphStarts, seqNumsTopOrBotRun, seqLens);
+
+        endmarkerRepair(alphCounts, stringStarts);
     }
 
     void printRaw() { 
@@ -1517,63 +1575,6 @@ int main(int argc, char *argv[]) {
     Timer.start("OptBWTRL construction");
     OptBWTRL ourIndex(&fmi);
     Timer.stop(); //OptBWTRL construction
-
-    
-    
-//    Timer.start("RLBWT Repair");
-//    {
-//        Timer.start("Detecting endmarkers in runs in RLBWT");
-//        //set of runIDs that are runs of multiple endmarkers in the RLBWT
-//        for (const auto& intPoint : stringStarts) {
-//            if (intPoint.offset) {
-//                std::cerr << "ERROR: There is a run of endmarkers in the RLBWT with length > 1!\n";
-//                return 1;
-//            }
-//        }
-//        std::cout << "Every endmarker in the RLBWT is in a run of length 1.\n";
-//        Timer.stop(); //Detecting endmarkers in runs in RLBWT
-//
-//        Timer.start("Correcting LFs of endmarkers");
-//        toRun[stringStarts[0].interval] = alphCounts[0] - 1;
-//        toOffset[stringStarts[0].interval] = 0;
-//        for (uint64_t seq = 1; seq < alphCounts[0]; ++seq) {
-//            toRun[stringStarts[seq].interval] = seq - 1;
-//            toOffset[stringStarts[seq].interval] = 0;
-//        }
-//        Timer.stop(); //Correcting LFs of endmarkers
-//
-//        /*
-//        //This code is correct, but is commented out because it takes very long for BWTs with large n (O(n) non-constant LF calls)
-//        Timer.start("Testing all LFs by permutation with one cycle");
-//        IntervalPoint start{ (uint64_t)-1, 0, 0}, current{ (uint64_t)-1, 0, 0};
-//        uint64_t lfsDone = 0;
-//        uint64_t outputInterval = 1e8;
-//
-//        Timer.start("Timing LFs 0 to " + std::to_string(std::min(totalLen, outputInterval - 1)));
-//        do {
-//            current = mapLF(current, runlens, toRun, toOffset);
-//            ++lfsDone;
-//            if (lfsDone % outputInterval == outputInterval - 1) {
-//                Timer.stop();
-//                Timer.start("Timing LFs " + std::to_string(lfsDone + 1) + " to " + std::to_string(std::min(totalLen, lfsDone + outputInterval)));
-//            }
-//        } while (lfsDone <= totalLen && current != start);
-//        Timer.stop();
-//
-//        if (lfsDone != totalLen) {
-//            std::cerr << "ERROR: LF Invalid after endmarker repair. " << lfsDone 
-//                << " LFs done in an attempt to traverse one cycle of the BWT. Length is actually " << totalLen
-//                << ". NOTE: if sumSeqLengths = length + 1, LF (very likely) was terminated early and didn't compute "
-//                << "the full sequence lengths. This is because verification is automatically terminated after length + 1"
-//                << " LFs because the LF function is then known to be incorrect." << std::endl;
-//            return 1;
-//        }
-//
-//        std::cout << "LF is a permutation with one cycle, therefore it is very likely correct.\n";
-//        Timer.stop(); //Testing all LFs by permutation with one cycle
-//        */
-//    }
-//    Timer.stop(); //RLBWT Repair
 
     Timer.stop(); //builder
 
