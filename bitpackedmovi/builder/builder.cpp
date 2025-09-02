@@ -1322,6 +1322,54 @@ class OptBWTRL {
     }
 
     public:
+    struct LFPhiCoordinate {
+        MoveStructure* LF;
+        InvertibleMoveStructure* PL;
+
+        IntervalPoint LFpoint;
+        IntervalPoint phiPoint;
+
+        void doPhi() {
+            if (LFpoint.offset)
+                --LFpoint.offset;
+            else {
+                LFpoint.interval = (LFpoint.interval == 0)? LF->intLens->size() - 1 : LFpoint.interval - 1;
+                LFpoint.offset = (*LF->intLens)[LFpoint.interval] - 1;
+            }
+
+            phiPoint = PL->phi.map(phiPoint);
+        }
+
+        void doInvPhi() {
+            if (++LFpoint.offset == (*LF->intLens)[LFpoint.interval]) {
+                ++LFpoint.interval;
+                LFpoint.interval = LFpoint.interval % LF->intLens->size();
+                LFpoint.offset = 0;
+            }
+
+            phiPoint = PL->invPhi.map(phiPoint);
+        }
+
+        void doLF() {
+            if (phiPoint.offset)
+                --phiPoint.offset;
+            else {
+                phiPoint.interval = (phiPoint.interval == 0)? PL->IntLen.size() - 1 : phiPoint.interval - 1;
+                phiPoint.offset = PL->IntLen[phiPoint.interval] - 1;
+            }
+
+            LFpoint = LF->map(LFpoint);
+        }
+
+        //takes as input top of run to initialize to, defaults to top of BWT
+        LFPhiCoordinate(MoveStructure* lf, InvertibleMoveStructure* pl, sdsl::int_vector<>& SATopRunInt, uint64_t run = 0): LF(lf), PL(pl) {
+            LFpoint.position = phiPoint.position = -1;
+            LFpoint.interval = run;
+            phiPoint.interval = SATopRunInt[run];
+            LFpoint.offset = phiPoint.offset = 0;
+        }
+    };
+
     OptBWTRL(rb3_fmi_t* rb3){
         validateRB3(rb3);
 
@@ -1341,6 +1389,72 @@ class OptBWTRL {
             exit(1);
 
         LCPconstruction(alphStarts, seqNumsTopOrBotRun, seqLens);
+    }
+
+    void printRaw() { 
+        std::cout << "i\tSA_S\tSA_O\tLCP\tLF\tBWT\n";
+        std::vector<uint64_t> runlenPrefSum(runlens.size());
+        for (uint64_t i = 1; i < runlens.size(); ++i)
+            runlenPrefSum[i] = runlenPrefSum[i-1] + runlens[i-1];
+        
+        //saOrder traversal
+        LFPhiCoordinate saOrder(&LF, &PL, SATopRunInt);
+        uint64_t ind = 0;
+        do {
+            IntervalPoint LFto = LF.map(saOrder.LFpoint);
+            std::cout << ind << '\t' 
+                << PL.SeqAt[saOrder.phiPoint.interval] << '\t'
+                << PL.PosAt[saOrder.phiPoint.interval] + saOrder.phiPoint.offset << '\t'
+                << PL.AboveLCP[saOrder.phiPoint.interval] - saOrder.phiPoint.offset << '\t'
+                << runlenPrefSum[LFto.interval] + LFto.offset << '\t'
+                << rlbwt[saOrder.LFpoint.interval] << '\n';
+
+            saOrder.doInvPhi();
+        } while (saOrder.LFpoint.interval != 0 || saOrder.LFpoint.offset != 0);
+
+
+        //text order traversal
+        LFPhiCoordinate tOrder(&LF, &PL, SATopRunInt);
+        while (rlbwt[tOrder.LFpoint.interval] == 0)
+            tOrder.doInvPhi();
+        tOrder.doPhi();
+        LFPhiCoordinate end = tOrder;
+        std::vector<uint64_t> text, isa, plcp, ph_s, ph_o, iph_s, iph_o;
+        do {
+            IntervalPoint phto = PL.phi.map(tOrder.phiPoint);
+            IntervalPoint iphto = PL.invPhi.map(tOrder.phiPoint);
+
+            text.push_back(rlbwt[tOrder.LFpoint.interval]);
+            isa.push_back(runlenPrefSum[tOrder.LFpoint.interval] + tOrder.LFpoint.offset);
+            plcp.push_back(PL.AboveLCP[tOrder.phiPoint.interval] - tOrder.phiPoint.offset);
+            ph_s.push_back(PL.SeqAt[phto.interval]);
+            ph_o.push_back(PL.PosAt[phto.interval] + phto.offset);
+            iph_s.push_back(PL.SeqAt[iphto.interval]);
+            iph_o.push_back(PL.PosAt[iphto.interval] + iphto.offset);
+
+            tOrder.doLF();
+        } while (tOrder.LFpoint.interval != end.LFpoint.interval || tOrder.LFpoint.offset != end.LFpoint.offset);
+
+        std::vector<std::pair<const char*,std::vector<uint64_t>*>> outs = { 
+            std::pair<const char*,std::vector<uint64_t>*>("TEXT"  , &text), 
+            std::pair<const char*,std::vector<uint64_t>*>("ISA"   , &isa),
+            std::pair<const char*,std::vector<uint64_t>*>("PLCP"  , &plcp),
+            std::pair<const char*,std::vector<uint64_t>*>("PHI_S" , &ph_s),
+            std::pair<const char*,std::vector<uint64_t>*>("PHI_O" , &ph_o),
+            std::pair<const char*,std::vector<uint64_t>*>("IPHI_S", &iph_s),
+            std::pair<const char*,std::vector<uint64_t>*>("IPHI_O", &iph_o)
+        };
+        std::cout << "i";
+        for (uint64_t i = 0; i < text.size(); ++i) 
+            std::cout << '\t' << i;
+        std::cout << '\n';
+        for (auto a : outs) {
+            std::cout << a.first;
+            for (auto rit = a.second->rbegin(); rit != a.second->rend(); ++rit) 
+                std::cout << '\t' << *rit;
+            std::cout << '\n';
+        }
+
     }
 
     static bool validateRB3(const rb3_fmi_t* rb3);
@@ -1460,5 +1574,9 @@ int main(int argc, char *argv[]) {
 //    Timer.stop(); //RLBWT Repair
 
     Timer.stop(); //builder
+
+    Timer.start("Printing Raw");
+    ourIndex.printRaw();
+    Timer.stop(); //Printing Raw
     return 0;
 }
