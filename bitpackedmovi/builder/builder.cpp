@@ -1412,6 +1412,8 @@ class OptBWTRL {
             saOrder.doInvPhi();
         } while (saOrder.LFpoint.interval != 0 || saOrder.LFpoint.offset != 0);
 
+        std::cout << "\n\n";
+
 
         //text order traversal
         LFPhiCoordinate tOrder(&LF, &PL, SATopRunInt);
