@@ -15,4 +15,4 @@ kactl-sa-implementation:
 	make -C ../../../kactl-sa-implementation
 
 test: ropebwt3 builder kactl-sa-implementation generation
-	./tester.sh ../../../ropebwt3/ropebwt3 ../builder ../../../kactl-sa-implementation/ ../../../data/generation
+	./tester.sh ../../../ropebwt3/ropebwt3 ../builder ../../../kactl-sa-implementation/kactl_impl ../../../data/generation/syntheticgen
