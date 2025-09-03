@@ -240,11 +240,15 @@ void printStructures(
 }
 
 class OptBWTRL {
+    public:
+        typedef uint64_t size_type;
+    private:
     uint64_t totalLen = 0;
     sdsl::int_vector<> rlbwt, runlens;
     sdsl::int_vector<> SATopRunInt;
 
     struct MoveStructure {
+        typedef OptBWTRL::size_type size_type;
         sdsl::int_vector<>* intLens;
         sdsl::int_vector<> D_index;
         sdsl::int_vector<> D_offset;
@@ -260,9 +264,24 @@ class OptBWTRL {
                 res.offset -= (*intLens)[res.interval++];
             return res;
         }
+
+        size_type serialize(std::ostream &out, sdsl::structure_tree_node *v=NULL, std::string name="") const {
+            sdsl::structure_tree_node* child = sdsl::structure_tree::add_child(v, name, sdsl::util::class_name(*this));
+
+            size_type bytes = 0;
+
+            bytes += sdsl::serialize(intLens, out, child, "intLens");
+            bytes += sdsl::serialize(D_index, out, child, "D_index");
+            bytes += sdsl::serialize(D_offset, out, child, "D_offset");
+
+            sdsl::structure_tree::add_size(child, bytes);
+            
+            return bytes;
+        }
     } LF;
 
     struct InvertibleMoveStructure {
+        typedef OptBWTRL::size_type size_type;
         //suffix array samples at
         sdsl::int_vector<> SeqAt;
         sdsl::int_vector<> PosAt;
@@ -301,6 +320,22 @@ class OptBWTRL {
             return res;
         }
         */
+        size_type serialize(std::ostream &out, sdsl::structure_tree_node *v=NULL, std::string name="") const {
+            sdsl::structure_tree_node* child = sdsl::structure_tree::add_child(v, name, sdsl::util::class_name(*this));
+
+            size_type bytes = 0;
+
+            bytes += sdsl::serialize(SeqAt, out, child, "SeqAt");
+            bytes += sdsl::serialize(PosAt, out, child, "PosAt");
+            bytes += sdsl::serialize(IntLen, out, child, "IntLen");
+            bytes += sdsl::serialize(phi, out, child, "phi");
+            bytes += sdsl::serialize(invPhi, out, child, "invPhi");
+            bytes += sdsl::serialize(AboveLCP, out, child, "AboveLCP");
+
+            sdsl::structure_tree::add_size(child, bytes);
+            
+            return bytes;
+        }
     } PL;
 
     void RLBWTconstruction(const rb3_fmi_t* rb3, uRange & alphRange, std::vector<uint64_t>& alphCounts) {
@@ -1520,6 +1555,23 @@ class OptBWTRL {
     }
 
     static bool validateRB3(const rb3_fmi_t* rb3);
+
+    size_type serialize(std::ostream &out, sdsl::structure_tree_node *v=NULL, std::string name="") const {
+        sdsl::structure_tree_node* child = sdsl::structure_tree::add_child(v, name, sdsl::util::class_name(*this));
+
+        size_type bytes = 0;
+
+        bytes += sdsl::serialize(totalLen, out, child, "totalLen");
+        bytes += sdsl::serialize(rlbwt, out, child, "rlbwt");
+        bytes += sdsl::serialize(runlens, out, child, "runlens");
+        bytes += sdsl::serialize(SATopRunInt, out, child, "SATopRunInt");
+        bytes += sdsl::serialize(LF, out, child, "LF");
+        bytes += sdsl::serialize(PL, out, child, "PL");
+
+        sdsl::structure_tree::add_size(child, bytes);
+
+        return bytes;
+    }
 };
 
 bool OptBWTRL::validateRB3(const rb3_fmi_t* rb3){
@@ -1540,26 +1592,28 @@ int main(int argc, char *argv[]) {
     Timer.start("Program Initialization");
     int use_mmap;
     rb3_fmi_t fmi;
+    std::ofstream indOut, treeOut;
     {
         Timer.start("Reading Arguments");
         //const char characters[7] = "$ACGTN";
-        if (argc != 2 && argc != 3) {
-            std::cerr << "Usage: builder [-mmap] <input.fmd>\n\nIf -mmap is passed, the file is memory mapped before reading, otherwise traditional file io is used\n";
+        if (argc != 3 && argc != 4) {
+            std::cerr << "Usage: builder [-mmap] <input.fmd> <outputPrefix>\n\nIf -mmap is passed, the file is memory mapped before reading, otherwise traditional file io is used\n";
             std::cerr << argc-1 << " arguments passed instead of 1 or 2" << std::endl;
             exit(1);
         }
-        if (argc == 3 && strcmp(argv[1], "-mmap") !=0) {
-            std::cerr << "If two arguments are passed, the first must be \"-mmap\"\n";
+        if (argc == 4 && strcmp(argv[1], "-mmap") !=0) {
+            std::cerr << "If three arguments are passed, the first must be \"-mmap\"\n";
             std::cerr << "Currently passed: \"" << argv[1] << "\"\n";
             exit(1);
         }
-        char* inputfmd = argv[argc-1];
-        use_mmap = (argc == 3);
+        std::string inputfmd = argv[argc-2];
+        std::string outputPref = argv[argc-1];
+        use_mmap = (argc == 4);
 
         Timer.stop(); //Reading Arguments
         Timer.start((use_mmap)? "Loading fmd with mmap" : "Loading fmd");
 
-        rb3_fmi_restore(&fmi, inputfmd, use_mmap);
+        rb3_fmi_restore(&fmi, inputfmd.c_str(), use_mmap);
         if (fmi.e == 0 && fmi.r == 0) {
             std::cerr << "ERROR: failed to load fmd from index file " << inputfmd << std::endl;
             exit(1);
@@ -1571,6 +1625,17 @@ int main(int argc, char *argv[]) {
             std::cerr << "ERROR: invalid ropebwt3 inputted!" << std::endl;
             exit(1);
         }
+
+        indOut.open(outputPref + ".optbwtrl");
+        if (!indOut.is_open()) {
+            std::cerr << "ERROR: File '" << outputPref << ".optbwtrl' failed to open for writing!\n";
+            exit(1);
+        }
+        treeOut.open(outputPref + "_StructTree.html");
+        if (!treeOut.is_open()) {
+            std::cerr << "ERROR: File '" << outputPref << "_StructTree.html' failed to open for writing!\n";
+            exit(1);
+        }
     }
     Timer.stop(); //Program Initialization
 
@@ -1580,8 +1645,25 @@ int main(int argc, char *argv[]) {
 
     Timer.stop(); //builder
 
+    /*
     Timer.start("Printing Raw");
     ourIndex.printRaw();
     Timer.stop(); //Printing Raw
+    */
+
+    Timer.start("Measure size");
+    std::cout << "Size of our index: " << sdsl::size_in_bytes(ourIndex) << std::endl;
+    Timer.stop(); //Measure size
+
+    Timer.start("Writing Index");
+    ourIndex.serialize(indOut);
+    indOut.close();
+    Timer.stop(); //Writing Index
+
+    Timer.start("Writing Structure Tree");
+    sdsl::write_structure<sdsl::HTML_FORMAT>(ourIndex, treeOut);
+    treeOut.close();
+    Timer.stop(); //Writing Structure Tree
+
     return 0;
 }
