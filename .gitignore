@@ -6,6 +6,7 @@
 /ropebwt3
 slurm-*.out
 batchSlurm
+batchMakeTest
 test.in
 settings.json
 a.out
