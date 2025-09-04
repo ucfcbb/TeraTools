@@ -1287,6 +1287,7 @@ class OptBWTRL {
         LFPhiCoordinate tOrder(&LF, &PL, SATopRunInt);
         while (rlbwt[tOrder.LFpoint.interval] != 0)
             tOrder.doLF();
+        char FofcurrSuff = 0;
         tOrder.doLF();
         LFPhiCoordinate end = tOrder;
         std::vector<uint64_t> text, isa, plcp, ph_s, ph_o, iph_s, iph_o;
@@ -1294,7 +1295,7 @@ class OptBWTRL {
             MoveStructure::IntervalPoint phto = PL.phi.map(tOrder.phiPoint);
             MoveStructure::IntervalPoint iphto = PL.invPhi.map(tOrder.phiPoint);
 
-            text.push_back(rlbwt[tOrder.LFpoint.interval]);
+            text.push_back(FofcurrSuff);
             isa.push_back(runlenPrefSum[tOrder.LFpoint.interval] + tOrder.LFpoint.offset);
             plcp.push_back(PL.AboveLCP[tOrder.phiPoint.interval] - tOrder.phiPoint.offset);
             ph_s.push_back(PL.SeqAt[phto.interval]);
@@ -1302,6 +1303,7 @@ class OptBWTRL {
             iph_s.push_back(PL.SeqAt[iphto.interval]);
             iph_o.push_back(PL.PosAt[iphto.interval] + iphto.offset);
 
+            FofcurrSuff = rlbwt[tOrder.LFpoint.interval];
             tOrder.doLF();
         } while (tOrder.LFpoint.interval != end.LFpoint.interval || tOrder.LFpoint.offset != end.LFpoint.offset);
 

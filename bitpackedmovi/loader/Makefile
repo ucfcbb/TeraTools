@@ -2,7 +2,7 @@ all: loader
 
 .PHONY: all clean test
 
-testinds = ../../data/testing/idx.fmd.optbwtrl ../../data/testing/mtb152.fmd.optbwtrl
+testinds = ../../data/testing/idx.fmd.optbwtrl #../../data/testing/mtb152.fmd.optbwtrl
 
 sdsl_optbwt_incdir = ../include
 sdsl_optbwt_libdir = ../lib
@@ -26,8 +26,8 @@ objs = $(ropebwt3dir)/bre.o\
 libs = -lsdsl -lpthread -lz -lm
 incs = -I$(sdsl_optbwt_incdir) -I$(ropebwt3dir)
 
-#cppflags+=-Wall -O3 -DNDEBUG
-cppflags+=-Wall -g
+cppflags+=-Wall -O3 -DNDEBUG
+#cppflags+=-Wall -g
 
 ifneq ($(asan),)
 	cppflags+=-fsanitize=address

@@ -14,3 +14,6 @@ lib/ include/ &: sdsl-lite/
 
 builder/: lib/ include/
 	make -C builder/
+
+loader/: lib/ include/
+	make -C loader/
