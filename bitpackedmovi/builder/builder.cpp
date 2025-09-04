@@ -52,171 +52,6 @@ std::ostream& operator<<(std::ostream& os, uRange range) {
     return os;
 }
 
-struct IntervalPoint {
-    /*
-    //represents a position in a range [0,n-1] that is composed of x intervals
-    //[i_0,i_1-1],[i_1,i_2-1],[i_2,i_3-1],...,[i_{x-1},n-1]
-    //a position p in [0,n-1] in this range is represented by 
-    //position, interval, offset s.t.
-    // - position = p
-    // - interval = j s.t. i_j <= p and i_{j+1} > p
-    // - offset   = k s.t. i_j + k = p (therefore, k in [0,i_{j+1}-i_j-1]
-    */
-    uint64_t position, interval, offset;
-};
-/*
-bool operator==(const IntervalPoint& lhs, const IntervalPoint& rhs) {
-    return lhs.position == rhs.position && lhs.interval == rhs.interval && lhs.offset == rhs.offset;
-}
-*/
-
-struct InvertibleMoveStructure {
-    //suffix array samples at
-    sdsl::int_vector<> SeqAt;
-    sdsl::int_vector<> PosAt;
-
-    //characters between this sample and the next (including this sample)
-    //unnecessary, but makes coding cleaner
-    sdsl::int_vector<> IntLen;
-
-    sdsl::int_vector<> AboveToInterval;
-    sdsl::int_vector<> AboveToOffset;
-    sdsl::int_vector<> BelowToInterval;
-    sdsl::int_vector<> BelowToOffset;
-
-    sdsl::int_vector<> AboveLCP;
-
-    IntervalPoint mapPhi(const IntervalPoint& intPoint) {
-        IntervalPoint res;
-        res.position = (uint64_t) -1;
-        res.interval = AboveToInterval[intPoint.interval];
-        res.offset = AboveToOffset[intPoint.interval] + intPoint.offset;
-        while (IntLen[res.interval] <= res.offset)
-            res.offset -= IntLen[res.interval++];
-        return res;
-    }
-
-    IntervalPoint mapInvPhi(const IntervalPoint& intPoint) {
-        IntervalPoint res;
-        res.position = (uint64_t) -1;
-        res.interval = BelowToInterval[intPoint.interval];
-        res.offset = BelowToOffset[intPoint.interval] + intPoint.offset;
-        while(IntLen[res.interval] <= res.offset)
-            res.offset -= IntLen[res.interval++];
-        return res;
-    }
-};
-
-bool operator!=(const IntervalPoint& lhs, const IntervalPoint& rhs) {
-    return lhs.position != rhs.position || lhs.interval != rhs.interval || lhs.offset != rhs.offset;
-}
-
-//assumptions:
-//no runs of length 0
-//the same runlens vector is passed for every call and unmodified
-//distance provided added to current position doesn't result in an out-of-bounds IntervalPoint 
-//  (except for position = n, the first position after the range
-void AdvanceIntervalPoint(IntervalPoint& intPoint, uint64_t distance, const sdsl::int_vector<>& runlens) {
-    uint64_t remaining = intPoint.offset + distance;
-    while (remaining && remaining >= runlens[intPoint.interval])
-        remaining -= runlens[intPoint.interval++];
-    intPoint.offset = remaining;
-    intPoint.position += distance;
-}
-
-/*
-//NOTE: interval points returned by mapLF don't have valid position fields, they are set to -1
-//assumptions: inputs are valid and correspond to each other
-IntervalPoint mapLF(const IntervalPoint& intPoint, 
-        const sdsl::int_vector<>& runlens, 
-        const sdsl::int_vector<> & toRun, 
-        const sdsl::int_vector<> & toOffset) {
-    IntervalPoint res;
-    res.position = (uint64_t)-1;
-    res.interval = toRun[intPoint.interval];
-    res.offset = toOffset[intPoint.interval] + intPoint.offset;
-    while (runlens[res.interval] <= res.offset)
-        res.offset -= runlens[res.interval++];
-    return res;
-}
-*/
-
-void printStructures(
-        uint64_t field_width,
-        const sdsl::int_vector<>& rlbwt,
-        const sdsl::int_vector<>& runlens,
-        const sdsl::int_vector<>& toRun,
-        const sdsl::int_vector<>& toOffset,
-        const sdsl::int_vector<>& SATopRunInt,
-        const sdsl::int_vector<>& SABotRunInt,
-        const InvertibleMoveStructure& PhiInvPhi,
-        const sdsl::int_vector<>& runSampledAt,
-        const std::vector<IntervalPoint>& revEquivLF) {
-    std::cout << "Printing run-length SA order data structures. Format:\n"
-        << R"("runInd"	"symbol"	"length"	"run that head of this run maps to with LF"	"offset within mapped to run of the LF mapping of head of this run"	"interval that suffix of top run maps to in phiinvphi"	"interval that suffix of the bottom of the run maps to in phiinvphi")"
-        << '\n';
-    uint64_t runs = rlbwt.size();
-    if (runs != runlens.size() || runs != toRun.size() || runs != toOffset.size() || runs != SATopRunInt.size() || runs != SABotRunInt.size()) {
-        std::cerr << "ERROR: length of passed run-length compressed data structures for rlbwt, runlens, LF, SATopRunInt, and SABotRunInt don't match.\n"
-            << "ERROR:\trlbwt length: " << rlbwt.size() << '\n'
-            << "ERROR:\trunlens length: " << runlens.size() << '\n'
-            << "ERROR:\ttoRun length: " << toRun.size() << '\n'
-            << "ERROR:\ttoOffset length: " << toOffset.size() << '\n'
-            << "ERROR:\tSATopRunInt length: " << SATopRunInt.size() << '\n'
-            << "ERROR:\tSABotRunInt length: " << SABotRunInt.size() << '\n';
-        exit(1);
-    }
-    for (uint64_t i = 0; i < runs; ++i) {
-        std::cout << std::setw(field_width) << i 
-            << std::setw(field_width) << rlbwt[i]
-            << std::setw(field_width) << runlens[i]
-            << std::setw(field_width) << toRun[i]
-            << std::setw(field_width) << toOffset[i]
-            << std::setw(field_width) << SATopRunInt[i]
-            << std::setw(field_width) << SABotRunInt[i] << '\n';
-    }
-
-    std::cout 
-        << "------------------------------------------------------------------------------------------\n\n\n"
-        << "------------------------------------------------------------------------------------------\n"
-        << "Printing run-length Text order data structures. Format:\n"
-        << R"("interval Ind"	"SeqAt"	"PosAt"	"IntLen"	"runSampledAt"	"AboveToInterval"	"AboveToOffset"	"BelowToInterval"	"BelowToOffset"	"RevEquivLF Interval"	"RevEquivLF Offset"	"AboveLCP")" << '\n';
-    if (2*runs < PhiInvPhi.SeqAt.size() || PhiInvPhi.SeqAt.size() != PhiInvPhi.PosAt.size() || PhiInvPhi.PosAt.size() != PhiInvPhi.IntLen.size() || PhiInvPhi.IntLen.size() != runSampledAt.size()
-            || PhiInvPhi.AboveToInterval.size() != runSampledAt.size()
-            || PhiInvPhi.AboveToInterval.size() != PhiInvPhi.AboveToOffset.size()
-            || PhiInvPhi.AboveToOffset.size() != PhiInvPhi.BelowToInterval.size()
-            || PhiInvPhi.BelowToInterval.size() != PhiInvPhi.BelowToOffset.size()
-            || PhiInvPhi.BelowToOffset.size() != revEquivLF.size()) {
-        std::cerr << "ERROR: length of passed run-length compressed PhiInvPhi data structures not consistent for SeqAt PosAt and IntLen. They should have equal lengths and length <= 2*runs\n"
-            << "ERROR:\truns: " << runs << '\n'
-            << "ERROR:\tSeqAt length: " << PhiInvPhi.SeqAt.size() << '\n'
-            << "ERROR:\tPosAt length: " << PhiInvPhi.PosAt.size() << '\n'
-            << "ERROR:\tIntLen length: " << PhiInvPhi.IntLen.size() << '\n'
-            << "ERROR:\trunSampledAt length: " << runSampledAt.size() << '\n'
-            << "ERROR:\tAboveToInterval length: " << PhiInvPhi.AboveToInterval.size() << '\n'
-            << "ERROR:\tAboveToOffset length: " << PhiInvPhi.AboveToOffset.size() << '\n'
-            << "ERROR:\tBelowToInterval length: " << PhiInvPhi.BelowToInterval.size() << '\n'
-            << "ERROR:\tBelowToOffset length: " << PhiInvPhi.BelowToOffset.size() << '\n'
-            << "ERROR:\trevEquivLF length: " << revEquivLF.size() << '\n'
-            << "ERROR:\tAboveLCP length: " << PhiInvPhi.AboveLCP.size() << '\n';
-        exit(1);
-    }
-    for (uint64_t i = 0; i < PhiInvPhi.SeqAt.size(); ++i) {
-        std::cout << std::setw(field_width) << i 
-            << std::setw(field_width) << PhiInvPhi.SeqAt[i]
-            << std::setw(field_width) << PhiInvPhi.PosAt[i]
-            << std::setw(field_width) << PhiInvPhi.IntLen[i]
-            << std::setw(field_width) << runSampledAt[i]
-            << std::setw(field_width) << PhiInvPhi.AboveToInterval[i]
-            << std::setw(field_width) << PhiInvPhi.AboveToOffset[i]
-            << std::setw(field_width) << PhiInvPhi.BelowToInterval[i]
-            << std::setw(field_width) << PhiInvPhi.BelowToOffset[i]
-            << std::setw(field_width) << revEquivLF[i].interval
-            << std::setw(field_width) << revEquivLF[i].offset 
-            << std::setw(field_width) << PhiInvPhi.AboveLCP[i] << '\n';
-    }
-}
-
 class OptBWTRL {
     public:
         typedef uint64_t size_type;
@@ -230,6 +65,23 @@ class OptBWTRL {
         sdsl::int_vector<>* intLens;
         sdsl::int_vector<> D_index;
         sdsl::int_vector<> D_offset;
+
+        struct IntervalPoint {
+            /*
+            //represents a position in a range [0,n-1] that is composed of x intervals
+            //[i_0,i_1-1],[i_1,i_2-1],[i_2,i_3-1],...,[i_{x-1},n-1]
+            //a position p in [0,n-1] in this range is represented by 
+            //position, interval, offset s.t.
+            // - position = p
+            // - interval = j s.t. i_j <= p and i_{j+1} > p
+            // - offset   = k s.t. i_j + k = p (therefore, k in [0,i_{j+1}-i_j-1]
+             */
+            uint64_t position, interval, offset;
+
+            bool operator!=(const IntervalPoint& rhs) const {
+                return position != rhs.position || interval != rhs.interval || offset != rhs.offset;
+            }
+        };
 
         //NOTE: interval points returned by mapLF don't have valid position fields, they are set to -1
         //assumptions: inputs are valid and correspond to runs and runlens
@@ -255,6 +107,20 @@ class OptBWTRL {
             sdsl::structure_tree::add_size(child, bytes);
             
             return bytes;
+        }
+
+
+        //assumptions:
+        //no runs of length 0
+        //the same runlens vector is passed for every call and unmodified
+        //distance provided added to current position doesn't result in an out-of-bounds IntervalPoint 
+        //  (except for position = n, the first position after the range
+        void AdvanceIntervalPoint(IntervalPoint& intPoint, uint64_t distance) {
+            uint64_t remaining = intPoint.offset + distance;
+            while (remaining && remaining >= (*intLens)[intPoint.interval])
+                remaining -= (*intLens)[intPoint.interval++];
+            intPoint.offset = remaining;
+            intPoint.position += distance;
         }
     } LF;
 
@@ -506,7 +372,7 @@ class OptBWTRL {
         Timer.stop(); //Constructing RLBWT from FMD
     }
 
-    void LFconstruction(uRange alphRange, const std::vector<uint64_t> & alphCounts, std::vector<IntervalPoint> & alphStarts) {
+    void LFconstruction(uRange alphRange, const std::vector<uint64_t> & alphCounts, std::vector<MoveStructure::IntervalPoint> & alphStarts) {
         Timer.start("Constructing LF from RLBWT");
         uint64_t runs = rlbwt.size();
         LF.intLens = &runlens;
@@ -578,7 +444,7 @@ class OptBWTRL {
 
             Timer.start("Computing run and offsets for LF from run starts");
             {
-                std::vector<IntervalPoint> currentAlphLFs(alphRange.max+1);
+                std::vector<MoveStructure::IntervalPoint> currentAlphLFs(alphRange.max+1);
                 for (uint64_t i = 0; i <= alphRange.max; ++i) 
                     currentAlphLFs[i] = alphStarts[i];
 
@@ -588,7 +454,7 @@ class OptBWTRL {
                     LF.D_index[i] = currentAlphLFs[c].interval;
                     LF.D_offset[i] = currentAlphLFs[c].offset;
 
-                    AdvanceIntervalPoint(currentAlphLFs[c], l, runlens);
+                    LF.AdvanceIntervalPoint(currentAlphLFs[c], l);
                 }
 
                 //verify all currentAlphLFs ended up at the start of the next alph
@@ -692,7 +558,7 @@ class OptBWTRL {
         Timer.stop(); //Constructing LF from RLBWT
     }
 
-    void SAconstruction(const std::vector<uint64_t> & alphCounts, std::vector<uint64_t> & seqNumsTopOrBotRun, std::vector<uint64_t> & seqLens, std::vector<IntervalPoint>& stringStarts) {
+    void SAconstruction(const std::vector<uint64_t> & alphCounts, std::vector<uint64_t> & seqNumsTopOrBotRun, std::vector<uint64_t> & seqLens, std::vector<MoveStructure::IntervalPoint>& stringStarts) {
         Timer.start("SA sampling");
         stringStarts.resize(alphCounts[0]);
 
@@ -721,8 +587,8 @@ class OptBWTRL {
             uint64_t maxIntLen = 0;
             Timer.start("Auxiliary info computation (seqLens, seqNumsTopRun, seqNumsBotRun, seqNumsTopOrBotRun)");
             {
-                std::vector<IntervalPoint> starts(alphCounts[0]);
-                IntervalPoint start{ (uint64_t)-1, 0, 0};
+                std::vector<MoveStructure::IntervalPoint> starts(alphCounts[0]);
+                MoveStructure::IntervalPoint start{ (uint64_t)-1, 0, 0};
                 starts[0] = start;
                 for (uint64_t seq = 1; seq < alphCounts[0]; ++seq) {
                     ++start.offset;
@@ -735,7 +601,7 @@ class OptBWTRL {
 
                 #pragma omp parallel for schedule(guided)
                 for (uint64_t seq = 0; seq < alphCounts[0]; ++seq) {
-                    IntervalPoint current{starts[seq]};
+                    MoveStructure::IntervalPoint current{starts[seq]};
                     uint64_t seqLen = 0, seqNumTopRun = 0, seqNumBotRun = 0, seqNumTopOrBotRun = 0, seqNumOneRun = 0;
                     uint64_t currentTopOrBotIntervalLen = 0; //number of characters in the current interval on the sequence since the last time the sequence was at the top or bottom of a run
                     uint64_t maxTopOrBotIntervalLen = 0;
@@ -852,8 +718,8 @@ class OptBWTRL {
 
             Timer.start("Sampling");
             {
-                std::vector<IntervalPoint> starts(alphCounts[0]);
-                IntervalPoint start{ (uint64_t)-1, 0, 0};
+                std::vector<MoveStructure::IntervalPoint> starts(alphCounts[0]);
+                MoveStructure::IntervalPoint start{ (uint64_t)-1, 0, 0};
                 starts[0] = start;
                 for (uint64_t seq = 1; seq < alphCounts[0]; ++seq) {
                     ++start.offset;
@@ -867,7 +733,7 @@ class OptBWTRL {
                 Timer.start("Sampling the SA order");
                 #pragma omp parallel for schedule(guided)
                 for(uint64_t seq = 0; seq < alphCounts[0]; ++seq) {
-                    IntervalPoint current{starts[seq]};
+                    MoveStructure::IntervalPoint current{starts[seq]};
                     uint64_t pos = seqLens[seq] - 1;
                     uint64_t prevPos = seqLens[seq];
                     uint64_t posTopRun = seqNumsTopRun[seq] - 1;
@@ -1096,13 +962,13 @@ class OptBWTRL {
         Timer.stop(); //SA sampling
     }
 
-    void LCPconstruction(const std::vector<IntervalPoint> & alphStarts, const std::vector<uint64_t> & seqNumsTopOrBotRun, const std::vector<uint64_t> & seqLens) {
+    void LCPconstruction(const std::vector<MoveStructure::IntervalPoint> & alphStarts, const std::vector<uint64_t> & seqNumsTopOrBotRun, const std::vector<uint64_t> & seqLens) {
         Timer.start("LCP computation");
         uint64_t numStrings = alphStarts[1].position;
 
-        std::vector<IntervalPoint> starts(numStrings);
-        std::vector<IntervalPoint> revEquivLF(seqNumsTopOrBotRun.back());
-        IntervalPoint start{ (uint64_t)-1, 0, 0};
+        std::vector<MoveStructure::IntervalPoint> starts(numStrings);
+        std::vector<MoveStructure::IntervalPoint> revEquivLF(seqNumsTopOrBotRun.back());
+        MoveStructure::IntervalPoint start{ (uint64_t)-1, 0, 0};
         starts[0] = start;
         for (uint64_t seq = 1; seq < numStrings; ++seq) {
             ++start.offset;
@@ -1118,7 +984,7 @@ class OptBWTRL {
         for (uint64_t seq = 0; seq < numStrings; ++seq) {
             //traverse seq from end to beginning, storing samples of LF position of seq in the intervals of rev(seq) in the PhiInvPHi data structure
             uint64_t revSeq = (seq%2 == 0)? seq + 1 : seq - 1;
-            IntervalPoint current{starts[seq]};
+            MoveStructure::IntervalPoint current{starts[seq]};
             //uint64_t posSeq = seqLens[seq] - 1;
             uint64_t revSeqIntervalIndex = (revSeq == 0)? 0 : seqNumsTopOrBotRun[revSeq - 1];
             uint64_t revSeqIntervalOffset = 0;
@@ -1157,7 +1023,7 @@ class OptBWTRL {
 
             Timer.start("locating alphStarts in PL");
             uint64_t sampledAlphStarts = 0;
-            std::vector<IntervalPoint> phiAlphStarts(alphStarts.size()-1);
+            std::vector<MoveStructure::IntervalPoint> phiAlphStarts(alphStarts.size()-1);
             for (uint64_t al = 0; al < phiAlphStarts.size(); ++al) {
                 //std::cout << "Hre" << std::endl;
                 phiAlphStarts[al] = {uint64_t(-1), SATopRunInt[alphStarts[al].interval], 0};
@@ -1216,8 +1082,8 @@ class OptBWTRL {
                     }
 
                     uint64_t matchingLength = 0;
-                    IntervalPoint revSeq{revEquivLF[currentInterval]};
-                    IntervalPoint revSeqAbove{revEquivLF[PL.phi.D_index[currentInterval]]};
+                    MoveStructure::IntervalPoint revSeq{revEquivLF[currentInterval]};
+                    MoveStructure::IntervalPoint revSeqAbove{revEquivLF[PL.phi.D_index[currentInterval]]};
 
                     while (rlbwt[revSeq.interval] != 0 && rlbwt[revSeqAbove.interval] != 0 && rlbwt[revSeq.interval] == rlbwt[revSeqAbove.interval]) {
                         revSeq = LF.map(revSeq);
@@ -1282,7 +1148,7 @@ class OptBWTRL {
         Timer.stop(); //Shrinking LCP
     }
 
-    void endmarkerRepair(const std::vector<uint64_t> & alphCounts, const std::vector<IntervalPoint>& stringStarts) {
+    void endmarkerRepair(const std::vector<uint64_t> & alphCounts, const std::vector<MoveStructure::IntervalPoint>& stringStarts) {
         Timer.start("RLBWT Repair");
         Timer.start("Detecting endmarkers in runs in RLBWT");
         //set of runIDs that are runs of multiple endmarkers in the RLBWT
@@ -1296,11 +1162,11 @@ class OptBWTRL {
         Timer.stop(); //Detecting endmarkers in runs in RLBWT
 
         Timer.start("Correcting LFs of endmarkers");
-        IntervalPoint dollarSignF{ (uint64_t)-1, 0, 0};
+        MoveStructure::IntervalPoint dollarSignF{ (uint64_t)-1, 0, 0};
         for (uint64_t seq = 1; seq < alphCounts[0]; ++seq) {
             LF.D_index[stringStarts[seq].interval] = dollarSignF.interval;
             LF.D_offset[stringStarts[seq].interval] = dollarSignF.offset;
-            AdvanceIntervalPoint(dollarSignF, 1, *LF.intLens);
+            LF.AdvanceIntervalPoint(dollarSignF, 1);
         }
         LF.D_index[stringStarts[0].interval] = dollarSignF.interval;
         LF.D_offset[stringStarts[0].interval] = dollarSignF.offset;
@@ -1344,8 +1210,8 @@ class OptBWTRL {
         MoveStructure* LF;
         InvertibleMoveStructure* PL;
 
-        IntervalPoint LFpoint;
-        IntervalPoint phiPoint;
+        MoveStructure::IntervalPoint LFpoint;
+        MoveStructure::IntervalPoint phiPoint;
 
         void doPhi() {
             if (LFpoint.offset)
@@ -1397,11 +1263,11 @@ class OptBWTRL {
 
         rb3_fmi_free(rb3);
 
-        std::vector<IntervalPoint> alphStarts;
+        std::vector<MoveStructure::IntervalPoint> alphStarts;
         LFconstruction(alphRange, alphCounts, alphStarts);
 
         std::vector<uint64_t> seqNumsTopOrBotRun, seqLens;
-        std::vector<IntervalPoint> stringStarts;
+        std::vector<MoveStructure::IntervalPoint> stringStarts;
         SAconstruction(alphCounts, seqNumsTopOrBotRun, seqLens, stringStarts);
 
         
@@ -1422,7 +1288,7 @@ class OptBWTRL {
         LFPhiCoordinate saOrder(&LF, &PL, SATopRunInt);
         uint64_t ind = 0;
         do {
-            IntervalPoint LFto = LF.map(saOrder.LFpoint);
+            MoveStructure::IntervalPoint LFto = LF.map(saOrder.LFpoint);
             std::cout << ind << '\t' 
                 << PL.SeqAt[saOrder.phiPoint.interval] << '\t'
                 << PL.PosAt[saOrder.phiPoint.interval] + saOrder.phiPoint.offset << '\t'
@@ -1444,8 +1310,8 @@ class OptBWTRL {
         LFPhiCoordinate end = tOrder;
         std::vector<uint64_t> text, isa, plcp, ph_s, ph_o, iph_s, iph_o;
         do {
-            IntervalPoint phto = PL.phi.map(tOrder.phiPoint);
-            IntervalPoint iphto = PL.invPhi.map(tOrder.phiPoint);
+            MoveStructure::IntervalPoint phto = PL.phi.map(tOrder.phiPoint);
+            MoveStructure::IntervalPoint iphto = PL.invPhi.map(tOrder.phiPoint);
 
             text.push_back(rlbwt[tOrder.LFpoint.interval]);
             isa.push_back(runlenPrefSum[tOrder.LFpoint.interval] + tOrder.LFpoint.offset);
@@ -1535,7 +1401,7 @@ class OptBWTRL {
         #pragma omp parallel for schedule(guided)
         for (uint64_t run = 0; run < runs; ++run) {
             //check if top of run phis to top of previous run
-            IntervalPoint start{uint64_t(-1), SATopRunInt[(run == SATopRunInt.size()-1)? 0 : (run + 1)], 0},
+            MoveStructure::IntervalPoint start{uint64_t(-1), SATopRunInt[(run == SATopRunInt.size()-1)? 0 : (run + 1)], 0},
                           end{uint64_t(-1), SATopRunInt[run], 0};
             for(uint64_t ops = 0; ops < runlens[run]; ++ops)
                 start = PL.phi.map(start);
@@ -1562,7 +1428,7 @@ class OptBWTRL {
         #pragma omp parallel for schedule(guided)
         for (uint64_t run = 0; run < runs; ++run) {
             //check if top of run phis to top of next run
-            IntervalPoint start{uint64_t(-1), SATopRunInt[run], 0},
+            MoveStructure::IntervalPoint start{uint64_t(-1), SATopRunInt[run], 0},
                           end{uint64_t(-1), SATopRunInt[(run == SATopRunInt.size()-1)? 0 : (run + 1)], 0};
             for(uint64_t ops = 0; ops < runlens[run]; ++ops)
                 start = PL.invPhi.map(start);
