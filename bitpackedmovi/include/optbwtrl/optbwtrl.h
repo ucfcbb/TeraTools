@@ -60,6 +60,13 @@ class OptBWTRL {
             return bytes;
         }
 
+        void load(std::istream& in) {
+            sdsl::load(intLens, in);
+            intLens = nullptr;
+            sdsl::load(D_index, in);
+            sdsl::load(D_offset, in);
+        }
+
 
         //assumptions:
         //no runs of length 0
@@ -130,6 +137,15 @@ class OptBWTRL {
             sdsl::structure_tree::add_size(child, bytes);
             
             return bytes;
+        }
+
+        void load(std::istream& in) {
+            sdsl::load(SeqAt, in);
+            sdsl::load(PosAt, in);
+            sdsl::load(IntLen, in);
+            sdsl::load(phi, in);
+            sdsl::load(invPhi, in);
+            sdsl::load(AboveLCP, in);
         }
     } PL;
 
@@ -1229,6 +1245,20 @@ class OptBWTRL {
         endmarkerRepair(alphCounts, stringStarts);
     }
 
+    //read OptBWTRL from file
+    OptBWTRL(const char* fileName) {
+        std::ifstream in(fileName);
+        if (!in.is_open()) {
+            std::cerr << "ERROR: File provided as input for OptBWTRL loading, '" 
+                << fileName << "' failed to open!\n";
+            exit(1);
+        }
+        
+        load(in);
+
+        in.close();
+    }
+
     void printRaw() { 
         std::cout << "i\tSA_S\tSA_O\tLCP\tLF\tBWT\n";
         std::vector<uint64_t> runlenPrefSum(runlens.size());
@@ -1315,9 +1345,18 @@ class OptBWTRL {
         return bytes;
     }
 
-    //returns whether an RLBWT represented by a chars int vec and a lens int vec is equivalent to an fmi
-    bool equalToFmi(sdsl::int_vector<> chars, sdsl::int_vector<> lens, const rb3_fmi_t& fmi) {
-        if (chars.size() != lens.size()) {
+    void load(std::istream& in) {
+        sdsl::load(totalLen, in);
+        sdsl::load(rlbwt, in);
+        sdsl::load(runlens, in);
+        sdsl::load(SATopRunInt, in);
+        sdsl::load(LF, in);
+        sdsl::load(PL, in);
+    }
+
+    //returns whether the RLBWT is equivalent to an fmi
+    bool equalToFmi(const rb3_fmi_t& fmi) {
+        if (rlbwt.size() != runlens.size()) {
             std::cerr << "areEqual called for a symbol array and length array of different sizes" << std::endl;
             exit(1);
         }
@@ -1329,19 +1368,19 @@ class OptBWTRL {
         uint64_t currentRun = 0;
         int64_t l = 0;
         int c = 0;
-        while (currentRun < chars.size() && (l = rld_dec(fmi.e, &itr, &c, 0)) > 0) {
-            uint64_t thisRunLength = lens[currentRun], thisRunChar = chars[currentRun];
+        while (currentRun < rlbwt.size() && (l = rld_dec(fmi.e, &itr, &c, 0)) > 0) {
+            uint64_t thisRunLength = runlens[currentRun], thisRunChar = rlbwt[currentRun];
             //reconcatenating endmarker runs for comparison
-            while (thisRunChar == 0 && currentRun + 1 < chars.size() && chars[currentRun + 1] == 0) {
+            while (thisRunChar == 0 && currentRun + 1 < rlbwt.size() && rlbwt[currentRun + 1] == 0) {
                 ++currentRun;
-                thisRunLength += lens[currentRun];
+                thisRunLength += runlens[currentRun];
             }
 
             if ((uint64_t)l != thisRunLength || (uint64_t)c != thisRunChar)
                 return false;
             ++currentRun;
         }
-        return currentRun == chars.size();
+        return currentRun == rlbwt.size();
     }
 
     bool verifyPhi() {
@@ -1398,6 +1437,13 @@ class OptBWTRL {
         return pass;
     }
 
+    bool validateAllExceptRLBWT() {
+        return verifyPhi() && verifyInvPhi();
+    }
+
+    bool validateAll(const rb3_fmi_t& fmi) {
+        return equalToFmi(fmi) && validateAllExceptRLBWT();
+    }
 };
 
 bool OptBWTRL::validateRB3(const rb3_fmi_t* rb3){
