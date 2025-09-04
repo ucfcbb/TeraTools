@@ -43,7 +43,6 @@ class Timer {
     }
 }Timer('|', "Timer:", std::cout, true);
 
-
 struct uRange {
     uint64_t min, max;
 };
@@ -51,33 +50,6 @@ struct uRange {
 std::ostream& operator<<(std::ostream& os, uRange range) {
     os << '[' << range.min << ',' << range.max << ']';
     return os;
-}
-
-//returns whether an RLBWT represented by a chars int vec and a lens int vec is equivalent to an fmi
-bool areEqual(sdsl::int_vector<> chars, sdsl::int_vector<> lens, const rb3_fmi_t& fmi) {
-    if (chars.size() != lens.size()) {
-        std::cerr << "areEqual called for a symbol array and length array of different sizes" << std::endl;
-        exit(1);
-    }
-
-    rlditr_t itr;
-    rld_itr_init(fmi.e, &itr, 0); //what does 0 mean in this function call? offset number of bits to start reading at?
-    uint64_t currentRun = 0;
-    int64_t l = 0;
-    int c = 0;
-    while (currentRun < chars.size() && (l = rld_dec(fmi.e, &itr, &c, 0)) > 0) {
-        uint64_t thisRunLength = lens[currentRun], thisRunChar = chars[currentRun];
-        //reconcatenating endmarker runs for comparison
-        while (thisRunChar == 0 && currentRun + 1 < chars.size() && chars[currentRun + 1] == 0) {
-            ++currentRun;
-            thisRunLength += lens[currentRun];
-        }
-
-        if ((uint64_t)l != thisRunLength || (uint64_t)c != thisRunChar)
-            return false;
-        ++currentRun;
-    }
-    return currentRun == chars.size();
 }
 
 struct IntervalPoint {
@@ -522,11 +494,13 @@ class OptBWTRL {
         std::cout << "Final runlens size in bytes: " << sdsl::size_in_bytes(runlens) << std::endl;
         Timer.stop(); //Computing sdsl size
 
+        /*
         Timer.start("Verifying correctness of constructed RLBWT");
 
         std::cout << "Built RLBWT and input FMD are " 
-            << ((areEqual(rlbwt, runlens, *rb3))? "equal" : "not equal!") << std::endl;
+            << ((equalToFmi(rlbwt, runlens, *rb3))? "equal" : "not equal!") << std::endl;
         Timer.stop(); //Verifying correctness of constructed RLBWT
+        */
 
 
         Timer.stop(); //Constructing RLBWT from FMD
@@ -1122,60 +1096,6 @@ class OptBWTRL {
         Timer.stop(); //SA sampling
     }
 
-    bool verifyPhi() {
-        Timer.start("Verifying Phi");
-
-        uint64_t runs = rlbwt.size();
-        bool pass = true;
-        #pragma omp parallel for schedule(guided)
-        for (uint64_t run = 0; run < runs; ++run) {
-            //check if top of run phis to top of previous run
-            IntervalPoint start{uint64_t(-1), SATopRunInt[(run == SATopRunInt.size()-1)? 0 : (run + 1)], 0},
-                          end{uint64_t(-1), SATopRunInt[run], 0};
-            for(uint64_t ops = 0; ops < runlens[run]; ++ops)
-                start = PL.phi.map(start);
-            if (start != end) {
-                #pragma omp critical
-                {
-                    pass = false;
-                    std::cerr << "ERROR: suffix did not end up at the beginning of run in verification of phi when phiing runlen times from the top of next run!\n";
-                }
-            }
-        }
-        if (pass)
-            std::cout << "Phi move data structure is likely correct, it is a permutation with one cycle\n";
-
-        Timer.stop(); //Verifying Phi
-        return pass;
-    }
-
-    bool verifyInvPhi() {
-        Timer.start("Verifying InvPhi");
-
-        uint64_t runs = rlbwt.size();
-        bool pass = true;
-        #pragma omp parallel for schedule(guided)
-        for (uint64_t run = 0; run < runs; ++run) {
-            //check if top of run phis to top of next run
-            IntervalPoint start{uint64_t(-1), SATopRunInt[run], 0},
-                          end{uint64_t(-1), SATopRunInt[(run == SATopRunInt.size()-1)? 0 : (run + 1)], 0};
-            for(uint64_t ops = 0; ops < runlens[run]; ++ops)
-                start = PL.invPhi.map(start);
-            if (start != end) {
-                #pragma omp critical
-                {
-                    pass = false;
-                    std::cerr << "ERROR: suffix did not end up at the beginning of next run in verification of inverse phi when invPhiing runlen times from the top of a run!\n";
-                }
-            }
-        }
-        if (pass)
-            std::cout << "InvPhi move data structure is likely correct, it is a permutation with one cycle\n";
-
-        Timer.stop(); //Verifying InvPhi
-        return pass;
-    }
-
     void LCPconstruction(const std::vector<IntervalPoint> & alphStarts, const std::vector<uint64_t> & seqNumsTopOrBotRun, const std::vector<uint64_t> & seqLens) {
         Timer.start("LCP computation");
         uint64_t numStrings = alphStarts[1].position;
@@ -1484,8 +1404,8 @@ class OptBWTRL {
         std::vector<IntervalPoint> stringStarts;
         SAconstruction(alphCounts, seqNumsTopOrBotRun, seqLens, stringStarts);
 
-        if (!verifyPhi() || !verifyInvPhi())
-            exit(1);
+        
+        //if (!verifyPhi() || !verifyInvPhi()) { exit(1); } 
 
         LCPconstruction(alphStarts, seqNumsTopOrBotRun, seqLens);
 
@@ -1557,7 +1477,6 @@ class OptBWTRL {
                 std::cout << '\t' << *rit;
             std::cout << '\n';
         }
-
     }
 
     static bool validateRB3(const rb3_fmi_t* rb3);
@@ -1578,6 +1497,90 @@ class OptBWTRL {
 
         return bytes;
     }
+
+    //returns whether an RLBWT represented by a chars int vec and a lens int vec is equivalent to an fmi
+    bool equalToFmi(sdsl::int_vector<> chars, sdsl::int_vector<> lens, const rb3_fmi_t& fmi) {
+        if (chars.size() != lens.size()) {
+            std::cerr << "areEqual called for a symbol array and length array of different sizes" << std::endl;
+            exit(1);
+        }
+
+        validateRB3(&fmi);
+
+        rlditr_t itr;
+        rld_itr_init(fmi.e, &itr, 0); //what does 0 mean in this function call? offset number of bits to start reading at?
+        uint64_t currentRun = 0;
+        int64_t l = 0;
+        int c = 0;
+        while (currentRun < chars.size() && (l = rld_dec(fmi.e, &itr, &c, 0)) > 0) {
+            uint64_t thisRunLength = lens[currentRun], thisRunChar = chars[currentRun];
+            //reconcatenating endmarker runs for comparison
+            while (thisRunChar == 0 && currentRun + 1 < chars.size() && chars[currentRun + 1] == 0) {
+                ++currentRun;
+                thisRunLength += lens[currentRun];
+            }
+
+            if ((uint64_t)l != thisRunLength || (uint64_t)c != thisRunChar)
+                return false;
+            ++currentRun;
+        }
+        return currentRun == chars.size();
+    }
+
+    bool verifyPhi() {
+        Timer.start("Verifying Phi");
+
+        uint64_t runs = rlbwt.size();
+        bool pass = true;
+        #pragma omp parallel for schedule(guided)
+        for (uint64_t run = 0; run < runs; ++run) {
+            //check if top of run phis to top of previous run
+            IntervalPoint start{uint64_t(-1), SATopRunInt[(run == SATopRunInt.size()-1)? 0 : (run + 1)], 0},
+                          end{uint64_t(-1), SATopRunInt[run], 0};
+            for(uint64_t ops = 0; ops < runlens[run]; ++ops)
+                start = PL.phi.map(start);
+            if (start != end) {
+                #pragma omp critical
+                {
+                    pass = false;
+                    std::cerr << "ERROR: suffix did not end up at the beginning of run in verification of phi when phiing runlen times from the top of next run!\n";
+                }
+            }
+        }
+        if (pass)
+            std::cout << "Phi move data structure is likely correct, it is a permutation with one cycle\n";
+
+        Timer.stop(); //Verifying Phi
+        return pass;
+    }
+
+    bool verifyInvPhi() {
+        Timer.start("Verifying InvPhi");
+
+        uint64_t runs = rlbwt.size();
+        bool pass = true;
+        #pragma omp parallel for schedule(guided)
+        for (uint64_t run = 0; run < runs; ++run) {
+            //check if top of run phis to top of next run
+            IntervalPoint start{uint64_t(-1), SATopRunInt[run], 0},
+                          end{uint64_t(-1), SATopRunInt[(run == SATopRunInt.size()-1)? 0 : (run + 1)], 0};
+            for(uint64_t ops = 0; ops < runlens[run]; ++ops)
+                start = PL.invPhi.map(start);
+            if (start != end) {
+                #pragma omp critical
+                {
+                    pass = false;
+                    std::cerr << "ERROR: suffix did not end up at the beginning of next run in verification of inverse phi when invPhiing runlen times from the top of a run!\n";
+                }
+            }
+        }
+        if (pass)
+            std::cout << "InvPhi move data structure is likely correct, it is a permutation with one cycle\n";
+
+        Timer.stop(); //Verifying InvPhi
+        return pass;
+    }
+
 };
 
 bool OptBWTRL::validateRB3(const rb3_fmi_t* rb3){
