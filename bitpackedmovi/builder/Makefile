@@ -4,8 +4,8 @@ all: builder
 
 testinds = ../../data/testing/idx.fmd ../../data/testing/mtb152.fmd
 
-sdslincdir = ../include
-sdsllibdir = ../lib
+sdsl_optbwt_incdir = ../include
+sdsl_optbwt_libdir = ../lib
 ropebwt3dir = ../../ropebwt3
 
 objs = $(ropebwt3dir)/bre.o\
@@ -24,7 +24,7 @@ objs = $(ropebwt3dir)/bre.o\
 	   $(ropebwt3dir)/ssa.o
 
 libs = -lsdsl -lpthread -lz -lm
-incs = -I$(sdslincdir) -I$(ropebwt3dir)
+incs = -I$(sdsl_optbwt_incdir) -I$(ropebwt3dir)
 
 cppflags+=-Wall -O3 -DNDEBUG
 #cppflags+=-Wall -g
@@ -49,5 +49,5 @@ test: builder
 		./builder $$testind $$testind; \
 	done
 
-builder: $(objs) builder.cpp
-	$(CXX) $(cppflags) $(incs) -L$(sdsllibdir) $^ -o $@ $(libs)
+builder: ../include/optbwtrl/optbwtrl.h ../include/optbwtrl/util.h $(objs) builder.cpp
+	$(CXX) $(cppflags) $(incs) -L$(sdsl_optbwt_libdir) $^ -o $@ $(libs)
