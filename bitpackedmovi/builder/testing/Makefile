@@ -5,6 +5,9 @@ all: test
 builder: 
 	make -C ../
 
+loader:
+	make -C ../../loader
+
 ropebwt3: 
 	make -C ../../../ropebwt3/
 
@@ -14,5 +17,5 @@ generation:
 kactl-sa-implementation:
 	make -C ../../../kactl-sa-implementation
 
-test: ropebwt3 builder kactl-sa-implementation generation
-	./tester.sh ../../../ropebwt3/ropebwt3 ../builder ../../../kactl-sa-implementation/kactl_impl ../../../data/generation/syntheticgen
+test: ropebwt3 builder kactl-sa-implementation generation loader
+	./tester.sh ../../../ropebwt3/ropebwt3 ../builder ../../../kactl-sa-implementation/kactl_impl ../../../data/generation/syntheticgen ../../loader/loader

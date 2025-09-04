@@ -95,15 +95,15 @@ void print_lf(const SuffixArray &sa, int n) {
 }
 
 int main() {
-    int numStrs;
+    int numStrs = 0;
     vector<int> str_starts;
     string combined;
     {
-        cin >> numStrs;
+        
         int idx = 0;
-        for (int i = 0; i < numStrs; i++) {
-            string s;
-            cin >> s;
+        string s;
+        while (cin >> s) {
+            ++numStrs;
             str_starts.push_back(idx);
             combined += s + (char)('$');
             idx += s.size() + 1;

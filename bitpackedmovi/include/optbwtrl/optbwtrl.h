@@ -158,11 +158,11 @@ class OptBWTRL {
         uRange lenRange;
         std::vector<uint64_t> alphRuns;
 
+        uRange RB3_lenRange;
         Timer.start("Reading fmd for parameters");
         {
             //original ropebwt3 values
             uint64_t RB3_runs = 0, RB3_lenbits;
-            uRange RB3_lenRange;
 
 
 
@@ -257,7 +257,7 @@ class OptBWTRL {
                     std::cerr << "ERROR: Run symbol outside of previously found range, symbol: " << alph << ", Range: " << alphRange << std::endl;
                     exit(1);
                 }
-                if (len < lenRange.min || len > lenRange.max) {
+                if (len < RB3_lenRange.min || len > RB3_lenRange.max) {
                     std::cerr << "ERROR: Run length outside of previously found range, length: " << len << ", Range: " << lenRange << std::endl;
                     exit(1);
                 }
