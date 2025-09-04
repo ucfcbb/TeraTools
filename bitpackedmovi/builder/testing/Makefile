@@ -2,6 +2,8 @@ all: test
 
 .PHONY: all clean ropebwt3 builder kactl-sa-implmentation generation
 
+numIter = $(shell seq 1 10)
+
 builder: 
 	make -C ../
 
@@ -18,4 +20,6 @@ kactl-sa-implementation:
 	make -C ../../../kactl-sa-implementation
 
 test: ropebwt3 builder kactl-sa-implementation generation loader
-	./tester.sh ../../../ropebwt3/ropebwt3 ../builder ../../../kactl-sa-implementation/kactl_impl ../../../data/generation/syntheticgen ../../loader/loader
+	for i in $(numIter); do \
+		./tester.sh ../../../ropebwt3/ropebwt3 ../builder ../../../kactl-sa-implementation/kactl_impl ../../../data/generation/syntheticgen ../../loader/loader ; \
+	done
