@@ -13,10 +13,13 @@ class Timer {
     const char scopeChar;
     const std::string prefix;
     std::ostream& os;
+    const bool flush;
     public:
 
     void start(std::string processName) {
         os << prefix << std::string(1+processes.size(), scopeChar) << "Starting '" << processName << "'\n";
+        if (flush)
+            os.flush();
         processes.emplace(std::chrono::high_resolution_clock::now(), processName);
     }
     void stop() {
@@ -25,6 +28,8 @@ class Timer {
         processes.pop();
         os << prefix << std::string(1+processes.size(), scopeChar) << "Ending '" << beginNamePair.second 
             << "'. It took " << std::chrono::duration<double>(end - beginNamePair.first).count() << " seconds\n";
+        if (flush)
+            os.flush();
     }
     void stopAllProcesses() {
         while (processes.size())
@@ -32,11 +37,12 @@ class Timer {
     }
 
     Timer() = delete;
-    Timer(const char c, const std::string& pref, std::ostream& s): scopeChar(c), prefix(pref), os(s) {}
+    Timer(const char c, const std::string& pref, std::ostream& s, bool f): scopeChar(c), prefix(pref), os(s), flush(f) {}
     ~Timer() {
         stopAllProcesses();
     }
-}Timer('|', "Timer:", std::cout);
+}Timer('|', "Timer:", std::cout, true);
+
 
 struct uRange {
     uint64_t min, max;
