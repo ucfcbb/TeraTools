@@ -9,6 +9,9 @@ int main(int argc, char *argv[]) {
     }
     OptBWTRL index(argv[1]);
 
+    index.printRaw();
+
+    /*
     if (index.validateAllExceptRLBWT())
         std::cout << "Passed" << std::endl;
     else {
@@ -16,6 +19,6 @@ int main(int argc, char *argv[]) {
         std::cerr << "ERROR: Failed!" << std::endl;
         exit(1);
     }
-
+    */
     return 0;
 }
