@@ -1270,7 +1270,7 @@ class OptBWTRL {
         uint64_t ind = 0;
         do {
             MoveStructure::IntervalPoint LFto = LF.map(saOrder.LFpoint);
-            std::cout << ind << '\t' 
+            std::cout << ind++ << '\t' 
                 << PL.SeqAt[saOrder.phiPoint.interval] << '\t'
                 << PL.PosAt[saOrder.phiPoint.interval] + saOrder.phiPoint.offset << '\t'
                 << PL.AboveLCP[saOrder.phiPoint.interval] - saOrder.phiPoint.offset << '\t'
@@ -1285,9 +1285,9 @@ class OptBWTRL {
 
         //text order traversal
         LFPhiCoordinate tOrder(&LF, &PL, SATopRunInt);
-        while (rlbwt[tOrder.LFpoint.interval] == 0)
-            tOrder.doInvPhi();
-        tOrder.doPhi();
+        while (rlbwt[tOrder.LFpoint.interval] != 0)
+            tOrder.doLF();
+        tOrder.doLF();
         LFPhiCoordinate end = tOrder;
         std::vector<uint64_t> text, isa, plcp, ph_s, ph_o, iph_s, iph_o;
         do {
