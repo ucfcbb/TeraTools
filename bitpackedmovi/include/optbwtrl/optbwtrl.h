@@ -1351,7 +1351,9 @@ class OptBWTRL {
         sdsl::load(runlens, in);
         sdsl::load(SATopRunInt, in);
         sdsl::load(LF, in);
+        LF.intLens = &runlens;
         sdsl::load(PL, in);
+        PL.phi.intLens = PL.invPhi.intLens = &PL.IntLen;
     }
 
     //returns whether the RLBWT is equivalent to an fmi
