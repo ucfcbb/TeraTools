@@ -28,18 +28,6 @@ struct SuffixArray {
     }
 };
 
-// Helper to read input strings and combine with separator
-string read_and_combine(int &numStrs) {
-    cin >> numStrs;
-    string combined;
-    for (int i = 0; i < numStrs; i++) {
-        string s;
-        cin >> s;
-        combined += s + (char)('$');
-    }
-    return combined;
-}
-
 // Helper to build character id maps
 void build_char_map(const string &combined, int numStrs, map<char, int> &id) {
     auto sorted = combined;
@@ -108,7 +96,27 @@ void print_lf(const SuffixArray &sa, int n) {
 
 int main() {
     int numStrs;
-    string combined = read_and_combine(numStrs);
+    vector<int> str_starts;
+    string combined;
+    {
+        cin >> numStrs;
+        int idx = 0;
+        for (int i = 0; i < numStrs; i++) {
+            string s;
+            cin >> s;
+            str_starts.push_back(idx);
+            combined += s + (char)('$');
+            idx += s.size() + 1;
+        }
+    }
+
+    unordered_map<char, int> BWTInt;
+    BWTInt['$'] = 0;
+    BWTInt['A'] = 1;
+    BWTInt['C'] = 2;
+    BWTInt['G'] = 3;
+    BWTInt['T'] = 4;
+    BWTInt['N'] = 5;
 
     map<char, int> id;
     build_char_map(combined, numStrs, id);
@@ -116,13 +124,88 @@ int main() {
     int n = combined.size();
     vi num = build_num_vec(combined, id, numStrs);
 
-    // cout << "--- Suffix Array Construction ---" << endl;
     SuffixArray sa(num, id.size() + numStrs + 1);
-    // cout << "Suffix array built successfully.\n"
-    // << endl;
 
-    print_bwt(sa, combined, n);
-    print_sa_lcp(sa, n);
-    print_phi_iphi(sa, n);
-    print_lf(sa, n);
+    // Compute LF mapping
+    vector<int> rank(n);
+    for (int i = 1; i <= n; i++) rank[sa.sa[i]] = i - 1;
+    vector<int> LF(n);
+    for (int i = 0; i < n; i++) LF[i] = rank[(sa.sa[i + 1] - 1 + n) % n];
+
+    // Print header
+    cout << "i\tSA_S\tSA_O\tLCP\tLF\tBWT\n";
+    for (int i = 0; i < n; i++) {
+        int sa_val = sa.sa[i + 1];
+        int lcp_val = sa.lcp[i + 1];
+        int lf_val = LF[i];
+        int idx = sa_val - 1;
+        char bwt_char = (idx < 0) ? combined.back() : combined[idx];
+        // Find sa_a and sa_o
+        int sa_a = -1, sa_o = -1;
+        if (sa_val < n) {
+            auto it = upper_bound(str_starts.begin(), str_starts.end(), sa_val) - 1;
+            sa_a = it - str_starts.begin();
+            sa_o = sa_val - *it;
+        }
+        cout << i << "\t" << sa_a << "\t" << sa_o << "\t" << lcp_val << "\t" << lf_val << "\t" << BWTInt[bwt_char] << "\n";
+    }
+
+    cout << "\n\ni\t";
+    for (int i = 0; i < n; i++) cout << i << (i < n - 1 ? "\t" : "\n");
+
+    cout << "TEXT\t";
+    for (int i = 0; i < n; i++) {
+        cout << BWTInt[combined[i]] << (i < n - 1 ? "\t" : "\n");
+    }
+
+    // ISA: inverse suffix array
+    cout << "ISA\t";
+    vector<int> ISA(n);
+    for (int i = 0; i < n; i++) ISA[sa.sa[i + 1]] = i;
+    for (int i = 0; i < n; i++) cout << ISA[i] << (i < n - 1 ? "\t" : "\n");
+
+    // PLCP: permuted LCP
+    cout << "PLCP\t";
+    vector<int> PLCP(n);
+    for (int i = 0; i < n; i++)
+        PLCP[i] = sa.lcp[ISA[i] + 1];
+    for (int i = 0; i < n; i++) cout << PLCP[i] << (i < n - 1 ? "\t" : "\n");
+
+    auto getSOpair = [&str_starts](int sa_val) -> pair<int, int> {
+        auto it = upper_bound(str_starts.begin(), str_starts.end(), sa_val) - 1;
+        int sa_a = it - str_starts.begin();
+        int sa_o = sa_val - *it;
+        return {sa_a, sa_o};
+    };
+
+    vector<int> PHI_S(n), PHI_O(n);
+    int s = sa.sa[n];
+    auto a = getSOpair(s);
+
+    PHI_S[sa.sa[1]] = a.first;
+    PHI_O[sa.sa[1]] = a.second;
+    for (int i = 2; i <= n; i++) {
+        auto a = getSOpair(sa.sa[i - 1]);
+        PHI_S[sa.sa[i]] = a.first;
+        PHI_O[sa.sa[i]] = a.second;
+    }
+    cout << "PHI_S\t";
+    for (int i = 0; i < n; i++) cout << PHI_S[i] << (i < n - 1 ? "\t" : "\n");
+    cout << "PHI_O\t";
+    for (int i = 0; i < n; i++) cout << PHI_O[i] << (i < n - 1 ? "\t" : "\n");
+
+    vector<int> IPHI_S(n), IPHI_O(n);
+    s = sa.sa[1];
+    a = getSOpair(s);
+    IPHI_S[sa.sa[n]] = a.first;
+    IPHI_O[sa.sa[n]] = a.second;
+    for (int i = 1; i < n; i++) {
+        auto a = getSOpair(sa.sa[i + 1]);
+        IPHI_S[sa.sa[i]] = a.first;
+        IPHI_O[sa.sa[i]] = a.second;
+    }
+    cout << "IPHI_S\t";
+    for (int i = 0; i < n; i++) cout << IPHI_S[i] << (i < n - 1 ? "\t" : "\n");
+    cout << "IPHI_O\t";
+    for (int i = 0; i < n; i++) cout << IPHI_O[i] << (i < n - 1 ? "\t" : "\n");
 }
