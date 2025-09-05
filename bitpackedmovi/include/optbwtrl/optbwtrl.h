@@ -1448,6 +1448,15 @@ class OptBWTRL {
     bool validateAll(const rb3_fmi_t& fmi) {
         return equalToFmi(fmi) && validateAllExceptRLBWT();
     }
+
+    uint64_t sumLCPTopRun() {
+        uint64_t numIntervals = SATopRunInt.size();
+        uint64_t sum = 0;
+        for (uint64_t i = 0; i < numIntervals; ++i) {
+            sum += PL.AboveLCP[SATopRunInt[i]];
+        }
+        return sum;
+    }
 };
 
 bool OptBWTRL::validateRB3(const rb3_fmi_t* rb3){
