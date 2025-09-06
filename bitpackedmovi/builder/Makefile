@@ -26,7 +26,8 @@ objs = $(ropebwt3dir)/bre.o\
 libs = -lsdsl -lpthread -lz -lm
 incs = -I$(sdsl_optbwt_incdir) -I$(ropebwt3dir)
 
-cppflags+=-Wall -O3 -DNDEBUG
+developmentflags+= -Wall -Wpedantic -Wextra -pedantic-errors
+cppflags+=$(developmentflags) -O3 -DNDEBUG
 #cppflags+=-Wall -g
 
 ifneq ($(asan),)

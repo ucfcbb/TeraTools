@@ -80,6 +80,35 @@ class OptBWTRL {
             intPoint.offset = remaining;
             intPoint.position += distance;
         }
+
+        void MakeHistogram(std::vector<uint64_t>& hist) {
+            //std::cout << "In MakeHistogram" << std::endl;
+            hist = std::vector<uint64_t>();
+            uint64_t intervals = intLens->size(), numTraversed;
+
+            uint64_t interval, offset;
+            for (uint64_t i = 0; i < intervals; ++i) {
+                //std::cout << "HERE" << std::endl;
+                //position of first position after interval, so not counted
+                interval = D_index[i];
+                offset = D_offset[i] + (*intLens)[i];
+                numTraversed = 0;
+
+                if (numTraversed >= hist.size())
+                    hist.resize(numTraversed+1);
+                hist[numTraversed] += std::min(offset, uint64_t((*intLens)[interval])) - D_offset[i];
+                offset -= std::min(offset, uint64_t((*intLens)[interval]));
+
+                while (offset) {
+                    ++interval;
+                    ++numTraversed;
+                    if (numTraversed >= hist.size())
+                        hist.resize(numTraversed+1);
+                    hist[numTraversed] += std::min(offset, uint64_t((*intLens)[interval]));
+                    offset -= std::min(offset, uint64_t((*intLens)[interval]));
+                }
+            }
+        }
     } LF;
 
     struct InvertibleMoveStructure {
@@ -525,7 +554,7 @@ class OptBWTRL {
         Timer.stop(); //Constructing LF from RLBWT
     }
 
-    void SAconstruction(const std::vector<uint64_t> & alphCounts, std::vector<uint64_t> & seqNumsTopOrBotRun, std::vector<uint64_t> & seqLens, std::vector<MoveStructure::IntervalPoint>& stringStarts) {
+    void SAconstruction(const std::vector<uint64_t> & alphCounts, std::vector<uint64_t> & seqNumsTopOrBotRun, std::vector<uint64_t> & seqLens, std::vector<MoveStructure::IntervalPoint>& stringStarts, uint64_t& maxIntLen) {
         Timer.start("SA sampling");
         stringStarts.resize(alphCounts[0]);
 
@@ -551,7 +580,7 @@ class OptBWTRL {
         seqNumsTopOrBotRun.resize(alphCounts[0]); 
         {
             uint64_t sumSeqLengths = 0;
-            uint64_t maxIntLen = 0;
+            maxIntLen = 0;
             Timer.start("Auxiliary info computation (seqLens, seqNumsTopRun, seqNumsBotRun, seqNumsTopOrBotRun)");
             {
                 std::vector<MoveStructure::IntervalPoint> starts(alphCounts[0]);
@@ -929,12 +958,14 @@ class OptBWTRL {
         Timer.stop(); //SA sampling
     }
 
-    void LCPconstruction(const std::vector<MoveStructure::IntervalPoint> & alphStarts, const std::vector<uint64_t> & seqNumsTopOrBotRun, const std::vector<uint64_t> & seqLens) {
+    void LCPconstruction(const std::vector<MoveStructure::IntervalPoint> & alphStarts, const std::vector<uint64_t> & seqNumsTopOrBotRun, const std::vector<uint64_t> & seqLens, const uint64_t maxIntLen) {
         Timer.start("LCP computation");
         uint64_t numStrings = alphStarts[1].position;
 
         std::vector<MoveStructure::IntervalPoint> starts(numStrings);
-        std::vector<MoveStructure::IntervalPoint> revEquivLF(seqNumsTopOrBotRun.back());
+        //std::vector<MoveStructure::IntervalPoint> revEquivLF(seqNumsTopOrBotRun.back());
+        sdsl::int_vector<> revEquivLF_index(seqNumsTopOrBotRun.back(), 0, sdsl::bits::hi(seqNumsTopOrBotRun.back()-1) + 1);
+        sdsl::int_vector<> revEquivLF_offset(seqNumsTopOrBotRun.back(), 0, sdsl::bits::hi(maxIntLen - 1) + 1);
         MoveStructure::IntervalPoint start{ (uint64_t)-1, 0, 0};
         starts[0] = start;
         for (uint64_t seq = 1; seq < numStrings; ++seq) {
@@ -968,9 +999,11 @@ class OptBWTRL {
                 if (revSeqIntervalOffset == 0) {
                     #pragma omp critical
                     {
-                        if (revEquivLF[revSeqIntervalIndex].interval != 0 || revEquivLF[revSeqIntervalIndex].offset != 0)
+                        if (revEquivLF_index[revSeqIntervalIndex] != 0 || revEquivLF_offset[revSeqIntervalIndex] != 0)
                             std::cerr << "ERROR: setting already set revEquivLF in reverse sampling!\n";
-                        revEquivLF[revSeqIntervalIndex] = current;
+                        //revEquivLF[revSeqIntervalIndex] = current;
+                        revEquivLF_index[revSeqIntervalIndex] = current.interval;
+                        revEquivLF_offset[revSeqIntervalIndex] = current.offset;
                     }
                 }
 
@@ -1049,8 +1082,8 @@ class OptBWTRL {
                     }
 
                     uint64_t matchingLength = 0;
-                    MoveStructure::IntervalPoint revSeq{revEquivLF[currentInterval]};
-                    MoveStructure::IntervalPoint revSeqAbove{revEquivLF[PL.phi.D_index[currentInterval]]};
+                    MoveStructure::IntervalPoint revSeq{(uint64_t)-1, revEquivLF_index[currentInterval], revEquivLF_offset[currentInterval]};
+                    MoveStructure::IntervalPoint revSeqAbove{(uint64_t)-1, revEquivLF_index[PL.phi.D_index[currentInterval]], revEquivLF_offset[PL.phi.D_index[currentInterval]]};
 
                     while (rlbwt[revSeq.interval] != 0 && rlbwt[revSeqAbove.interval] != 0 && rlbwt[revSeq.interval] == rlbwt[revSeqAbove.interval]) {
                         revSeq = LF.map(revSeq);
@@ -1176,6 +1209,7 @@ class OptBWTRL {
     struct LFPhiCoordinate {
         MoveStructure* LF;
         InvertibleMoveStructure* PL;
+        sdsl::int_vector<>* SATopRunInt;
 
         MoveStructure::IntervalPoint LFpoint;
         MoveStructure::IntervalPoint phiPoint;
@@ -1213,10 +1247,14 @@ class OptBWTRL {
         }
 
         //takes as input top of run to initialize to, defaults to top of BWT
-        LFPhiCoordinate(MoveStructure* lf, InvertibleMoveStructure* pl, sdsl::int_vector<>& SATopRunInt, uint64_t run = 0): LF(lf), PL(pl) {
+        LFPhiCoordinate(MoveStructure* lf, InvertibleMoveStructure* pl, sdsl::int_vector<>* satoprunint, uint64_t run = 0): LF(lf), PL(pl), SATopRunInt(satoprunint) {
+            setToTop(run);
+        }
+
+        void setToTop(uint64_t run = 0) {
             LFpoint.position = phiPoint.position = -1;
             LFpoint.interval = run;
-            phiPoint.interval = SATopRunInt[run];
+            phiPoint.interval = (*SATopRunInt)[run];
             LFpoint.offset = phiPoint.offset = 0;
         }
     };
@@ -1235,12 +1273,13 @@ class OptBWTRL {
 
         std::vector<uint64_t> seqNumsTopOrBotRun, seqLens;
         std::vector<MoveStructure::IntervalPoint> stringStarts;
-        SAconstruction(alphCounts, seqNumsTopOrBotRun, seqLens, stringStarts);
+        uint64_t maxIntLen = 0;
+        SAconstruction(alphCounts, seqNumsTopOrBotRun, seqLens, stringStarts, maxIntLen);
 
         
         //if (!verifyPhi() || !verifyInvPhi()) { exit(1); } 
 
-        LCPconstruction(alphStarts, seqNumsTopOrBotRun, seqLens);
+        LCPconstruction(alphStarts, seqNumsTopOrBotRun, seqLens, maxIntLen);
 
         endmarkerRepair(alphCounts, stringStarts);
     }
@@ -1266,7 +1305,7 @@ class OptBWTRL {
             runlenPrefSum[i] = runlenPrefSum[i-1] + runlens[i-1];
         
         //saOrder traversal
-        LFPhiCoordinate saOrder(&LF, &PL, SATopRunInt);
+        LFPhiCoordinate saOrder(&LF, &PL, &SATopRunInt);
         uint64_t ind = 0;
         do {
             MoveStructure::IntervalPoint LFto = LF.map(saOrder.LFpoint);
@@ -1284,7 +1323,7 @@ class OptBWTRL {
 
 
         //text order traversal
-        LFPhiCoordinate tOrder(&LF, &PL, SATopRunInt);
+        LFPhiCoordinate tOrder(&LF, &PL, &SATopRunInt);
         while (rlbwt[tOrder.LFpoint.interval] != 0)
             tOrder.doLF();
         char FofcurrSuff = 0;
@@ -1449,6 +1488,7 @@ class OptBWTRL {
         return equalToFmi(fmi) && validateAllExceptRLBWT();
     }
 
+    //stats------------
     uint64_t sumLCPTopRun() {
         uint64_t numIntervals = SATopRunInt.size();
         uint64_t sum = 0;
@@ -1456,6 +1496,39 @@ class OptBWTRL {
             sum += PL.AboveLCP[SATopRunInt[i]];
         }
         return sum;
+    }
+
+    struct Histograms {
+        std::vector<uint64_t> LF;
+        std::vector<uint64_t> Phi;
+        std::vector<uint64_t> InvPhi;
+        struct InvertibleMoveStructure {
+            std::vector<uint64_t> Phi;
+            std::vector<uint64_t> InvPhi;
+        } INVMOVE;
+    };
+
+    Histograms IntervalTraversals() {
+        Histograms a;
+        
+        LF.MakeHistogram(a.LF);
+        PL.phi.MakeHistogram(a.INVMOVE.Phi);
+        PL.invPhi.MakeHistogram(a.INVMOVE.InvPhi);
+
+        /*
+        uint64_t runs = rlbwt.size();
+        std::cout << "finished" << std::endl;
+
+        for (uint64_t i = 0; i < runs; ++i) {
+            LFPhiCoordinate b(&LF, &PL, &SATopRunInt, i);
+
+
+            
+
+
+        }
+        */
+        return a;
     }
 };
 
