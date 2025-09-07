@@ -1,5 +1,5 @@
 #include"util.h"
-#include<sdsl/vectors.hpp>
+#include<sdsl/int_vector.hpp>
 #include<vector>
 #include"fm-index.h"
 
@@ -38,7 +38,7 @@ class OptBWTRL {
         //assumptions: inputs are valid and correspond to runs and runlens
         IntervalPoint map(const IntervalPoint& intPoint) {
             IntervalPoint res;
-            res.position = (uint64_t)-1;
+            res.position = static_cast<uint64_t>(-1);
             res.interval = D_index[intPoint.interval];
             res.offset = D_offset[intPoint.interval] + intPoint.offset;
             while ((*intLens)[res.interval] <= res.offset)
@@ -202,15 +202,15 @@ class OptBWTRL {
 
 
             if ((l = rld_dec(rb3->e, &itr1, &c, 0)) > 0) {
-                alphRange = {(uint64_t)c,(uint64_t)c};
+                alphRange = {static_cast<uint64_t>(c),static_cast<uint64_t>(c)};
 
-                RB3_lenRange = {(uint64_t)l,(uint64_t)l};
-                lenRange = (c == 0)? uRange{(uint64_t)1, (uint64_t)1} : RB3_lenRange;
+                RB3_lenRange = {static_cast<uint64_t>(l),static_cast<uint64_t>(l)};
+                lenRange = (c == 0)? uRange{static_cast<uint64_t>(1), static_cast<uint64_t>(1)} : RB3_lenRange;
 
-                runs += (c == 0)? (uint64_t)l : 1;
+                runs += (c == 0)? static_cast<uint64_t>(l) : 1;
                 ++RB3_runs;
 
-                totalLen += (uint64_t)l;
+                totalLen += static_cast<uint64_t>(l);
             }
             else {
                 std::cerr << "Failed to read first run's character and length" << std::endl;
@@ -218,21 +218,21 @@ class OptBWTRL {
             }
 
             while ((l = rld_dec(rb3->e, &itr1, &c, 0)) > 0) {
-                alphRange.min = std::min(alphRange.min, (uint64_t)c);
-                alphRange.max = std::max(alphRange.max, (uint64_t)c);
+                alphRange.min = std::min(alphRange.min, static_cast<uint64_t>(c));
+                alphRange.max = std::max(alphRange.max, static_cast<uint64_t>(c));
 
-                RB3_lenRange.min = std::min(RB3_lenRange.min, (uint64_t)l);
-                RB3_lenRange.max = std::max(RB3_lenRange.max, (uint64_t)l);
-                lenRange.min = std::min(lenRange.min, (uint64_t)((c == 0)? 1 : l));
-                lenRange.max = std::max(lenRange.max, (uint64_t)((c == 0)? 1 : l));
+                RB3_lenRange.min = std::min(RB3_lenRange.min, static_cast<uint64_t>(l));
+                RB3_lenRange.max = std::max(RB3_lenRange.max, static_cast<uint64_t>(l));
+                lenRange.min = std::min(lenRange.min, static_cast<uint64_t>((c == 0)? 1 : l));
+                lenRange.max = std::max(lenRange.max, static_cast<uint64_t>((c == 0)? 1 : l));
 
                 ++RB3_runs;
-                runs += (c == 0)? (uint64_t)l : 1;
+                runs += (c == 0)? static_cast<uint64_t>(l) : 1;
 
-                totalLen += (uint64_t)l;
+                totalLen += static_cast<uint64_t>(l);
             }
 
-            if (alphRange.max == (uint64_t)-1) {
+            if (alphRange.max == static_cast<uint64_t>(-1)) {
                 std::cerr << "Maximum alphabet symbol is 2^64 - 1. "
                     << "This program assumes this is not the case (it can only handle alphabet <= (2^64) - 2." << std::endl;
                 exit(1);
@@ -245,9 +245,9 @@ class OptBWTRL {
             alphbits = sdsl::bits::hi(alphRange.max) + 1;
             RB3_lenbits = sdsl::bits::hi(RB3_lenRange.max) + 1;
             lenbits = sdsl::bits::hi(lenRange.max) + 1;
-            if (alphbits != (uint64_t)rb3->e->abits) 
+            if (alphbits != static_cast<uint64_t>(rb3->e->abits)) 
                 std::cout << "WARNING: computed bits per symbol not equal to bits used in fmd. Computed: " 
-                    << alphbits << ", ropebwt3: " << (uint64_t)rb3->e->abits << std::endl;
+                    << alphbits << ", ropebwt3: " << static_cast<uint64_t>(rb3->e->abits) << std::endl;
 
             std::cout << "Input number of runs (i.e. before splitting endmarker runs): " << RB3_runs 
                 << "\nThis index number of runs (i.e. after splitting endmarker runs): " << runs 
@@ -280,8 +280,8 @@ class OptBWTRL {
             int64_t l;
             int c = 0;
             while ((l = rld_dec(rb3->e, &itr, &c, 0)) > 0) {
-                alph = (uint64_t)c;
-                len = (uint64_t)l;
+                alph = static_cast<uint64_t>(c);
+                len = static_cast<uint64_t>(l);
                 if (alph < alphRange.min || alph > alphRange.max) {
                     std::cerr << "ERROR: Run symbol outside of previously found range, symbol: " << alph << ", Range: " << alphRange << std::endl;
                     exit(1);
@@ -584,7 +584,7 @@ class OptBWTRL {
             Timer.start("Auxiliary info computation (seqLens, seqNumsTopRun, seqNumsBotRun, seqNumsTopOrBotRun)");
             {
                 std::vector<MoveStructure::IntervalPoint> starts(alphCounts[0]);
-                MoveStructure::IntervalPoint start{ (uint64_t)-1, 0, 0};
+                MoveStructure::IntervalPoint start{ static_cast<uint64_t>(-1), 0, 0};
                 starts[0] = start;
                 for (uint64_t seq = 1; seq < alphCounts[0]; ++seq) {
                     ++start.offset;
@@ -715,7 +715,7 @@ class OptBWTRL {
             Timer.start("Sampling");
             {
                 std::vector<MoveStructure::IntervalPoint> starts(alphCounts[0]);
-                MoveStructure::IntervalPoint start{ (uint64_t)-1, 0, 0};
+                MoveStructure::IntervalPoint start{ static_cast<uint64_t>(-1), 0, 0};
                 starts[0] = start;
                 for (uint64_t seq = 1; seq < alphCounts[0]; ++seq) {
                     ++start.offset;
@@ -966,7 +966,7 @@ class OptBWTRL {
         //std::vector<MoveStructure::IntervalPoint> revEquivLF(seqNumsTopOrBotRun.back());
         sdsl::int_vector<> revEquivLF_index(seqNumsTopOrBotRun.back(), 0, sdsl::bits::hi(seqNumsTopOrBotRun.back()-1) + 1);
         sdsl::int_vector<> revEquivLF_offset(seqNumsTopOrBotRun.back(), 0, sdsl::bits::hi(maxIntLen - 1) + 1);
-        MoveStructure::IntervalPoint start{ (uint64_t)-1, 0, 0};
+        MoveStructure::IntervalPoint start{ static_cast<uint64_t>(-1), 0, 0};
         starts[0] = start;
         for (uint64_t seq = 1; seq < numStrings; ++seq) {
             ++start.offset;
@@ -1082,8 +1082,8 @@ class OptBWTRL {
                     }
 
                     uint64_t matchingLength = 0;
-                    MoveStructure::IntervalPoint revSeq{(uint64_t)-1, revEquivLF_index[currentInterval], revEquivLF_offset[currentInterval]};
-                    MoveStructure::IntervalPoint revSeqAbove{(uint64_t)-1, revEquivLF_index[PL.phi.D_index[currentInterval]], revEquivLF_offset[PL.phi.D_index[currentInterval]]};
+                    MoveStructure::IntervalPoint revSeq{static_cast<uint64_t>(-1), revEquivLF_index[currentInterval], revEquivLF_offset[currentInterval]};
+                    MoveStructure::IntervalPoint revSeqAbove{static_cast<uint64_t>(-1), revEquivLF_index[PL.phi.D_index[currentInterval]], revEquivLF_offset[PL.phi.D_index[currentInterval]]};
 
                     while (rlbwt[revSeq.interval] != 0 && rlbwt[revSeqAbove.interval] != 0 && rlbwt[revSeq.interval] == rlbwt[revSeqAbove.interval]) {
                         revSeq = LF.map(revSeq);
@@ -1142,9 +1142,9 @@ class OptBWTRL {
 
         Timer.start("Shrinking LCP");
         std::cout << "Shrinking AboveLCP to size\n";
-        std::cout << "Previous element width in bits: " << (int)PL.AboveLCP.width() << '\n';
+        std::cout << "Previous element width in bits: " << static_cast<int>(PL.AboveLCP.width()) << '\n';
         sdsl::util::bit_compress(PL.AboveLCP);
-        std::cout << "New element width in bits: " << (int)PL.AboveLCP.width() << '\n';
+        std::cout << "New element width in bits: " << static_cast<int>(PL.AboveLCP.width()) << '\n';
         Timer.stop(); //Shrinking LCP
     }
 
@@ -1162,7 +1162,7 @@ class OptBWTRL {
         Timer.stop(); //Detecting endmarkers in runs in RLBWT
 
         Timer.start("Correcting LFs of endmarkers");
-        MoveStructure::IntervalPoint dollarSignF{ (uint64_t)-1, 0, 0};
+        MoveStructure::IntervalPoint dollarSignF{ static_cast<uint64_t>(-1), 0, 0};
         for (uint64_t seq = 1; seq < alphCounts[0]; ++seq) {
             LF.D_index[stringStarts[seq].interval] = dollarSignF.interval;
             LF.D_offset[stringStarts[seq].interval] = dollarSignF.offset;
@@ -1419,7 +1419,7 @@ class OptBWTRL {
                 thisRunLength += runlens[currentRun];
             }
 
-            if ((uint64_t)l != thisRunLength || (uint64_t)c != thisRunChar)
+            if (static_cast<uint64_t>(l) != thisRunLength || static_cast<uint64_t>(c) != thisRunChar)
                 return false;
             ++currentRun;
         }
