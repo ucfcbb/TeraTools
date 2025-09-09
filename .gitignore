@@ -4,9 +4,11 @@
 /Movi
 /pfp-thresholds
 /ropebwt3
-slurm-*.out
+slurm-*.out*
 batchSlurm
 batchMakeTest
 test.in
 settings.json
 a.out
+*.optbwtrl
+*_StructTree.html
