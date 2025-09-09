@@ -1,8 +1,10 @@
+SHELL := /bin/bash
+
 all: test
 
 .PHONY: all clean ropebwt3 builder kactl-sa-implmentation generation
 
-numIter = $(shell seq 1 10)
+numIter=10
 
 builder: 
 	make -C ../
@@ -20,6 +22,12 @@ kactl-sa-implementation:
 	make -C ../../../kactl-sa-implementation
 
 test: ropebwt3 builder kactl-sa-implementation generation loader
-	for i in $(numIter); do \
-		./tester.sh ../../../ropebwt3/ropebwt3 ../builder ../../../kactl-sa-implementation/kactl_impl ../../../data/generation/syntheticgen ../../loader/loader ; \
+	test=0;\
+	while ./tester.sh ../../../ropebwt3/ropebwt3 ../builder ../../../kactl-sa-implementation/kactl_impl ../../../data/generation/syntheticgen ../../loader/loader; do \
+		echo passed test $$((++test)); \
+		if [[ $$test == $(numIter) ]]; then \
+			echo passed all $(numIter) tests; \
+			break; \
+		fi \
 	done
+
