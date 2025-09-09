@@ -1535,6 +1535,85 @@ class OptBWTRL {
         */
         return a;
     }
+
+    //matching algorithms
+    void superMaximalRepeats(std::ostream& out) {
+        //a supermaximal repeat is a substring of the text T[i,i+l) s.t.
+        //  a. occ(T[i,i+l)) > 1
+        //  b. occ(T[i-1,i+l)) = 1
+        //  c. occ(T[i,i+l+1)) = 1
+        //T[i,i+1) is a super maximal repeat iff
+        //  a. i occurs in SA at the top or bottom of a run
+        //  b. max(PLCP[i], PLCP[invphi[i]]) >= max(PLCP[i-1], PLCP[invphi[i-1]])
+        //  c. l = max(PLCP[i], PLCP[invphi[i]])
+        //
+        //This function outputs all supermaximal repeats in the text and all of their occurrences in O(r + occ) time
+        //It could also be easily modified to only output the supermaximal repeats 
+        //in O(r + c) time where c is the number of repeats outputted
+
+        out << "seq\tpos\tlen\tocc\n";
+
+        uint64_t runs = rlbwt.size();
+        for (uint64_t run = 0; run < runs; ++run) {
+            //check run boundary run (i.e. top of run [run] and bottom of run [run-1 mod runs]
+            
+            auto check = [&out,this] (MoveStructure::IntervalPoint plPoint) {
+                MoveStructure::IntervalPoint plPointPrev{ static_cast<uint64_t>(-1), ((plPoint.interval)? plPoint.interval-1: PL.IntLen.size() - 1), 0 };
+                plPointPrev.offset = PL.IntLen[plPointPrev.interval] - 1;
+
+                uint64_t len, lenLF;
+
+                len = std::max(PL.LCP(plPoint), PL.LCP(PL.invPhi.map(plPoint)));
+                lenLF = std::max(PL.LCP(plPointPrev), PL.LCP(PL.invPhi.map(plPointPrev)));
+                if (len >= lenLF) {
+                    //supermaximal repeat
+                    //else, len = lenLF - 1
+                    out << PL.SeqAt[plPoint.interval] << '\t'
+                        << PL.PosAt[plPoint.interval] + plPoint.offset << '\t'
+                        << len << '\t';
+
+                    std::stack<std::pair<uint64_t,uint64_t>> occ;
+
+                    //traverse up
+                    MoveStructure::IntervalPoint plp = plPoint;
+                    while (PL.LCP(plp) >= len) {
+                        plp = PL.phi.map(plp);
+                        occ.emplace(PL.SeqAt[plp.interval], PL.PosAt[plp.interval] + plp.offset);
+                    }
+
+                    //traverse down
+                    plp = PL.invPhi.map(plPoint);
+                    while(PL.LCP(plp) >= len) {
+                        occ.emplace(PL.SeqAt[plp.interval], PL.PosAt[plp.interval] + plp.offset);
+                        plp = PL.invPhi.map(plp);
+                    }
+
+                    //assert(occ.size());
+                    out << 1+occ.size();
+                    while (occ.size()) {
+                        out << '\t' << occ.top().first
+                            << '\t' << occ.top().second;
+                        occ.pop();
+                    }
+                    out << '\n';
+                    out.flush();
+                }
+            };
+
+            MoveStructure::IntervalPoint topPlPoint{ static_cast<uint64_t>(-1), SATopRunInt[run], 0};
+            //std::cout << "run " << run
+                //<< " topPlPoint.interval " << topPlPoint.interval
+                //<< " topPlPoint.offset " << topPlPoint.offset 
+                //<< std::endl;
+            //if the run has length 1, its top is also its bottom so the suffix at the top will be 
+            //evaluated in the next iteration of the loop
+            if (runlens[run] != 1)  
+                check(topPlPoint);
+
+            MoveStructure::IntervalPoint botPlPoint = PL.invPhi.map(topPlPoint);
+            check(botPlPoint);
+        }
+    }
 };
 
 bool OptBWTRL::validateRB3(const rb3_fmi_t* rb3){
