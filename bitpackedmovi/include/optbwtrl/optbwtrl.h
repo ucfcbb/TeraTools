@@ -1568,7 +1568,7 @@ class OptBWTRL {
     }
 
     //matching algorithms
-    void superMaximalRepeats(std::ostream& out) {
+    void superMaximalRepeats(std::ostream& out, const uint64_t lengthThreshold = 1) {
         //a supermaximal repeat is a substring of the text T[i,i+l) s.t.
         //  a. occ(T[i,i+l)) > 1
         //  b. occ(T[i-1,i+l)) = 1
@@ -1581,6 +1581,8 @@ class OptBWTRL {
         //This function outputs all supermaximal repeats in the text and all of their occurrences in O(r + occ) time
         //It could also be easily modified to only output the supermaximal repeats 
         //in O(r + c) time where c is the number of repeats outputted
+        //
+        //If a lengthThreshold is provided, it only outputs supermaximal repeats of length at least the threshold (thresholds 0 and 1 have the same behavior)
 
         out << "seq\tpos\tlen\tocc\n";
 
@@ -1588,7 +1590,7 @@ class OptBWTRL {
         for (uint64_t run = 0; run < runs; ++run) {
             //check run boundary run (i.e. top of run [run] and bottom of run [run-1 mod runs]
             
-            auto check = [&out,this] (MoveStructure::IntervalPoint plPoint) {
+            auto check = [&out,this,lengthThreshold] (MoveStructure::IntervalPoint plPoint) {
                 MoveStructure::IntervalPoint plPointPrev{ static_cast<uint64_t>(-1), ((plPoint.interval)? plPoint.interval-1: PL.IntLen.size() - 1), 0 };
                 plPointPrev.offset = PL.IntLen[plPointPrev.interval] - 1;
 
@@ -1596,7 +1598,10 @@ class OptBWTRL {
 
                 len = std::max(PL.LCP(plPoint), PL.LCP(PL.invPhi.map(plPoint)));
                 lenLF = std::max(PL.LCP(plPointPrev), PL.LCP(PL.invPhi.map(plPointPrev)));
-                if (len >= lenLF) {
+                if (len >= lenLF && len >= lengthThreshold) {
+                    //out << "LCP " << PL.LCP(plPoint) << " LCPBelow " << PL.LCP(PL.invPhi.map(plPoint)) << '\n';
+                    //out << "LCPPrev " << PL.LCP(plPointPrev) << " LCPBelowPrev " << PL.LCP(PL.invPhi.map(plPointPrev)) << '\n';
+                    //out << len << '\t' << lenLF << '\n';
                     //supermaximal repeat
                     //else, len = lenLF - 1
                     out << PL.SeqAt[plPoint.interval] << '\t'
@@ -1641,7 +1646,7 @@ class OptBWTRL {
             if (runlens[run] != 1)  
                 check(topPlPoint);
 
-            MoveStructure::IntervalPoint botPlPoint = PL.invPhi.map(topPlPoint);
+            MoveStructure::IntervalPoint botPlPoint = PL.phi.map(topPlPoint);
             check(botPlPoint);
         }
     }
