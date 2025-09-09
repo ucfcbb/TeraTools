@@ -560,7 +560,7 @@ class OptBWTRL {
         Timer.stop(); //Constructing LF from RLBWT
     }
 
-    void SAconstruction(const std::vector<uint64_t> & alphCounts, std::vector<uint64_t> & seqNumsTopOrBotRun, std::vector<uint64_t> & seqLens, std::vector<MoveStructure::IntervalPoint>& stringStarts, uint64_t& maxIntLen) {
+    void SAconstruction(const std::vector<uint64_t> & alphCounts, std::vector<uint64_t> & seqNumsTopOrBotRun, std::vector<uint64_t> & seqLens, std::vector<MoveStructure::IntervalPoint>& stringStarts) {
         Timer.start("SA sampling");
         stringStarts.resize(alphCounts[0]);
 
@@ -586,7 +586,7 @@ class OptBWTRL {
         seqNumsTopOrBotRun.resize(alphCounts[0]); 
         {
             uint64_t sumSeqLengths = 0;
-            maxIntLen = 0;
+            uint64_t maxIntLen = 0;
             Timer.start("Auxiliary info computation (seqLens, seqNumsTopRun, seqNumsBotRun, seqNumsTopOrBotRun)");
             {
                 std::vector<MoveStructure::IntervalPoint> starts(alphCounts[0]);
@@ -964,14 +964,14 @@ class OptBWTRL {
         Timer.stop(); //SA sampling
     }
 
-    void LCPconstruction(const std::vector<MoveStructure::IntervalPoint> & alphStarts, const std::vector<uint64_t> & seqNumsTopOrBotRun, const std::vector<uint64_t> & seqLens, const uint64_t maxIntLen) {
+    void LCPconstruction(const std::vector<MoveStructure::IntervalPoint> & alphStarts, const std::vector<uint64_t> & seqNumsTopOrBotRun, const std::vector<uint64_t> & seqLens) {
         Timer.start("LCP computation");
         uint64_t numStrings = alphStarts[1].position;
 
         std::vector<MoveStructure::IntervalPoint> starts(numStrings);
         //std::vector<MoveStructure::IntervalPoint> revEquivLF(seqNumsTopOrBotRun.back());
         sdsl::int_vector<> revEquivLF_index(seqNumsTopOrBotRun.back(), 0, sdsl::bits::hi(seqNumsTopOrBotRun.back()-1) + 1);
-        sdsl::int_vector<> revEquivLF_offset(seqNumsTopOrBotRun.back(), 0, sdsl::bits::hi(maxIntLen - 1) + 1);
+        sdsl::int_vector<> revEquivLF_offset(seqNumsTopOrBotRun.back(), 0, runlens.width());
         MoveStructure::IntervalPoint start{ static_cast<uint64_t>(-1), 0, 0};
         starts[0] = start;
         for (uint64_t seq = 1; seq < numStrings; ++seq) {
@@ -1279,13 +1279,12 @@ class OptBWTRL {
 
         std::vector<uint64_t> seqNumsTopOrBotRun, seqLens;
         std::vector<MoveStructure::IntervalPoint> stringStarts;
-        uint64_t maxIntLen = 0;
-        SAconstruction(alphCounts, seqNumsTopOrBotRun, seqLens, stringStarts, maxIntLen);
+        SAconstruction(alphCounts, seqNumsTopOrBotRun, seqLens, stringStarts);
 
         
         //if (!verifyPhi() || !verifyInvPhi()) { exit(1); } 
 
-        LCPconstruction(alphStarts, seqNumsTopOrBotRun, seqLens, maxIntLen);
+        LCPconstruction(alphStarts, seqNumsTopOrBotRun, seqLens);
 
         endmarkerRepair(alphCounts, stringStarts);
     }
