@@ -73,8 +73,10 @@ class OptBWTRL {
         //the same runlens vector is passed for every call and unmodified
         //distance provided added to current position doesn't result in an out-of-bounds IntervalPoint 
         //  (except for position = n, the first position after the range
-        void AdvanceIntervalPoint(IntervalPoint& intPoint, uint64_t distance) {
+        void AdvanceIntervalPoint_unsafe(IntervalPoint& intPoint, uint64_t distance) {
             uint64_t remaining = intPoint.offset + distance;
+            //if intPoint.interval == intLens->size(), this will result in a BUG
+            //TODO: FIX?
             while (remaining && remaining >= (*intLens)[intPoint.interval])
                 remaining -= (*intLens)[intPoint.interval++];
             intPoint.offset = remaining;
@@ -175,6 +177,10 @@ class OptBWTRL {
             sdsl::load(phi, in);
             sdsl::load(invPhi, in);
             sdsl::load(AboveLCP, in);
+        }
+
+        uint64_t LCP(const MoveStructure::IntervalPoint plPoint) {
+            return AboveLCP[plPoint.interval] - plPoint.offset;
         }
     } PL;
 
@@ -450,7 +456,7 @@ class OptBWTRL {
                     LF.D_index[i] = currentAlphLFs[c].interval;
                     LF.D_offset[i] = currentAlphLFs[c].offset;
 
-                    LF.AdvanceIntervalPoint(currentAlphLFs[c], l);
+                    LF.AdvanceIntervalPoint_unsafe(currentAlphLFs[c], l);
                 }
 
                 //verify all currentAlphLFs ended up at the start of the next alph
@@ -1166,7 +1172,7 @@ class OptBWTRL {
         for (uint64_t seq = 1; seq < alphCounts[0]; ++seq) {
             LF.D_index[stringStarts[seq].interval] = dollarSignF.interval;
             LF.D_offset[stringStarts[seq].interval] = dollarSignF.offset;
-            LF.AdvanceIntervalPoint(dollarSignF, 1);
+            LF.AdvanceIntervalPoint_unsafe(dollarSignF, 1);
         }
         LF.D_index[stringStarts[0].interval] = dollarSignF.interval;
         LF.D_offset[stringStarts[0].interval] = dollarSignF.offset;
@@ -1312,7 +1318,7 @@ class OptBWTRL {
             std::cout << ind++ << '\t' 
                 << PL.SeqAt[saOrder.phiPoint.interval] << '\t'
                 << PL.PosAt[saOrder.phiPoint.interval] + saOrder.phiPoint.offset << '\t'
-                << PL.AboveLCP[saOrder.phiPoint.interval] - saOrder.phiPoint.offset << '\t'
+                << PL.LCP(saOrder.phiPoint) << '\t'
                 << runlenPrefSum[LFto.interval] + LFto.offset << '\t'
                 << rlbwt[saOrder.LFpoint.interval] << '\n';
 
@@ -1336,7 +1342,7 @@ class OptBWTRL {
 
             text.push_back(FofcurrSuff);
             isa.push_back(runlenPrefSum[tOrder.LFpoint.interval] + tOrder.LFpoint.offset);
-            plcp.push_back(PL.AboveLCP[tOrder.phiPoint.interval] - tOrder.phiPoint.offset);
+            plcp.push_back(PL.LCP(tOrderPL.phiPoint));
             ph_s.push_back(PL.SeqAt[phto.interval]);
             ph_o.push_back(PL.PosAt[phto.interval] + phto.offset);
             iph_s.push_back(PL.SeqAt[iphto.interval]);
