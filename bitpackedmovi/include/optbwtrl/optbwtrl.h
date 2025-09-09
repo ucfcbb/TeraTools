@@ -1632,7 +1632,7 @@ class OptBWTRL {
                         occ.pop();
                     }
                     out << '\n';
-                    out.flush();
+                    //out.flush();
                 }
             };
 
