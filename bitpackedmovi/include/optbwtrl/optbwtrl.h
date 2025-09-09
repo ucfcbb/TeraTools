@@ -1342,7 +1342,7 @@ class OptBWTRL {
 
             text.push_back(FofcurrSuff);
             isa.push_back(runlenPrefSum[tOrder.LFpoint.interval] + tOrder.LFpoint.offset);
-            plcp.push_back(PL.LCP(tOrderPL.phiPoint));
+            plcp.push_back(PL.LCP(tOrder.phiPoint));
             ph_s.push_back(PL.SeqAt[phto.interval]);
             ph_o.push_back(PL.PosAt[phto.interval] + phto.offset);
             iph_s.push_back(PL.SeqAt[iphto.interval]);
