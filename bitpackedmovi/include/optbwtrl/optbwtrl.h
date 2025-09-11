@@ -180,6 +180,9 @@ class OptBWTRL {
         }
 
         uint64_t LCP(const MoveStructure::IntervalPoint plPoint) {
+//            std::cout << "InvMovStr::LCP( " << plPoint.interval 
+//                << ", " << plPoint.offset << ") called."
+//                << " AboveLCP[] = " << AboveLCP[plPoint.interval] << std::endl;
             return AboveLCP[plPoint.interval] - plPoint.offset;
         }
     } PL;
@@ -1262,6 +1265,10 @@ class OptBWTRL {
             phiPoint = PL->phi.map(phiPoint);
         }
 
+        uint64_t LCP() {
+            return PL->LCP(phiPoint);
+        }
+
         void doInvPhi() {
             if (++LFpoint.offset == (*LF->intLens)[LFpoint.interval]) {
                 ++LFpoint.interval;
@@ -1568,12 +1575,14 @@ class OptBWTRL {
     }
 
     //matching algorithms
+
+    //WARNING, THIS IMPLEMENTATION ASSUMES NO RUN SPLITTING, MAY ME BUGGY IF RUN SPLITTING IS PERFORMED
     void superMaximalRepeats(std::ostream& out, const uint64_t lengthThreshold = 1) {
         //a supermaximal repeat is a substring of the text T[i,i+l) s.t.
         //  a. occ(T[i,i+l)) > 1
         //  b. occ(T[i-1,i+l)) = 1
         //  c. occ(T[i,i+l+1)) = 1
-        //T[i,i+1) is a super maximal repeat iff
+        //T[i,i+l) is a super maximal repeat iff
         //  a. i occurs in SA at the top or bottom of a run
         //  b. max(PLCP[i], PLCP[invphi[i]]) >= max(PLCP[i-1], PLCP[invphi[i-1]])
         //  c. l = max(PLCP[i], PLCP[invphi[i]])
@@ -1648,6 +1657,107 @@ class OptBWTRL {
 
             MoveStructure::IntervalPoint botPlPoint = PL.phi.map(topPlPoint);
             check(botPlPoint);
+        }
+    }
+
+    //WARNING, THIS IMPLEMENTATION ASSUMES NO RUN SPLITTING, MAY ME BUGGY IF RUN SPLITTING IS PERFORMED
+    //no default value for lengthThreshold because there will be many of length >= 1
+    //occ[c]^2 per character c?
+    void repeats(std::ostream& out, const uint64_t lengthThreshold) {
+        //a repeat is a match T[i,i+l) = T[j, j+l) s.t.
+        //  a. T[i-1] != T[j-1]
+        //  b. T[i+l] != T[j+l]
+        //T[i,i+l) = T[j,j+l) is a repeat iff
+        //  a. There is a run boundary between ISA[i] and ISA[j]
+        //  b. BWT[ISA[i]] != BWT[ISA[j]]
+        //  c. l = min(LCP[k]) for k = min(ISA[i],ISA[j])+1 to max(ISA[i],ISA[j])
+        //
+        //This function outputs all repeats in the text of length at least lengthThreshold
+        //It runs in O(r + occ) time
+        
+        out << "seq1\tpos1\tseq2\tpos2\tlen\n";
+
+        uint64_t runs = rlbwt.size();
+        //minLCPRun is a stack of runs above run where the min LCP in each run
+        //is at least lengthThreshold. minLCPRun.back() stores the min LCP value
+        //in run run-1, minLCPRun[minLCPRun.size()-2] stores the min LCP value
+        //in run run-2, and so on. minLCP[i] >= lengthThreshold for all i
+        //run x is only in minLCPRun if run x+1 is also in it or x=run-1 and
+        //the LCP value at the top of run run is at least length threshold
+        std::vector<uint64_t> minLCPRun;
+        for (uint64_t run = 0; run < runs; ++run) {
+            LFPhiCoordinate topRun(&LF, &PL, &SATopRunInt, run);
+            LFPhiCoordinate coord = topRun;
+            
+            uint64_t l, minLCP = static_cast<uint64_t>(-1), ch = rlbwt[run];
+            
+            //returns lcp of SA[coord] and first position above it
+            //where BWT != ch 
+            //assumes minLCPRun valid
+            //if lcp < length threshold, may return any value < length threshold (not necessarily the correct one)
+            auto nextDiffLCP = [lengthThreshold,run,minLCPRun,this] (LFPhiCoordinate& coord, const uint64_t ch) -> uint64_t {
+//                std::cout << "coord.lfpoint " 
+//                    << coord.LFpoint.interval << ',' << coord.LFpoint.offset
+//                    << " coord.phiPoint " 
+//                    << coord.phiPoint.interval << ',' << coord.phiPoint.offset 
+//                    << std::endl;
+//                std::cout << "coord.Seq " << PL.SeqAt[coord.phiPoint.interval]
+//                    << " coord.Pos " << PL.PosAt[coord.phiPoint.interval] + coord.phiPoint.offset
+//                    << std::endl;
+                uint64_t l = coord.LCP();
+//                std::cout << "l " << l << std::endl;
+                if (coord.LFpoint.offset || l < lengthThreshold || rlbwt[coord.LFpoint.interval - 1] != ch)
+                    return l;
+//                std::cout << "skipping run of equal to ch " << ch << std::endl;
+                //else skipping run
+                coord.setToTop(coord.LFpoint.interval - 1);
+                //if minLCP of run < length threshold, return 0
+                if (run - coord.LFpoint.interval > minLCPRun.size())
+                    return 0;
+//                std::cout << "run has large enough minLCP: " << minLCPRun[minLCPRun.size() - (run - coord.LFpoint.interval)] << std::endl;
+                //else
+                return std::min(l, minLCPRun[minLCPRun.size() - (run - coord.LFpoint.interval)]);
+            };
+
+            //sequence, position, minLCP to top of run
+            std::vector<std::tuple<uint64_t,uint64_t,uint64_t>> minLCPSuff;
+//            std::cout << "Going up run " << run << std::endl;
+            //go up
+            while ((l = nextDiffLCP(coord,ch)) >= lengthThreshold) {
+                minLCP = std::min(l, minLCP);
+//                std::cout << "computed nextDiffLCP: " << l << std::endl;
+//                std::cout << "new minLCP: " << minLCP << std::endl;
+                coord.doPhi();
+                minLCPSuff.emplace_back(
+                        PL.SeqAt[coord.phiPoint.interval],
+                        PL.PosAt[coord.phiPoint.interval]+coord.phiPoint.offset,
+                        minLCP);
+            }
+//            std::cout << "finished going up" << std::endl;
+            
+            //go down current run
+            uint64_t rlen = runlens[run], currLCP = static_cast<uint64_t>(-1);
+            coord = topRun;
+            for (uint64_t i = 0; currLCP >= lengthThreshold && i < rlen; ++i) {
+                uint64_t seq = PL.SeqAt[coord.phiPoint.interval];
+                uint64_t pos = PL.PosAt[coord.phiPoint.interval] + coord.phiPoint.offset;
+                for (const auto& a : minLCPSuff) {
+                    out << seq << '\t'
+                        << pos << '\t'
+                        << std::get<0>(a) << '\t'
+                        << std::get<1>(a) << '\t'
+                        << std::min(std::get<2>(a), currLCP) << '\n';
+                }
+                if (i != rlen - 1) {
+                    coord.doInvPhi();
+                    currLCP = std::min(currLCP, coord.LCP());
+                }
+            }
+
+            if (currLCP < lengthThreshold)
+                minLCPRun.clear();
+            else 
+                minLCPRun.push_back(currLCP);
         }
     }
 };
