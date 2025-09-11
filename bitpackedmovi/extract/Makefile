@@ -1,4 +1,4 @@
-all: extract
+all: extract extractMultiple
 
 .PHONY: all clean test
 
@@ -41,7 +41,7 @@ ifneq ($(omp),0)
 endif
 
 clean:
-	-rm extract
+	-rm extract extractMultiple
 
 test: extract
 	set -e && \
@@ -50,4 +50,7 @@ test: extract
 	done
 
 extract: ../include/optbwtrl/optbwtrl.h ../include/optbwtrl/util.h $(objs) extract.cpp
+	$(CXX) $(cppflags) $(incs) -L$(sdsl_optbwt_libdir) $^ -o $@ $(libs)
+
+extractMultiple: ../include/optbwtrl/optbwtrl.h ../include/optbwtrl/util.h $(objs) extractMultiple.cpp
 	$(CXX) $(cppflags) $(incs) -L$(sdsl_optbwt_libdir) $^ -o $@ $(libs)

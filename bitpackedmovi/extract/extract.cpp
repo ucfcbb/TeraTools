@@ -13,7 +13,9 @@ int main(int argc, char *argv[]) {
              len = (argc > 5)? atoi(argv[3]) : static_cast<uint64_t>(-1);
 
     std::cerr << "Extracting sequence " << seq << " position " << pos << " length " << len << '\n';
+    timer errTimer('|', "Timer:", std::cerr, true);
 
+    errTimer.start("Getting contig name");
     std::ifstream in(argv[argc-2]);
     if (!in.is_open()) {
         std::cerr << "ERROR: Contig name file: \"" << argv[argc-2] << "\" failed to open!" << std::endl;
@@ -29,7 +31,9 @@ int main(int argc, char *argv[]) {
     getline(in, contigName);
     in.close();
 
-    timer errTimer('|', "Timer:", std::cerr, true);
+    std::cerr << "Contig name: " << contigName << std::endl;
+    errTimer.stop(); //Getting contig name
+
 
     errTimer.start("Loading");
     OptBWTRL index(argv[argc-1]);
