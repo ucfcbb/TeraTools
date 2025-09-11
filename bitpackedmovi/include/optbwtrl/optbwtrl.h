@@ -1531,7 +1531,7 @@ class OptBWTRL {
         return equalToFmi(fmi) && validateAllExceptRLBWT();
     }
 
-    //stats------------
+    //stats-------------------------------------
     uint64_t sumLCPTopRun() {
         uint64_t numIntervals = SATopRunInt.size();
         uint64_t sum = 0;
@@ -1574,9 +1574,27 @@ class OptBWTRL {
         return a;
     }
 
-    //matching algorithms
+    //extract-----------------------------------
 
-    //WARNING, THIS IMPLEMENTATION ASSUMES NO RUN SPLITTING, MAY ME BUGGY IF RUN SPLITTING IS PERFORMED
+    //extracts up to len characters of sequence seq, starting at position pos
+    //i.e. returns S_seq[pos, min(pos+len, |S_seq|) - 1]
+    //where S_seq is the seq-th string in the text (0-indexed)
+    std::string extract(uint64_t seq, uint64_t pos = 0, uint64_t len = static_cast<uint64_t>(-1)) {
+        MoveStructure::IntervalPoint lfPoint{0, 0, 0};
+        LF.AdvanceIntervalPoint_unsafe(lfPoint, seq);
+
+        std::string res, convert = "$ACGTN";
+        while (len && rlbwt[lfPoint.interval]) {
+            res.push_back(convert[rlbwt[lfPoint.interval]]);
+            lfPoint = LF.map(lfPoint);
+        }
+        std::reverse(res.begin(), res.end());
+        return res;
+    }
+
+    //matching algorithms-----------------------
+
+    //WARNING, THIS IMPLEMENTATION ASSUMES NO RUN SPLITTING, MAY BE BUGGY IF RUN SPLITTING IS PERFORMED
     void superMaximalRepeats(std::ostream& out, const uint64_t lengthThreshold = 1) {
         //a supermaximal repeat is a substring of the text T[i,i+l) s.t.
         //  a. occ(T[i,i+l)) > 1
@@ -1660,7 +1678,7 @@ class OptBWTRL {
         }
     }
 
-    //WARNING, THIS IMPLEMENTATION ASSUMES NO RUN SPLITTING, MAY ME BUGGY IF RUN SPLITTING IS PERFORMED
+    //WARNING, THIS IMPLEMENTATION ASSUMES NO RUN SPLITTING, MAY BE BUGGY IF RUN SPLITTING IS PERFORMED
     //no default value for lengthThreshold because there will be many of length >= 1
     //occ[c]^2 per character c?
     void repeats(std::ostream& out, const uint64_t lengthThreshold) {
