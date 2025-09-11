@@ -5,7 +5,7 @@
 /pfp-thresholds
 /ropebwt3
 slurm-*.out*
-batchSlurm
+batch*Slurm
 batchMakeTest
 test.in
 settings.json
