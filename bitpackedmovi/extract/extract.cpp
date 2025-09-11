@@ -12,9 +12,11 @@ int main(int argc, char *argv[]) {
              pos = (argc > 4)? atoi(argv[2]) : static_cast<uint64_t>(-1), 
              len = (argc > 5)? atoi(argv[3]) : static_cast<uint64_t>(-1);
 
+    std::cerr << "Extracting sequence " << seq << " position " << pos << " length " << len << '\n';
+
     std::ifstream in(argv[argc-2]);
     if (!in.is_open()) {
-        std::cerr << "Contig name file: \"" << argv[argc-2] << "\" failed to open!" << std::endl;
+        std::cerr << "ERROR: Contig name file: \"" << argv[argc-2] << "\" failed to open!" << std::endl;
         exit(1);
     }
 
@@ -25,12 +27,17 @@ int main(int argc, char *argv[]) {
         in.ignore(maxLen, '\n');
     std::string contigName; 
     getline(in, contigName);
+    in.close();
 
-    //Timer.start("Loading");
+    timer errTimer('|', "Timer:", std::cerr, true);
+
+    errTimer.start("Loading");
     OptBWTRL index(argv[argc-1]);
-    //Timer.stop(); //Loading
+    errTimer.stop(); //Loading
     
+    errTimer.start("extract");
     std::cout << ">" << contigName << "\n" << index.extract(seq, pos, len) << '\n';
+    errTimer.stop(); //extract
 
     return 0;
 }

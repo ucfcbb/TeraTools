@@ -2,7 +2,7 @@
 #include<stack>
 #include<chrono>
 
-class Timer {
+class timer {
     std::stack<std::pair<std::chrono::time_point<std::chrono::high_resolution_clock>, std::string>> processes; 
     const char scopeChar;
     const std::string prefix;
@@ -30,9 +30,9 @@ class Timer {
             stop();
     }
 
-    Timer() = delete;
-    Timer(const char c, const std::string& pref, std::ostream& s, bool f): scopeChar(c), prefix(pref), os(s), flush(f) {}
-    ~Timer() {
+    timer() = delete;
+    timer(const char c, const std::string& pref, std::ostream& s, bool f): scopeChar(c), prefix(pref), os(s), flush(f) {}
+    ~timer() {
         stopAllProcesses();
     }
 }Timer('|', "Timer:", std::cout, true);
