@@ -1595,6 +1595,8 @@ class OptBWTRL {
     //matching algorithms-----------------------
 
     //WARNING, THIS IMPLEMENTATION ASSUMES NO RUN SPLITTING, MAY BE BUGGY IF RUN SPLITTING IS PERFORMED
+    //NOTE: THIS ALGORITHM MIGHT BE FASTER IN PRACTICE IF WE COMPUTE IT IN THE TEXT ORDER,
+    //  I.E. BY PLCP instead of BWT order (faster due to locality of reference)
     void superMaximalRepeats(std::ostream& out, const uint64_t lengthThreshold = 1) {
         //a supermaximal repeat is a substring of the text T[i,i+l) s.t.
         //  a. occ(T[i,i+l)) > 1
