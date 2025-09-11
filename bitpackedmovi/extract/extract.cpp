@@ -9,7 +9,7 @@ int main(int argc, char *argv[]) {
     }
 
     uint64_t seq = atoi(argv[1]), 
-             pos = (argc > 4)? atoi(argv[2]) : static_cast<uint64_t>(-1), 
+             pos = (argc > 4)? atoi(argv[2]) : 0, 
              len = (argc > 5)? atoi(argv[3]) : static_cast<uint64_t>(-1);
 
     std::cerr << "Extracting sequence " << seq << " position " << pos << " length " << len << '\n';

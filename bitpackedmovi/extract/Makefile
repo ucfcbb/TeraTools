@@ -3,6 +3,7 @@ all: extract extractMultiple
 .PHONY: all clean test
 
 testinds = "../../data/testing/idx.len ../../data/testing/idx.fmd.optbwtrl" "../../data/testing/mtb152.fmd.len ../../data/testing/mtb152.fmd.optbwtrl"
+testindsMul = "idxQueries ../../data/testing/idx.len ../../data/testing/idx.fmd.optbwtrl" "mtbQueries ../../data/testing/mtb152.fmd.len ../../data/testing/mtb152.fmd.optbwtrl"
 
 sdsl_optbwt_incdir = ../include
 sdsl_optbwt_libdir = ../lib
@@ -43,10 +44,14 @@ endif
 clean:
 	-rm extract extractMultiple
 
-test: extract
+test: extract extractMultiple
 	set -e && \
 	for testind in $(testinds); do \
 		./extract 0 $$testind; \
+	done
+	set -e && \
+	for testind in $(testindsMul); do \
+		./extractMultiple $$testind; \
 	done
 
 extract: ../include/optbwtrl/optbwtrl.h ../include/optbwtrl/util.h $(objs) extract.cpp

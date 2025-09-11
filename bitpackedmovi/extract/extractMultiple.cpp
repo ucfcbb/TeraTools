@@ -33,22 +33,37 @@ int main(int argc, char *argv[]) {
     while (in >> curr.seq >> curr.pos >> curr.len) 
         queries.push_back(curr);
     errTimer.stop();
+    in.close();
 
     //get all contig names
     errTimer.start("Getting contig names");
-    std::map<uint64_t,std::string> contigNames;
+    //contig number (seqid/2): [contig name, contig length]
+    std::map<uint64_t,std::pair<std::string,uint64_t>> contigNames;
     for (auto a : queries)
-        contigNames.emplace(a.seq/2, "");
+        contigNames.emplace(a.seq/2, std::pair<std::string,uint64_t>("", 0));
 
     uint64_t line = 0;
     auto maxLen = std::numeric_limits<std::streamsize>::max();
     for (auto it = contigNames.begin(); it != contigNames.end(); ++it) {
         for (; line < it->first; ++line)
-            in.ignore(maxLen, '\n');
-        getline(in, it->second);
+            inLen.ignore(maxLen, '\n');
+        inLen >> it->second.first
+            >> it->second.second;
+        inLen.ignore(maxLen, '\n');
         ++line;
     }
     errTimer.stop();
+
+    /*
+    std::cerr << "Queries:" << std::endl;
+    for (auto query: queries) {
+        std::cerr << query.seq << '\t'
+            << query.pos << '\t'
+            << query.len << '\t'
+            << contigNames[query.seq/2].first << '\t'
+            << contigNames[query.seq/2].second << '\n';
+    }
+    */
 
     errTimer.start("Loading");
     OptBWTRL index(argv[argc-1]);
@@ -58,8 +73,14 @@ int main(int argc, char *argv[]) {
     //there is a much more efficient way to do this but I haven't implemented it
     errTimer.start("Computing Queries");
     for (auto query: queries) {
-        std::cout << ">" << contigNames[query.seq/2] << "seq[start,end]: " << query.seq << '[' << query.pos << ',' << query.pos + query.len - 1 << ']' << "\n"
-            << index.extract(query.seq, query.pos, query.len) << "\n\n";
+        std::string st = index.extract(query.seq, query.pos, query.len);
+        std::cout << ">" << contigNames[query.seq/2].first
+            << " contigLen: " << contigNames[query.seq/2].second
+            << " seq[start,end]: " 
+            << query.seq << '[' << query.pos << ',' << query.pos + query.len - 1 << ']' 
+            << " queryLen: " << query.len 
+            << " numN: " << std::count(st.begin(), st.end(), 'N') << "\n"
+            << st << "\n\n";
     }
     errTimer.stop();
 }

@@ -1581,14 +1581,17 @@ class OptBWTRL {
     //where S_seq is the seq-th string in the text (0-indexed)
     std::string extract(uint64_t seq, uint64_t pos = 0, uint64_t len = static_cast<uint64_t>(-1)) {
         MoveStructure::IntervalPoint lfPoint{0, 0, 0};
-        LF.AdvanceIntervalPoint_unsafe(lfPoint, seq);
+        uint64_t compSeq = seq ^ 0x1;
+        LF.AdvanceIntervalPoint_unsafe(lfPoint, compSeq);
 
-        std::string res, convert = "$ACGTN";
-        while (len && rlbwt[lfPoint.interval]) {
-            res.push_back(convert[rlbwt[lfPoint.interval]]);
+        for(uint64_t i = 0; rlbwt[lfPoint.interval] && i < pos; ++i)
+            lfPoint = LF.map(lfPoint);
+
+        std::string res, convertComp = "$TGCAN";
+        while (res.size() < len && rlbwt[lfPoint.interval] != 0) {
+            res.push_back(convertComp[rlbwt[lfPoint.interval]]);
             lfPoint = LF.map(lfPoint);
         }
-        std::reverse(res.begin(), res.end());
         return res;
     }
 
