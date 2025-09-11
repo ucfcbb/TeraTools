@@ -46,7 +46,8 @@ clean:
 test: repeats
 	set -e && \
 	for testind in $(testinds); do \
-		./repeats $$testind; \
+		./repeats SM $$testind; \
+		./repeats LM $$testind; \
 	done
 
 repeats: ../include/optbwtrl/optbwtrl.h ../include/optbwtrl/util.h $(objs) repeats.cpp
