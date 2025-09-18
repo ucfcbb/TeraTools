@@ -1765,7 +1765,7 @@ class OptBWTRL {
                 uint64_t seq = PL.SeqAt[coord.phiPoint.interval];
                 uint64_t pos = PL.PosAt[coord.phiPoint.interval] + coord.phiPoint.offset;
                 for (const auto& a : minLCPSuff) {
-                    if (seq < std::get<0>(a) || pos < std::get<1>(a))
+                    if (seq < std::get<0>(a) || (seq == std::get<0>(a) && pos < std::get<1>(a)))
                         out << seq << '\t'
                             << pos << '\t'
                             << std::get<0>(a) << '\t'
