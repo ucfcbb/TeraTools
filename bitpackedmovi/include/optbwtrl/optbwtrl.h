@@ -1718,7 +1718,7 @@ class OptBWTRL {
             //where BWT != ch 
             //assumes minLCPRun valid
             //if lcp < length threshold, may return any value < length threshold (not necessarily the correct one)
-            auto nextDiffLCP = [lengthThreshold,run,minLCPRun,this] (LFPhiCoordinate& coord, const uint64_t ch) -> uint64_t {
+            auto nextDiffLCP = [lengthThreshold, run, minLCPRun, this](LFPhiCoordinate& coord, const uint64_t ch) -> uint64_t {
 //                std::cout << "coord.lfpoint " 
 //                    << coord.LFpoint.interval << ',' << coord.LFpoint.offset
 //                    << " coord.phiPoint " 
@@ -1728,8 +1728,8 @@ class OptBWTRL {
 //                    << " coord.Pos " << PL.PosAt[coord.phiPoint.interval] + coord.phiPoint.offset
 //                    << std::endl;
                 uint64_t l = coord.LCP();
-//                std::cout << "l " << l << std::endl;
-                if (coord.LFpoint.offset || l < lengthThreshold || rlbwt[coord.LFpoint.interval - 1] != ch)
+                // std::cerr << "l " << l << std::endl;
+                if (coord.LFpoint.offset || l < lengthThreshold || ch == 0 || rlbwt[coord.LFpoint.interval - 1] != ch)
                     return l;
 //                std::cout << "skipping run of equal to ch " << ch << std::endl;
                 //else skipping run
@@ -1739,6 +1739,7 @@ class OptBWTRL {
                     return 0;
 //                std::cout << "run has large enough minLCP: " << minLCPRun[minLCPRun.size() - (run - coord.LFpoint.interval)] << std::endl;
                 //else
+		l = std::min(l, PL.LCP(coord.phiPoint));
                 return std::min(l, minLCPRun[minLCPRun.size() - (run - coord.LFpoint.interval)]);
             };
 
@@ -1751,6 +1752,7 @@ class OptBWTRL {
 //                std::cout << "computed nextDiffLCP: " << l << std::endl;
 //                std::cout << "new minLCP: " << minLCP << std::endl;
                 coord.doPhi();
+                // TODO: THINK ABOUT SPACE COMPLEXITY OF THIS STACK
                 minLCPSuff.emplace_back(
                         PL.SeqAt[coord.phiPoint.interval],
                         PL.PosAt[coord.phiPoint.interval]+coord.phiPoint.offset,
@@ -1777,12 +1779,11 @@ class OptBWTRL {
                             << seq << '\t'
                             << pos << '\t'
                             << std::min(std::get<2>(a), currLCP) << '\n';
-
                 }
-                if (i != rlen - 1) {
+                // if (i != rlen - 1) {
                     coord.doInvPhi();
                     currLCP = std::min(currLCP, coord.LCP());
-                }
+                //}
             }
 
             if (currLCP < lengthThreshold)
