@@ -1188,6 +1188,196 @@ class OptBWTRL {
         Timer.stop(); //Shrinking LCP
     }
 
+    void LCPConstructionNate(const std::vector<MoveStructure::IntervalPoint> & alphStarts, const std::vector<uint64_t> & seqNumsTopOrBotRun, const std::vector<uint64_t> & seqLens) {
+        Timer.start("LCP Computation");
+        uint64_t numStrings = alphStarts[1].position;
+
+        //suffix samples at run starts
+        //sdsl::int_vector<> PLS_index(seqNumsTopOrBotRun.back(), 0, sdsl::bits::hi(seqNumsTopOrBotRun.back()-1) + 1);
+        //suffix samples at run ends
+        //sdsl::int_vector<> PLE_index(seqNumsTopOrBotRun.back(), 0, sdsl::bits::hi(seqNumsTopOrBotRun.back()-1) + 1);
+
+
+        Timer.start("Prefix Sum Suff");
+        sdsl::int_vector<> suffFromPL(PL.IntLen.size());
+        for (uint64_t i = 1; i < PL.IntLen.size(); ++i)
+            suffFromPL[i] = suffFromPL[i-1] + PL.IntLen[i-1];
+        Timer.stop(); //Prefix Sum Suff
+
+        std::vector<LFPhiCoordinate> endmarkersSA(numStrings);
+        LFPhiCoordinate start(&LF, &PL, &SATopRunInt);
+        endmarkersSA[0] = start;
+        for (uint64_t seq = 1; seq < numStrings; ++seq) {
+            start.doInvPhi();
+            endmarkersSA[seq] = start;
+        }
+
+        std::vector<uint64_t> stringEnds(seqLens);
+        for (uint64_t i = 1; i < stringEnds.size(); ++i)
+            stringEnds[i] += stringEnds[i-1];
+
+        Timer.start("ISA sampling");
+        uint64_t sampleInterval = stringEnds.back()/seqNumsTopOrBotRun.back();
+        uint64_t numSamps = totalLen/sampleInterval + (totalLen % sampleInterval != 0);
+
+        sdsl::int_vector<> LF_index(numSamps, 0, sdsl::bits::hi(runlens.size()-1) + 1);
+        sdsl::int_vector<> LF_offset(numSamps, 0, runlens.width());
+
+        //std::cout << "sampleInterval: " << sampleInterval << std::endl;
+        #pragma omp parallel for schedule(guided)
+        for (uint64_t seq = 0; seq < numStrings; ++seq) {
+            MoveStructure::IntervalPoint current{endmarkersSA[seq].LFpoint};
+            uint64_t endSuf = (seq)? stringEnds[seq - 1] - 1 : static_cast<uint64_t>(-1);
+            //std::cout << "Here" << std::endl;
+            for (uint64_t suf = stringEnds[seq] - 1; suf != endSuf; --suf) {
+                if (suf % sampleInterval == 0) {
+                    #pragma omp critical
+                    {
+                    LF_index[suf/sampleInterval] = current.interval;
+                    LF_offset[suf/sampleInterval] = current.offset;
+                    //std::cout << "setting suf " << suf << std::endl;
+                    }
+                }
+                //if (current.LFpoint.offset == 0)
+                    //PLS_index[current.LFpoint.interval] = current.phiPoint.interval;
+                //if (current.LFpoint.offset == runlens[current.LFpoint.interval] - 1)
+                    //PLE_index[current.LFpoint.interval] = current.phiPoint.interval;
+                //if (suf == endSuf) 
+
+                current = LF.map(current);
+            }
+        }
+        Timer.stop(); //ISA sampling
+
+        //std::cout << "Finished" << std::endl;
+
+        Timer.start("LCP Computation");
+        PL.AboveLCP.resize(seqNumsTopOrBotRun.back());
+        #pragma omp parallel for schedule(guided)
+        for (uint64_t seq = 0; seq < numStrings; ++seq) {
+            uint64_t revSeq = seq ^ 0x1;
+            uint64_t ell = 0;
+            uint64_t startInterval = (seq == 0)? 0 : seqNumsTopOrBotRun[seq - 1];
+
+            MoveStructure::IntervalPoint textPoint{endmarkersSA[revSeq].LFpoint};
+            MoveStructure::IntervalPoint phiTextPoint;
+            MoveStructure::IntervalPoint phi{static_cast<uint64_t>(-1), startInterval, 0};
+
+            phi = PL.phi.map(phi);
+            uint64_t phiSeq = PL.SeqAt[phi.interval];
+            uint64_t phiOff = suffFromPL[phi.interval] + phi.offset - ((phiSeq)? stringEnds[phiSeq - 1] : 0);
+            uint64_t revPhiSeq = phiSeq ^ 0x1;
+            uint64_t revPhiOff = seqLens[revPhiSeq] - phiOff - 1;
+            uint64_t revPhiSuf = ((revPhiSeq)? stringEnds[revPhiSeq - 1] : 0) + revPhiOff;
+
+            uint64_t samp = revPhiSuf/sampleInterval;
+            samp += (revPhiSuf % sampleInterval != 0);
+            samp %= numSamps;
+
+            //std::cout << samp << std::endl;
+
+            phiTextPoint.interval = LF_index[samp];
+            phiTextPoint.offset = LF_offset[samp];
+
+            //std::cout << phiTextPoint.interval << ' ' << phiTextPoint.offset << std::endl;
+
+            uint64_t curRevSuf = (samp)? sampleInterval*samp : totalLen;
+            for (; curRevSuf != revPhiSuf; --curRevSuf) 
+                phiTextPoint = LF.map(phiTextPoint);
+            //std::cout << phiTextPoint.interval << ' ' << phiTextPoint.offset << std::endl;
+            //std::cout << revPhiSeq << ' ' << revPhiOff << ' ' << revPhiSuf << std::endl;
+
+            while (rlbwt[textPoint.interval] == rlbwt[phiTextPoint.interval] 
+                    && rlbwt[textPoint.interval] != 0) {
+                ++ell;
+                textPoint = LF.map(textPoint);
+                phiTextPoint = LF.map(phiTextPoint);
+            }
+
+            #pragma omp critical
+            {
+            //std::cout << "Starting for loop seq " << seq << ". First computed ell: " << ell << std::endl;
+            }
+            #pragma omp critical
+            {
+            PL.AboveLCP[startInterval] = ell;
+            }
+
+            if (ell < PL.IntLen[startInterval])
+                for (uint64_t i = 0; i < PL.IntLen[startInterval]-ell; ++i)
+                    textPoint = LF.map(textPoint);
+
+            //#pragma omp critical
+            //{
+            //std::cout << "Starting for loop seq " << seq << ". First computed ell: " << ell << std::endl;
+            //}
+            ell -= std::min(ell, static_cast<uint64_t>(PL.IntLen[startInterval]));
+            for (uint64_t currentInterval = startInterval + 1; currentInterval != seqNumsTopOrBotRun[seq]; ++currentInterval) {
+                //get suffix above this sample
+                MoveStructure::IntervalPoint phi{static_cast<uint64_t>(-1), currentInterval, 0};
+                //std::cout << "phi " << phi.interval << " " << phi.offset << std::endl;
+                phi = PL.phi.map(phi);
+                //std::cout << "phi " << phi.interval << " " << phi.offset << std::endl;
+                uint64_t phiSeq = PL.SeqAt[phi.interval];
+                uint64_t phiOff = suffFromPL[phi.interval] + phi.offset - ((phiSeq)? stringEnds[phiSeq - 1] : 0);
+                uint64_t revPhiSeq = phiSeq ^ 0x1;
+                uint64_t revPhiOff = seqLens[revPhiSeq] - phiOff - 1;
+                //std::cout << "revPhiSeq " << revPhiSeq << " revPhiOff " << revPhiOff << std::endl;
+                revPhiOff -= ell;
+                uint64_t revPhiSuf = ((revPhiSeq)? stringEnds[revPhiSeq - 1] : 0) + revPhiOff;
+                //std::cout << "phiSeq " << phiSeq << " phiOff " << phiOff << std::endl;
+                //std::cout << "revPhiSeq " << revPhiSeq << " revPhiOff " << revPhiOff << std::endl;
+                //std::cout << "revPhiSuf " << revPhiSuf << std::endl;
+
+                //get closest sample and lf to revSuff
+                uint64_t samp = revPhiSuf/sampleInterval;
+                samp += (revPhiSuf % sampleInterval != 0);
+                samp %= numSamps;
+
+                phiTextPoint = {static_cast<uint64_t>(-1), LF_index[samp], LF_offset[samp]};
+                uint64_t curRevSuf = (samp)? sampleInterval*samp : totalLen;
+                //std::cout << curRevSuf << ' ' << revPhiSuf << std::endl;
+                for (; curRevSuf != revPhiSuf; --curRevSuf)
+                    phiTextPoint = LF.map(phiTextPoint);
+
+                //std::cout << "textPoint " << textPoint.interval << " " << textPoint.offset << std::endl;
+                //std::cout << "phiTextPoint " << phiTextPoint.interval << " " << phiTextPoint.offset << std::endl;
+
+                //std::cout << "computing ell of seq pos " << PL.SeqAt[currentInterval] << " " << PL.PosAt[currentInterval] << std::endl;
+                //compute new ell
+                while (rlbwt[textPoint.interval] == rlbwt[phiTextPoint.interval]
+                        && rlbwt[textPoint.interval] != 0) {
+                    //std::cout << "computing ell of seq pos " << PL.SeqAt[currentInterval] << " " << PL.PosAt[currentInterval] << std::endl;
+                    ++ell;
+                    textPoint = LF.map(textPoint);
+                    phiTextPoint = LF.map(phiTextPoint);
+                }
+
+                #pragma omp critical
+                {
+                PL.AboveLCP[currentInterval] = ell;
+                }
+
+                #pragma omp critical
+                {
+                    //std::cout << "in for loop seq " << seq << ". currentInterval " << currentInterval << " ell: " << ell << std::endl;
+                }
+                if (ell < PL.IntLen[currentInterval])
+                    for (uint64_t i = 0; i < PL.IntLen[currentInterval]-ell; ++i)
+                        textPoint = LF.map(textPoint);
+                ell -= std::min(ell, static_cast<uint64_t>(PL.IntLen[currentInterval]));
+            }
+        }
+        Timer.stop(); //LCP Computation
+
+        Timer.start("Shrinking LCP");
+        std::cout << "Shrinking AboveLCP to size\n";
+        std::cout << "Previous element width in bits: " << static_cast<int>(PL.AboveLCP.width()) << '\n';
+        sdsl::util::bit_compress(PL.AboveLCP);
+        std::cout << "New element width in bits: " << static_cast<int>(PL.AboveLCP.width()) << '\n';
+        Timer.stop(); //Shrinking LCP
+    }
+
     void endmarkerRepair(const std::vector<uint64_t> & alphCounts, const std::vector<MoveStructure::IntervalPoint>& stringStarts) {
         Timer.start("RLBWT Repair");
         Timer.start("Detecting endmarkers in runs in RLBWT");
@@ -1254,6 +1444,7 @@ class OptBWTRL {
         MoveStructure::IntervalPoint LFpoint;
         MoveStructure::IntervalPoint phiPoint;
 
+        //add do multiple
         void doPhi() {
             if (LFpoint.offset)
                 --LFpoint.offset;
@@ -1269,6 +1460,7 @@ class OptBWTRL {
             return PL->LCP(phiPoint);
         }
 
+        //add do multiple
         void doInvPhi() {
             if (++LFpoint.offset == (*LF->intLens)[LFpoint.interval]) {
                 ++LFpoint.interval;
@@ -1279,6 +1471,7 @@ class OptBWTRL {
             phiPoint = PL->invPhi.map(phiPoint);
         }
 
+        //add do multiple
         void doLF() {
             if (phiPoint.offset)
                 --phiPoint.offset;
@@ -1294,6 +1487,9 @@ class OptBWTRL {
         LFPhiCoordinate(MoveStructure* lf, InvertibleMoveStructure* pl, sdsl::int_vector<>* satoprunint, uint64_t run = 0): LF(lf), PL(pl), SATopRunInt(satoprunint) {
             setToTop(run);
         }
+
+        //temporary, delete later.
+        LFPhiCoordinate() = default;
 
         void setToTop(uint64_t run = 0) {
             LFpoint.position = phiPoint.position = -1;
@@ -1322,9 +1518,12 @@ class OptBWTRL {
         
         //if (!verifyPhi() || !verifyInvPhi()) { exit(1); } 
 
-        LCPconstruction(alphStarts, seqNumsTopOrBotRun, seqLens);
+        //LCPconstruction(alphStarts, seqNumsTopOrBotRun, seqLens);
 
         endmarkerRepair(alphCounts, stringStarts);
+
+        //needs to be done after endmarker repair
+        LCPConstructionNate(alphStarts, seqNumsTopOrBotRun, seqLens);
     }
 
     //read OptBWTRL from file
