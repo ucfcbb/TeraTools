@@ -11,25 +11,30 @@ const char COMPLEMENT[] = {'T', 'G', 'C', 'A'};
 const int BASES_COUNT = 4;
 
 int main(int argc, char* argv[]) {
-    // Seed handling
+    if (argc < 5) {
+        std::cerr << "Usage: " << argv[0]
+                  << " <num_strings_low> <num_strings_high> <len_low> <len_high> [seed]"
+                  << std::endl;
+        return 1;
+    }
     unsigned int seed;
-    if (argc > 1) {
-        seed = std::stoul(argv[1]);
+    int num_strings_low = std::stoi(argv[1]);
+    int num_strings_high = std::stoi(argv[2]);
+    int len_low = std::stoi(argv[3]);
+    int len_high = std::stoi(argv[4]);
+    if (argc > 5) {
+        seed = std::stoul(argv[5]);
     } else {
         std::random_device rd;
         seed = rd();
     }
     std::mt19937 rng(seed);
 
-    // Random number of strings (between 1 and 20)
-    std::uniform_int_distribution<int> num_strings_dist(100, 200);
+    std::uniform_int_distribution<int> num_strings_dist(num_strings_low, num_strings_high);
     int num_strings = num_strings_dist(rng);
-
-    // For each string, random length (between 10 and 100), random content
-    std::uniform_int_distribution<int> len_dist(1000, 10000);
+    std::uniform_int_distribution<int> len_dist(len_low, len_high);
     std::uniform_int_distribution<int> base_dist(0, BASES_COUNT - 1);
 
-    // std::cout << num_strings << std::endl;
     for (int i = 0; i < num_strings; ++i) {
         int len = len_dist(rng);
         std::string s, comp;
@@ -44,7 +49,7 @@ int main(int argc, char* argv[]) {
         std::cout << comp << std::endl;
     }
 
-    std::cout << "SEED: " << seed << std::endl;
-    std::cout << "NUM_STRINGS: " << num_strings << std::endl;
+    std::cout << num_strings_low << " " << num_strings_high << " " << len_low << " "
+              << len_high << " " << seed << std::endl;
     return 0;
 }
