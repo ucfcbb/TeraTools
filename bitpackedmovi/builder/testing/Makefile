@@ -19,11 +19,11 @@ generation:
 	make -C ../../../data/generation/
 
 kactl-sa-implementation:
-	make -C ../../../kactl-sa-implementation
+	make -C ../../../less_efficient_but_accurate_algos/kactl-sa-implementation
 
 test: ropebwt3 builder kactl-sa-implementation generation loader
 	test=0;\
-	while ./tester.sh ../../../ropebwt3/ropebwt3 ../builder ../../../kactl-sa-implementation/kactl_impl ../../../data/generation/syntheticgen ../../loader/loader; do \
+	while ./tester.sh ../../../ropebwt3/ropebwt3 ../builder ../../../less_efficient_but_accurate_algos/kactl-sa-implementation/kactl_impl ../../../data/generation/syntheticgen ../../loader/loader; do \
 		echo passed test $$((++test)); \
 		if [[ $$test == $(numIter) ]]; then \
 			echo passed all $(numIter) tests; \
