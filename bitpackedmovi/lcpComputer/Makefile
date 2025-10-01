@@ -24,8 +24,7 @@ objs = $(ropebwt3dir)/bre.o\
 	   $(ropebwt3dir)/rope.o\
 	   $(ropebwt3dir)/ssa.o
 
-lcpHeads = $(optIncDir)/optbwtrl/optbwtrl.h\
-           $(optIncDir)/optbwtrl/util.h\
+lcpHeads = $(optIncDir)/optbwtrl/util.h\
            $(optIncDir)/optbwtrl/lcpComputer.h\
            $(optIncDir)/optbwtrl/moveStructure.h\
 
@@ -33,8 +32,8 @@ libs = -lsdsl -lpthread -lz -lm
 incs = -I$(optIncDir) -isystem$(incdir) -isystem$(ropebwt3dir)
 
 developmentflags+= -Wall -Wpedantic -Wextra -pedantic-errors -Wold-style-cast
-#cppflags+=$(developmentflags) -O3 -DNDEBUG
-cppflags+=$(developmentflags) -Wall -g
+cppflags+=$(developmentflags) -O3 -DNDEBUG
+#cppflags+=$(developmentflags) -Wall -g
 
 ifneq ($(asan),)
 	cppflags+=-fsanitize=address

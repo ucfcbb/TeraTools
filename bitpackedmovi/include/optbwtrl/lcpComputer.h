@@ -214,7 +214,8 @@ class LCPComputer {
         while (numSequences < F.size() && F[numSequences] == 0)
             ++numSequences;
 
-        //#pragma omp parallel for schedule(dynamic, 1)
+        std::vector<MoveStructure::IntervalPoint> correctSeqPsis(numSequences);
+        #pragma omp parallel for schedule(dynamic, 1)
         for (uint64_t seq = 0; seq < numSequences; ++seq) {
             MoveStructure::IntervalPoint start = {static_cast<uint64_t>(-1), seq, 0}, curr;
             start = Psi.map(start);
@@ -229,11 +230,14 @@ class LCPComputer {
             }
 
             uint64_t seqStartingAtStart = (curr.interval)? curr.interval - 1 : numSequences - 1;
-            //#pragma omp critical
-            {
-                Psi.D_index[seqStartingAtStart] = start.interval;
-                Psi.D_offset[seqStartingAtStart] = start.offset;
-            }
+
+            //should not need omp critical
+            correctSeqPsis[seqStartingAtStart] = start;
+        }
+
+        for (uint64_t seq = 0; seq < numSequences; ++seq) {
+            Psi.D_index[seq] = correctSeqPsis[seq].interval;
+            Psi.D_offset[seq] = correctSeqPsis[seq].offset;
         }
         Timer.stop(); //Repairing Psi of endmarkers in F
     }
@@ -263,18 +267,45 @@ class LCPComputer {
                 << Psi.D_index[i] << '\t'
                 << Psi.D_offset[i] << '\n';
         }
+        {
+            MoveStructure::IntervalPoint end{static_cast<uint64_t>(-1), numSequences-1, 0}, curr;
+            curr = end;
+            char con[] = "$ACGTN";
+            uint64_t count = 0;
+            do {
+                curr = Psi.map(curr);
+                std::cout << con[F[curr.interval]];
+                ++count;
+            } while (curr != end);
+            std::cout << std::endl;
+            std::cout << count << " characters" << std::endl;
+        }
         */
 
         RepairPsi(F, Psi);
 
-        MoveStructure::IntervalPoint end{static_cast<uint64_t>(-1), numSequences-1, 0}, curr;
-        curr = end;
-        //char con[] = "$ACGTN";
-        //do {
-            //curr = Psi.map(curr);
-            //std::cout << con[F[curr.interval]];
-        //} while (curr != end);
-        //std::cout << std::endl;
+        /*
+        for (uint64_t i = 0; i < Psi.D_index.size(); ++i) {
+            std::cout 
+                << F[i] << '\t'
+                << (*Psi.intLens)[i] << '\t'
+                << Psi.D_index[i] << '\t'
+                << Psi.D_offset[i] << '\n';
+        }
+        {
+            MoveStructure::IntervalPoint end{static_cast<uint64_t>(-1), numSequences-1, 0}, curr;
+            curr = end;
+            char con[] = "$ACGTN";
+            uint64_t count = 0;
+            do {
+                curr = Psi.map(curr);
+                std::cout << con[F[curr.interval]];
+                ++count;
+            } while (curr != end);
+            std::cout << std::endl;
+            std::cout << count << " characters" << std::endl;
+        }
+        */
 
 
         Timer.start("Verifying Psi");

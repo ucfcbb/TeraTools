@@ -5,7 +5,7 @@
 set -e
 
 if [[ $# -lt 4 ]]; then
-    echo "Usage: $0 <num_strings_low> <num_strings_high> <len_low> <len_high> <SM|LM> [len_threshold] [seed]"
+    echo "Usage: $0 <num_strings_low> <num_strings_high> <len_low> <len_high> [seed]"
     exit 1
 fi
 
@@ -13,9 +13,8 @@ NUM_STRINGS_LOW="$1"
 NUM_STRINGS_HIGH="$2"
 LEN_LOW="$3"
 LEN_HIGH="$4"
-MODE="$5"
 # LEN_THRESHOLD="$6"
-SEED="$6"
+SEED="$5"
 
 # Validate mode parameter
 #if [[ "$MODE" != "SM" && "$MODE" != "LM" ]]; then
