@@ -1,0 +1,11 @@
+prefix=/home/asana/PangenomePositionlessLongMatches/bitpackedmovi
+exec_prefix=${prefix}
+libdir=/home/asana/PangenomePositionlessLongMatches/bitpackedmovi/lib
+includedir=/home/asana/PangenomePositionlessLongMatches/bitpackedmovi/include
+
+Name: libdivsufsort64
+Description: A lightweight suffix sorting library
+Version: 2.0.1-13-g0f24acd
+URL: https://github.com/y-256/libdivsufsort
+Libs: -L${libdir} -ldivsufsort64
+Cflags: -I${includedir}
