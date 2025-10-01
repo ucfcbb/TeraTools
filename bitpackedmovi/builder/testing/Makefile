@@ -2,7 +2,7 @@ SHELL := /bin/bash
 
 all: test
 
-.PHONY: all clean ropebwt3 builder kactl-sa-implmentation generation
+.PHONY: all clean test ropebwt3 builder kactl-sa-implmentation generation
 
 numIter=10
 
