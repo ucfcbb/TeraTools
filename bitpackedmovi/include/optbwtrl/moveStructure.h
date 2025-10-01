@@ -101,4 +101,39 @@ struct MoveStructure {
             }
         }
     }
+
+    //returns whether the move structure is a permutation of length N
+    //uses numIntervals log numIntervals auxiliary bits
+    bool permutationLengthN(size_type N) {
+        size_type runs = D_index.size();
+        sdsl::int_vector<> nextInt(runs, runs, sdsl::bits::hi(runs) + 1);
+        size_type totalOps = 0;
+
+        #pragma omp parallel for schedule(dynamic, 1)
+        for (uint64_t i = 0; i < runs; ++i) {
+            IntervalPoint curr{static_cast<uint64_t>(-1), i, 0};
+            uint64_t ops = 0;
+            do {
+                curr = map(curr);
+                ++ops;
+            } while (curr.offset);
+
+            #pragma omp critical 
+            {
+                nextInt[i] = curr.interval;
+                totalOps += ops;
+            }
+        }
+
+        if (totalOps != N)
+            return false;
+
+        uint64_t traversed = 1, curr = 0;
+        while (nextInt[curr] && nextInt[curr] != runs && traversed < runs) {
+            curr = nextInt[curr];
+            ++traversed;
+        }
+
+        return traversed == runs && nextInt[curr] == 0;
+    }
 };
