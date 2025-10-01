@@ -109,7 +109,7 @@ struct MoveStructure {
         sdsl::int_vector<> nextInt(runs, runs, sdsl::bits::hi(runs) + 1);
         size_type totalOps = 0;
 
-        #pragma omp parallel for schedule(dynamic, 1)
+        #pragma omp parallel for schedule(dynamic, 1000)
         for (uint64_t i = 0; i < runs; ++i) {
             IntervalPoint curr{static_cast<uint64_t>(-1), i, 0};
             uint64_t ops = 0;

@@ -207,39 +207,123 @@ class LCPComputer {
     //LCP computation is O(n) anyways and we can repair while we do it
     //although we don't use psi after so may as well not repair it
     //this function fixes the psi mappings for the endmarker runs (of F)
-    void RepairPsi(const sdsl::int_vector<>& F, MoveStructure& Psi) {
-        Timer.start("Repairing Psi of endmarkers in F");
-        uint64_t numSequences = 0;
+    //It also computes numTopRuns and seqLens
+    //numTopRuns and seqLens are vectors of length equal to the number of sequences
+    //the i+1-th value of numTopRuns is the number of times suffixes of sequence i
+    //are at the (SA position corresponding to the) top of a run in the BWT. 
+    //(includes the termination symbol at the end of sequence i, $_i)
+    //the i+1-th value of seqLens is the length of seq i,
+    //(includes the termination symbol) 
+    //Actually, numTopRuns and seqLens are the prefix sums of the above definitions
+    //
+    //
+    //for every suffix x at the top of a run in the BWT, 
+    //there is an input interval of psi, j, where 
+    //suffix x-1 is at the top of the input interval
+    //intAtTop stores, for every input interval of psi
+    //with suffix x-1 at the top of the input interval,
+    //how many suffixes < x are at the top of a run in the BWT
+    void ComputeAuxAndRepairPsi(std::vector<uint64_t> & numTopRuns, std::vector<uint64_t> & seqLens, sdsl::int_vector<> & intAtTop, 
+            const sdsl::int_vector<>& F, MoveStructure& Psi) {
+        Timer.start("Computing numTopRuns, seqLens, and repairing Psi of endmarkers in F");
 
+        uint64_t numSequences = 0;
         while (numSequences < F.size() && F[numSequences] == 0)
             ++numSequences;
+        numTopRuns.resize(numSequences + 1);
+        seqLens = std::vector<uint64_t>(numSequences + 1);
 
-        std::vector<MoveStructure::IntervalPoint> correctSeqPsis(numSequences);
-        #pragma omp parallel for schedule(dynamic, 1)
-        for (uint64_t seq = 0; seq < numSequences; ++seq) {
-            MoveStructure::IntervalPoint start = {static_cast<uint64_t>(-1), seq, 0}, curr;
-            start = Psi.map(start);
-            curr = start;
+        intAtTop = sdsl::int_vector<>(F.size(), -1, sdsl::bits::hi(F.size() - 1) + 1);
 
-            while (curr.interval >= numSequences)
-                curr = Psi.map(curr);
+        //computing seqLens, numTopRuns, and correctSeqPsis
+        Timer.start("Parallel seq traversal");
+        {
+            std::vector<MoveStructure::IntervalPoint> correctSeqPsis(numSequences);
+            #pragma omp parallel for schedule(dynamic, 1)
+            for (uint64_t seq = 0; seq < numSequences; ++seq) {
+                MoveStructure::IntervalPoint start = {static_cast<uint64_t>(-1), seq, 0}, curr;
+                start = Psi.map(start);
+                curr = start;
 
-            if (curr.offset) {
-                std::cerr << "ERROR: Run of endmarkers in F of length more than 1!" << std::endl;
-                exit(1);
+                //suffix 0 of seq seq is at the top of a run in the bwt since its bwt value is a termination string
+                uint64_t numTop = 1;
+                uint64_t len = 1;
+
+                while (curr.interval >= numSequences) {
+                    //suffix x is at the top of a run in the bwt iff suffix x - 1 is at the start
+                    //of an input interval of psi
+                    numTop += (curr.offset == 0);
+                    ++len;
+                    curr = Psi.map(curr);
+                }
+
+                if (curr.offset) {
+                    std::cerr << "ERROR: Run of endmarkers in F of length more than 1!" << std::endl;
+                    exit(1);
+                }
+
+                uint64_t seqStartingAtStart = curr.interval;
+
+                //should not need omp critical
+                correctSeqPsis[(seqStartingAtStart)? seqStartingAtStart - 1 : numSequences - 1] = start;
+                seqLens[seqStartingAtStart + 1] = len;
+                numTopRuns[seqStartingAtStart + 1] = numTop;
             }
 
-            uint64_t seqStartingAtStart = (curr.interval)? curr.interval - 1 : numSequences - 1;
+            for (uint64_t seq = 0; seq < numSequences; ++seq) {
+                Psi.D_index[seq] = correctSeqPsis[seq].interval;
+                Psi.D_offset[seq] = correctSeqPsis[seq].offset;
+            }
+        }
+        Timer.stop(); //Parallel seq traversal
 
-            //should not need omp critical
-            correctSeqPsis[seqStartingAtStart] = start;
+        //from here on, numTopRuns and seqLens are the exclusive prefix sums of their previous definition
+        Timer.start("Prefix summing auxiliary data");
+        for (uint64_t i = 1; i < seqLens.size(); ++i) {
+            seqLens[i] += seqLens[i-1];
+            numTopRuns[i] += numTopRuns[i-1];
         }
 
+        if (numTopRuns.back() != F.size()) {
+            std::cerr << "ERROR: Number of runs in numTopRuns doesn't sum to total number of runs!" << std::endl;
+            exit(1);
+        }
+        if (seqLens.back() != totalLen) {
+            std::cerr << "ERROR: Lengths in seqLens doesn't sum to total length!" << std::endl;
+            exit(1);
+        }
+        Timer.stop(); //Prefix summing auxiliary data
+
+        //computing intAtTop
+        Timer.start("Second Parallel seq traversal");
+        #pragma omp parallel for schedule(dynamic, 1)
         for (uint64_t seq = 0; seq < numSequences; ++seq) {
-            Psi.D_index[seq] = correctSeqPsis[seq].interval;
-            Psi.D_offset[seq] = correctSeqPsis[seq].offset;
+            uint64_t prevSeq = (seq)? seq - 1 : numSequences - 1;
+            MoveStructure::IntervalPoint curr = {static_cast<uint64_t>(-1), prevSeq, 0};
+
+            uint64_t currentInt = numTopRuns[seq];
+            do {
+                if (curr.offset == 0) {
+                    #pragma omp critical
+                    {
+                        intAtTop[curr.interval] = currentInt++;
+                    }
+                }
+                curr = Psi.map(curr);
+                //std::cout << "curr.interval " << curr.interval << " curr.offset " << curr.offset << std::endl;
+            } while (curr.interval >= numSequences);
+
+            if (currentInt != numTopRuns[seq + 1]) {
+                std::cerr << "ERROR: Didn't reach beginning of next sequence in numTopRuns!" << std::endl;
+                //std::cout << currentInt << " " << numTopRuns[seq + 1] << std::endl;
+                //for (uint64_t i = 0; i < F.size(); ++i) {
+                    //std::cout << intAtTop[i] << std::endl;
+                //}
+                exit(1);
+            }
         }
-        Timer.stop(); //Repairing Psi of endmarkers in F
+        Timer.stop(); //Second Parallel seq traversal
+        Timer.stop(); //Computing numTopRuns, seqLens, and repairing Psi of endmarkers in F
     }
 
     public:
@@ -258,6 +342,8 @@ class LCPComputer {
         Psi.intLens = &Flens;
         uint64_t numSequences;
         ConstructPsi(rb3, F, Psi, numSequences);
+
+        rb3_fmi_free(rb3);
 
         /*
         for (uint64_t i = 0; i < Psi.D_index.size(); ++i) {
@@ -282,7 +368,21 @@ class LCPComputer {
         }
         */
 
-        RepairPsi(F, Psi);
+        //numTopRuns and seqLens are vectors of length equal to the number of sequences+1
+        //the i+1-th value of numTopRuns is the number of times suffixes of sequence i
+        //are at the (SA position corresponding to the) top of a run in the BWT. 
+        //(includes the termination symbol at the end of sequence i, $_i)
+        //the i+1-th value of seqLens is the length of seq i,
+        //(includes the termination symbol) 
+        std::vector<uint64_t> numTopRuns, seqLens;
+        //for every suffix x at the top of a run in the BWT, 
+        //there is an input interval of psi, j, where 
+        //suffix x-1 is at the top of the input interval
+        //intAtTop stores, for every input interval of psi
+        //with suffix x-1 at the top of the input interval,
+        //how many suffixes < x are at the top of a run in the BWT
+        sdsl::int_vector<> intAtTop;
+        ComputeAuxAndRepairPsi(numTopRuns, seqLens, intAtTop, F, Psi);
 
         /*
         for (uint64_t i = 0; i < Psi.D_index.size(); ++i) {
@@ -315,8 +415,6 @@ class LCPComputer {
         }
         std::cout << "Psi is a permutation of length n\n";
         Timer.stop(); //Verifying Psi
-
-        rb3_fmi_free(rb3);
     }
 
     static bool validateRB3(const rb3_fmi_t* rb3);
