@@ -26,7 +26,7 @@ struct MoveStructure {
 
     //NOTE: interval points returned by mapLF don't have valid position fields, they are set to -1
     //assumptions: inputs are valid and correspond to runs and runlens
-    IntervalPoint map(const IntervalPoint& intPoint) {
+    IntervalPoint map(const IntervalPoint& intPoint) const {
         IntervalPoint res;
         res.position = static_cast<uint64_t>(-1);
         res.interval = D_index[intPoint.interval];
@@ -63,7 +63,7 @@ struct MoveStructure {
     //the same runlens vector is passed for every call and unmodified
     //distance provided added to current position doesn't result in an out-of-bounds IntervalPoint 
     //  (except for position = n, the first position after the range
-    void AdvanceIntervalPoint_unsafe(IntervalPoint& intPoint, uint64_t distance) {
+    void AdvanceIntervalPoint_unsafe(IntervalPoint& intPoint, uint64_t distance) const {
         uint64_t remaining = intPoint.offset + distance;
         //if intPoint.interval == intLens->size(), this will result in a BUG
         //TODO: FIX?
@@ -73,7 +73,7 @@ struct MoveStructure {
         intPoint.position += distance;
     }
 
-    void MakeHistogram(std::vector<uint64_t>& hist) {
+    void MakeHistogram(std::vector<uint64_t>& hist) const {
         //std::cout << "In MakeHistogram" << std::endl;
         hist = std::vector<uint64_t>();
         uint64_t intervals = intLens->size(), numTraversed;
@@ -104,12 +104,12 @@ struct MoveStructure {
 
     //returns whether the move structure is a permutation of length N
     //uses numIntervals log numIntervals auxiliary bits
-    bool permutationLengthN(size_type N) {
+    bool permutationLengthN(size_type N) const {
         size_type runs = D_index.size();
         sdsl::int_vector<> nextInt(runs, runs, sdsl::bits::hi(runs) + 1);
         size_type totalOps = 0;
 
-        #pragma omp parallel for schedule(dynamic, 1000)
+        #pragma omp parallel for schedule(dynamic, 1)
         for (uint64_t i = 0; i < runs; ++i) {
             IntervalPoint curr{static_cast<uint64_t>(-1), i, 0};
             uint64_t ops = 0;
