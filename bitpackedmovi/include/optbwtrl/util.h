@@ -33,7 +33,16 @@ class timer {
     timer() = delete;
     timer(const char c, const std::string& pref, std::ostream& s, bool f): scopeChar(c), prefix(pref), os(s), flush(f) {}
     ~timer() {
+        uint64_t notDone = processes.size();
+        if (notDone)
+            os << prefix << std::string(1+processes.size(), scopeChar) << "I AM BEING DESTRUCTED BEFORE THE FOLLOWING " << notDone << " PROCESSES ARE COMPLETED!" << '\n'; 
+        if (flush)
+            os.flush();
         stopAllProcesses();
+        if (notDone)
+            os << prefix << std::string(1+processes.size(), scopeChar) << "I WAS DESTRUCTED BEFORE THE LAST " << notDone << " PROCESSES WERE COMPLETED!" << '\n'; 
+        if (flush)
+            os.flush();
     }
 }Timer('|', "Timer:", std::cout, true);
 

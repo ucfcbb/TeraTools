@@ -51,7 +51,6 @@ int main(int argc, char*argv[]) {
         }
     }
     Timer.stop(); //Program Initialization
-    Timer.stop(); //lcpComputer
 
     Timer.start("LCP construction");
     LCPComputer ourIndex(&fmi);
