@@ -27,6 +27,7 @@ class LCPComputer {
             rld_itr_init(rb3->e, &itr1, 0); //what does 0 mean in this function call? offset number of bits to start reading at?
             int64_t l;
             int c = 0;
+            //int prevc;
 
 
             if ((l = rld_dec(rb3->e, &itr1, &c, 0)) > 0) {
@@ -47,6 +48,7 @@ class LCPComputer {
                 std::cerr << "Failed to read first run's character and length" << std::endl;
                 exit(1);
             }
+            //prevc = c;
 
             while ((l = rld_dec(rb3->e, &itr1, &c, 0)) > 0) {
                 alphRange.min = std::min(alphRange.min, static_cast<uint64_t>(c));
@@ -64,6 +66,12 @@ class LCPComputer {
                 alphRuns[c] += (c == 0)? static_cast<uint64_t>(l) : 1;
 
                 totalLen += static_cast<uint64_t>(l);
+
+                //if (c == prevc) {
+                //    std::cerr << "ERROR: Two runs of the same character follow each other from ropebwt3!" << std::endl;
+                //    exit(1);
+                //}
+                //prevc = c;
             }
 
             numSequences = alphRuns[0];
@@ -201,6 +209,8 @@ class LCPComputer {
                     F[curr++] = alph;
         }
         Timer.stop(); //Constructing F
+
+        Timer.stop(); //Constructing Psi from FMD
     }
 
     //O(n) time, not needed for LCP computation
@@ -223,21 +233,19 @@ class LCPComputer {
     //intAtTop stores, for every input interval of psi
     //with suffix x-1 at the top of the input interval,
     //how many suffixes < x are at the top of a run in the BWT
-    void ComputeAuxAndRepairPsi(std::vector<uint64_t> & numTopRuns, std::vector<uint64_t> & seqLens, sdsl::int_vector<> & intAtTop, 
-            const sdsl::int_vector<>& F, MoveStructure& Psi) {
+    void ComputeAuxAndRepairPsi(uint64_t& maxPhiIntLen, std::vector<uint64_t> & numTopRuns, std::vector<uint64_t> & seqLens, sdsl::int_vector<> & intAtTop, 
+            const sdsl::int_vector<>& F, MoveStructure& Psi, const uint64_t numSequences, sdsl::int_vector<>& PhiIntLen) {
         Timer.start("Computing numTopRuns, seqLens, and repairing Psi of endmarkers in F");
 
-        uint64_t numSequences = 0;
-        while (numSequences < F.size() && F[numSequences] == 0)
-            ++numSequences;
         numTopRuns.resize(numSequences + 1);
         seqLens = std::vector<uint64_t>(numSequences + 1);
 
         intAtTop = sdsl::int_vector<>(F.size(), -1, sdsl::bits::hi(F.size() - 1) + 1);
 
-        //computing seqLens, numTopRuns, and correctSeqPsis
+        //computing seqLens, numTopRuns, correctSeqPsis, and maxPhiIntLen
         Timer.start("Parallel seq traversal");
         {
+            std::vector<uint64_t> maxPhiIntLenPerSeq(numSequences);
             std::vector<MoveStructure::IntervalPoint> correctSeqPsis(numSequences);
             #pragma omp parallel for schedule(dynamic, 1)
             for (uint64_t seq = 0; seq < numSequences; ++seq) {
@@ -248,13 +256,26 @@ class LCPComputer {
                 //suffix 0 of seq seq is at the top of a run in the bwt since its bwt value is a termination string
                 uint64_t numTop = 1;
                 uint64_t len = 1;
+                uint64_t maxPhiIntLenThisSeq = 0;
+                uint64_t currPhiIntLen = 1;
 
                 while (curr.interval >= numSequences) {
                     //suffix x is at the top of a run in the bwt iff suffix x - 1 is at the start
                     //of an input interval of psi
                     numTop += (curr.offset == 0);
+                    if (curr.offset == 0) {
+                        maxPhiIntLenThisSeq = std::max(maxPhiIntLenThisSeq, currPhiIntLen);
+                        currPhiIntLen = 0;
+                    }
                     ++len;
+                    ++currPhiIntLen;
                     curr = Psi.map(curr);
+                }
+
+                //for last interval in sequence, if condition is unnecessary, guaranteed to be true.
+                if (curr.offset == 0) {
+                    maxPhiIntLenThisSeq = std::max(maxPhiIntLenThisSeq, currPhiIntLen);
+                    currPhiIntLen = 0;
                 }
 
                 if (curr.offset) {
@@ -268,11 +289,14 @@ class LCPComputer {
                 correctSeqPsis[(seqStartingAtStart)? seqStartingAtStart - 1 : numSequences - 1] = start;
                 seqLens[seqStartingAtStart + 1] = len;
                 numTopRuns[seqStartingAtStart + 1] = numTop;
+                maxPhiIntLenPerSeq[seqStartingAtStart] = maxPhiIntLenThisSeq;
             }
 
+            maxPhiIntLen = 0;
             for (uint64_t seq = 0; seq < numSequences; ++seq) {
                 Psi.D_index[seq] = correctSeqPsis[seq].interval;
                 Psi.D_offset[seq] = correctSeqPsis[seq].offset;
+                maxPhiIntLen = std::max(maxPhiIntLen, maxPhiIntLenPerSeq[seq]);
             }
         }
         Timer.stop(); //Parallel seq traversal
@@ -294,24 +318,39 @@ class LCPComputer {
         }
         Timer.stop(); //Prefix summing auxiliary data
 
-        //computing intAtTop
+        PhiIntLen = sdsl::int_vector<>(F.size(), 0, sdsl::bits::hi(maxPhiIntLen) + 1);
+        //computing intAtTop and PhiIntLen
         Timer.start("Second Parallel seq traversal");
         #pragma omp parallel for schedule(dynamic, 1)
         for (uint64_t seq = 0; seq < numSequences; ++seq) {
             uint64_t prevSeq = (seq)? seq - 1 : numSequences - 1;
             MoveStructure::IntervalPoint curr = {static_cast<uint64_t>(-1), prevSeq, 0};
+            curr = Psi.map(curr);
 
             uint64_t currentInt = numTopRuns[seq];
+            uint64_t currIntLen = 1;
             do {
                 if (curr.offset == 0) {
                     #pragma omp critical
                     {
+                        PhiIntLen[currentInt] = currIntLen;
+                        currIntLen = 0;
                         intAtTop[curr.interval] = currentInt++;
                     }
                 }
                 curr = Psi.map(curr);
+                ++currIntLen;
                 //std::cout << "curr.interval " << curr.interval << " curr.offset " << curr.offset << std::endl;
             } while (curr.interval >= numSequences);
+
+            if (curr.offset == 0) {
+                #pragma omp critical
+                {
+                    PhiIntLen[currentInt] = currIntLen;
+                    currIntLen = 0;
+                    intAtTop[curr.interval] = currentInt++;
+                }
+            }
 
             if (currentInt != numTopRuns[seq + 1]) {
                 std::cerr << "ERROR: Didn't reach beginning of next sequence in numTopRuns!" << std::endl;
@@ -326,6 +365,153 @@ class LCPComputer {
         Timer.stop(); //Computing numTopRuns, seqLens, and repairing Psi of endmarkers in F
     }
 
+    void ConstructPhiAndSamples(const sdsl::int_vector<>& F, const MoveStructure& Psi, const uint64_t FlensBits,
+            const std::vector<uint64_t>& numTopRuns, const std::vector<uint64_t>& seqLens, const sdsl::int_vector<>& intAtTop, const uint64_t numSequences, const uint64_t maxPhiIntLen,
+            MoveStructure& Phi, sdsl::int_vector<> &Psi_Index_Samples, sdsl::int_vector<> &Psi_Offset_Samples) {
+        Timer.start("Construct Phi and Samples");
+        //computing, for each seq i, 
+        // 1. whenever suffix j of i is at the bottom of a run, the input interval and offset of suffix j of i in Phi (D_index and D_offset of the top of the run below it)
+        // 2. Psi_Index_Samples and Psi_Offset_Samples: ISA samples (in psi move data structure), for every suffix that is a multiple of n/r (of the original text)
+        uint64_t numRuns = F.size();
+        uint64_t sampleInterval = totalLen/numRuns;
+        uint64_t numSamples = (totalLen%sampleInterval != 0) + (totalLen/sampleInterval);
+        //std::cout << "sampleInterval " << sampleInterval << std::endl;
+        //std::cout << "numSamples " << numSamples << std::endl;
+        Phi.D_index = sdsl::int_vector<>(numRuns, 0, sdsl::bits::hi(numRuns - 1) + 1);
+        Phi.D_offset = sdsl::int_vector<>(numRuns, 0, sdsl::bits::hi(maxPhiIntLen - 1) + 1);
+        Psi_Index_Samples = sdsl::int_vector<>(numSamples, 0, sdsl::bits::hi(numRuns - 1) + 1);
+        Psi_Offset_Samples = sdsl::int_vector<>(numSamples, 0, FlensBits);
+        #pragma omp parallel for schedule (dynamic, 1)
+        for (uint64_t seq = 0; seq < numSequences; ++seq) {
+            //curr is the interval point in the psi move data structure of suffix suff
+            //if curr is at the top of a psi interval, then suff+1 is at the top of an rlbwt interval
+            //if curr is at the bottom of a psi interval, then suff+1 is at the bottom of an rlbwt interval
+            MoveStructure::IntervalPoint curr = {static_cast<uint64_t>(-1), (seq)? seq - 1 : numSequences - 1, 0};
+            curr = Psi.map(curr);
+            uint64_t suff = seqLens[seq];
+            //phiPoint is the interval point in the move structure of suff
+            MoveStructure::IntervalPoint phiPoint = {static_cast<uint64_t>(-1), numTopRuns[seq], 0};
+            MoveStructure::IntervalPoint phiPointAtPhiOutputIntervalStart = phiPoint;
+
+            while (suff < seqLens[seq+1]) {
+                //2.
+                //store psi samples if needed
+                if (suff % sampleInterval == 0) {
+                    #pragma omp critical
+                    {
+                        Psi_Index_Samples[suff/sampleInterval] = curr.interval;
+                        Psi_Offset_Samples[suff/sampleInterval] = curr.offset;
+                    }
+                }
+
+                //update phiPoint to suff + 1
+                ++phiPoint.offset;
+                //phiPoint.offset == (*Phi.intLens)[phiPoint.interval] iff curr.offset == 0)
+                assert((phiPoint.offset == (*Phi.intLens)[phiPoint.interval]) ==
+                        (curr.offset == 0));
+                //suff + 1 starts an input interval iff suff ends an input interval
+                if (curr.offset == 0) {
+                    if (phiPoint.offset != (*Phi.intLens)[phiPoint.interval]) {
+                        std::cerr << "Offset != length at the end of phi interval!" << std::endl;
+                        exit(1);
+                    }
+                    phiPoint.offset = 0;
+                    ++phiPoint.interval;
+                }
+
+                //if suff is the end of an output interval
+                if (curr.offset == (*Psi.intLens)[curr.interval] - 1) {
+                    uint64_t runBelow = (curr.interval+1)%numRuns;
+                    uint64_t phiInterval = intAtTop[runBelow];
+                    #pragma omp critical 
+                    {
+                        Phi.D_index[phiInterval] = phiPointAtPhiOutputIntervalStart.interval;
+                        Phi.D_offset[phiInterval] = phiPointAtPhiOutputIntervalStart.offset;
+                    }
+                    phiPointAtPhiOutputIntervalStart = phiPoint;
+                }
+                
+                //now, curr is the position of suff + 1
+                curr = Psi.map(curr);
+                //update suff
+                ++suff;
+                /*
+                std::cout << "suff " << suff << std::endl;
+                std::cout << "curr: " << curr.interval << ' ' << curr.offset << std::endl;
+                std::cout << "intLen: " << (*Psi.intLens)[curr.interval] << std::endl;
+                //1. 
+                //when curr at the bottom of a psi input interval, suff is the start of a phi output interval
+                //then suff-1 is the end of a phi output interval, then invPhi(suff-1) is the end of a phi input interval
+                //so, update the start of the previous input interval to phiPointAtPhiOutputIntervalStart
+                if (curr.offset == (*Psi.intLens)[curr.interval] - 1)
+                    std::cout << "starts output interval" << std::endl;
+                if (curr.offset == (*Psi.intLens)[curr.interval] - 1) {
+                    std::cout << "in if" << std::endl;
+                    uint64_t runBelow = (curr.interval+1)%numRuns;
+                    uint64_t phiInterval = intAtTop[runBelow];
+                    if (phiInterval == 25) {
+                        std::cout << "25: " << seq << " " << suff << std::endl;
+                    }
+                    #pragma omp critical 
+                    {
+                        Phi.D_index[phiInterval] = phiPointAtPhiOutputIntervalStart.interval;
+                        Phi.D_offset[phiInterval] = phiPointAtPhiOutputIntervalStart.offset;
+                    }
+                    phiPointAtPhiOutputIntervalStart = phiPoint;
+                }
+
+                bool suffAtTop = (curr.offset == 0);
+                ++suff;
+                ++phiPoint.offset;
+
+                if (suff == 30) {
+                    std::cout << suffAtTop << std::endl;
+                }
+                //2.
+                //start new interval in phi if suff is at the top of a run
+                if (suffAtTop) {
+                    #pragma omp critical
+                    {
+                        ++phiPoint.interval;
+                        phiPoint.offset = 0;
+                    }
+                }
+                */
+            }
+            /*
+            std::cout << "done while" << std::endl;
+            //condition in the following if statement is redundant, should never be false.
+            //1. 
+            //when at the bottom of a psi input interval, suff is the start of a phi output interval
+            //so, update the start of the previous input interval to phiPointAtPhiOutputIntervalStart
+            if (curr.offset == (*Psi.intLens)[curr.interval] - 1) {
+                uint64_t runBelow = (curr.interval+1)%numRuns;
+                uint64_t phiInterval = intAtTop[runBelow];
+                #pragma omp critical 
+                {
+                    Phi.D_index[phiInterval] = phiPointAtPhiOutputIntervalStart.interval;
+                    Phi.D_offset[phiInterval] = phiPointAtPhiOutputIntervalStart.offset;
+                }
+                //phiPointAtPhiOutputIntervalStart = phiPoint;
+            }
+            else {
+                std::cerr << "ERROR: didn't set phi values of last interval of seq!" << std::endl;
+                exit(1);
+            }
+            */
+
+            if (suff != seqLens[seq+1]) {
+                std::cerr << "ERROR: suff didn't end up at the beginning of the next sequence!" << std::endl;
+                exit(1);
+            }
+            if (phiPoint.interval != numTopRuns[seq+1]) {
+                std::cerr << "ERROR: phiPoint didn't end up at the beginning of the next sequence!" << std::endl;
+                exit(1);
+            }
+        }
+        Timer.stop(); //Construct Phi and Samples
+    }
+
     public:
     typedef uint64_t size_type;
 
@@ -335,8 +521,6 @@ class LCPComputer {
     LCPComputer(rb3_fmi_t* rb3) {
 
         MoveStructure Psi;
-        std::vector<uint64_t> alphStarts;
-
         sdsl::int_vector<> F;
         sdsl::int_vector<> Flens;
         Psi.intLens = &Flens;
@@ -380,17 +564,38 @@ class LCPComputer {
         //suffix x-1 is at the top of the input interval
         //intAtTop stores, for every input interval of psi
         //with suffix x-1 at the top of the input interval,
-        //how many suffixes < x are at the top of a run in the BWT
+        //how many suffixes < x - 1 are at the top of a run in the BWT
         sdsl::int_vector<> intAtTop;
-        ComputeAuxAndRepairPsi(numTopRuns, seqLens, intAtTop, F, Psi);
+        uint64_t maxPhiIntLen;
+        sdsl::int_vector<> PhiLens;
+        ComputeAuxAndRepairPsi(maxPhiIntLen, numTopRuns, seqLens, intAtTop, F, Psi, numSequences, PhiLens);
 
         /*
-        for (uint64_t i = 0; i < Psi.D_index.size(); ++i) {
-            std::cout 
-                << F[i] << '\t'
-                << (*Psi.intLens)[i] << '\t'
-                << Psi.D_index[i] << '\t'
-                << Psi.D_offset[i] << '\n';
+        {
+            std::cout << "Checking if intAtTop is a permutation of [0,r-1]" << std::endl;
+            std::vector<bool> a(F.size());
+            for (uint64_t i = 0; i < a.size(); ++i) {
+                if (intAtTop[i] >= F.size() || a[intAtTop[i]]) {
+                    std::cerr << "ERROR: intAtTop is not a permutation of [0,r-1]" << std::endl;
+                    exit(1);
+                }
+                a[intAtTop[i]] = true;
+            }
+        }
+
+        {
+            std::cout << "Psi SA order\ni\trunInd\tF\tintLen\tD_index\tD_offset\n";
+            uint64_t k = 0;
+            for (uint64_t i = 0; i < Psi.D_index.size(); ++i) {
+                for (uint64_t j = 0; j < Flens[i]; ++j)
+                    std::cout 
+                        << k++ << '\t'
+                        << i << '\t'
+                        << F[i] << '\t'
+                        << (*Psi.intLens)[i] << '\t'
+                        << Psi.D_index[i] << '\t'
+                        << Psi.D_offset[i] << '\n';
+            }
         }
         {
             MoveStructure::IntervalPoint end{static_cast<uint64_t>(-1), numSequences-1, 0}, curr;
@@ -405,8 +610,6 @@ class LCPComputer {
             std::cout << std::endl;
             std::cout << count << " characters" << std::endl;
         }
-        */
-
 
         Timer.start("Verifying Psi");
         if (!Psi.permutationLengthN(totalLen)) {
@@ -415,6 +618,77 @@ class LCPComputer {
         }
         std::cout << "Psi is a permutation of length n\n";
         Timer.stop(); //Verifying Psi
+        */
+
+        MoveStructure Phi;
+        Phi.intLens = &PhiLens;
+        sdsl::int_vector<> Psi_Index_Samples, Psi_Offset_Samples;
+        ConstructPhiAndSamples(F, Psi, Flens.width(), numTopRuns, seqLens, intAtTop, numSequences, maxPhiIntLen, Phi, Psi_Index_Samples, Psi_Offset_Samples);
+
+        /*
+        {
+            uint64_t count = 0, inInt = static_cast<uint64_t>(-1), outInt = static_cast<uint64_t>(-1);
+            MoveStructure::IntervalPoint end = {static_cast<uint64_t>(-1), numSequences-1, 0}, curr;
+            std::cout << "Phi text order\ni\tinInt\toutInt\tPsiInt\tPsiOff\tPhiInt\tPhiOff\tPhiLen\tPhiDind\tPhiDoff\n";
+            std::cout << std::endl;
+            curr = end;
+            MoveStructure::IntervalPoint pPoint = {static_cast<uint64_t>(-1),0,0}, temp;
+            do {
+                inInt += (curr.offset == 0);
+                outInt += (curr.offset == (*Psi.intLens)[curr.interval] - 1);
+                curr = Psi.map(curr);
+                temp = Phi.map(pPoint);
+                std::cout << count++ << '\t'
+                    << inInt << '\t'
+                    << outInt << '\t'
+                    << curr.interval << '\t'
+                    << curr.offset << '\t'
+                    << pPoint.interval << '\t'
+                    << pPoint.offset << '\t'
+                    << (*Phi.intLens)[pPoint.interval] << '\t' 
+                    << Phi.D_index[pPoint.interval] << '\t'
+                    << Phi.D_offset[pPoint.interval]+pPoint.offset << '\t'
+                    << temp.interval << '\t'
+                    << temp.offset << std::endl;
+                ++pPoint.offset;
+                if (pPoint.offset == (*Phi.intLens)[pPoint.interval]){
+                    pPoint.offset = 0;
+                    ++pPoint.interval;
+                }
+            } while (curr != end);
+            std::cout << std::endl;
+            std::cout << count << " characters" << std::endl;
+        }
+
+        for (uint64_t i = 0; i < Phi.D_index.size(); ++i) {
+            std::cout << Phi.D_index[i] << '\t'
+                << Phi.D_offset[i] << '\t'
+                << (*Phi.intLens)[i] << '\n';
+        }
+
+        {
+            MoveStructure::IntervalPoint end = {static_cast<uint64_t>(-1), intAtTop[0], 0}, curr;
+            curr = end;
+            std::cout << "intAtTop\n";
+            std::cout << curr.interval << ' ' << curr.offset << '\n';
+            std::cout << "etc\n";
+            do {
+                curr = Phi.map(curr);
+                std::cout << curr.interval << ' ' << curr.offset << '\n';
+            } while (curr != end);
+        }
+        */
+
+        /*
+        Verifying Phi is VERY slow compared to verifying Psi ~300 seconds on mtb152 with 64 cores vs ~30 seconds for Psi on coombs c0-4. Why?
+        Timer.start("Verifying Phi");
+        if (!Phi.permutationLengthN(totalLen)) {
+            std::cerr << "ERROR: Phi is not a permutation of length n!" << std::endl;
+            exit(1);
+        }
+        std::cout << "Phi is a permutation of length n\n";
+        Timer.stop(); //Verifying Phi
+        */
     }
 
     static bool validateRB3(const rb3_fmi_t* rb3);
