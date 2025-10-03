@@ -1110,7 +1110,7 @@ class OptBWTRL {
                     MoveStructure::IntervalPoint revSeq{static_cast<uint64_t>(-1), revEquivLF_index[currentInterval], revEquivLF_offset[currentInterval]};
                     MoveStructure::IntervalPoint revSeqAbove{static_cast<uint64_t>(-1), revEquivLF_index[PL.phi.D_index[currentInterval]], revEquivLF_offset[PL.phi.D_index[currentInterval]]};
 
-                    while (rlbwt[revSeq.interval] != 0 && rlbwt[revSeqAbove.interval] != 0 && rlbwt[revSeq.interval] == rlbwt[revSeqAbove.interval]) {
+                    while (rlbwt[revSeq.interval] != 0 && rlbwt[revSeq.interval] != 5 && rlbwt[revSeq.interval] == rlbwt[revSeqAbove.interval]) {
                         revSeq = LF.map(revSeq);
                         revSeqAbove = LF.map(revSeqAbove);
                         ++matchingLength;
@@ -1287,8 +1287,9 @@ class OptBWTRL {
             //std::cout << phiTextPoint.interval << ' ' << phiTextPoint.offset << std::endl;
             //std::cout << revPhiSeq << ' ' << revPhiOff << ' ' << revPhiSuf << std::endl;
 
+            //0 is for endmarker, 5 is for N
             while (rlbwt[textPoint.interval] == rlbwt[phiTextPoint.interval] 
-                    && rlbwt[textPoint.interval] != 0) {
+                    && rlbwt[textPoint.interval] != 0 && rlbwt[textPoint.interval] != 5) {
                 ++ell;
                 textPoint = LF.map(textPoint);
                 phiTextPoint = LF.map(phiTextPoint);
