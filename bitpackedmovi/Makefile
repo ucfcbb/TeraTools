@@ -1,19 +1,17 @@
-all: builder/
+all: thirdparty/ builder/ loader/
 
-.PHONY: all clean builder/
+.PHONY: all clean thirdparty/ builder/ loader/
 
 clean:
-	-rm -r sdsl-lite lib include
+	make -C thirdparty/ clean
 	make -C builder/ clean
+	make -C loader/ clean
 
-sdsl-lite/:
-	git clone https://github.com/simongog/sdsl-lite
+thirdparty/:
+	make -C thirdparty/
 
-lib/ include/ &: sdsl-lite/
-	cd sdsl-lite && ./install.sh ..
-
-builder/: lib/ include/
+builder/: thirdparty/
 	make -C builder/
 
-loader/: lib/ include/
+loader/: thirdparty/
 	make -C loader/
