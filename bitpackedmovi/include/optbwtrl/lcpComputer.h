@@ -517,8 +517,7 @@ class LCPComputer {
             const uint64_t sampleInterval, const sdsl::int_vector<>& Psi_Index_Samples, const sdsl::int_vector<>& Psi_Offset_Samples, 
             sdsl::int_vector<>& PLCPsamples) {
         Timer.start("LCP Computation");
-        //initialize to -1 for testing only, revert to 0 later
-        PLCPsamples = sdsl::int_vector<>(F.size(), static_cast<uint64_t>(-1));
+        PLCPsamples = sdsl::int_vector<>(F.size(), 0, 1);
 
         sdsl::int_vector<> suffStartingPhiInt(F.size(), 0, sdsl::bits::hi(seqLens.back() - 1) + 1);
         for (uint64_t i = 1; i < F.size(); ++i)
@@ -572,6 +571,7 @@ class LCPComputer {
 
                 #pragma omp critical
                 {
+                    sdsl::util::expand_width(PLCPsamples, sdsl::bits::hi(suffMatchEnd - currIntStart) + 1);
                     PLCPsamples[phiInt] = suffMatchEnd - currIntStart;
                 }
 
