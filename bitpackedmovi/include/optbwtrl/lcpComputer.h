@@ -773,6 +773,7 @@ class LCPComputer {
         for (uint64_t i = 0; i < F.size(); ++i)
             intAtEnd[intAtTop[i]] = i;
 
+        intAtTop = sdsl::int_vector<>();
         sdsl::int_vector<> PLCPsamples;
         ComputePLCPSamples(intAtEnd, numSequences, F, Psi, numTopRuns, seqLens, Phi, sampleInterval, Psi_Index_Samples, Psi_Offset_Samples, PLCPsamples);
 
