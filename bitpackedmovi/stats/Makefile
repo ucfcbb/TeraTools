@@ -4,8 +4,9 @@ all: stats
 
 testinds = ../../data/testing/idx.fmd.optbwtrl ../../data/testing/mtb152.fmd.optbwtrl
 
-sdsl_optbwt_incdir = ../include
-sdsl_optbwt_libdir = ../lib
+optIncDir = ../include
+incdir = ../thirdparty/include
+libdir = ../thirdparty/lib
 ropebwt3dir = ../../ropebwt3
 
 objs = $(ropebwt3dir)/bre.o\
@@ -24,7 +25,7 @@ objs = $(ropebwt3dir)/bre.o\
 	   $(ropebwt3dir)/ssa.o
 
 libs = -lsdsl -lpthread -lz -lm
-incs = -I$(sdsl_optbwt_incdir) -I$(ropebwt3dir)
+incs = -I$(optIncDir) -isystem$(incdir) -isystem$(ropebwt3dir)
 
 cppflags+=-Wall -O3 -DNDEBUG
 #cppflags+=-Wall -g
@@ -50,4 +51,4 @@ test: stats
 	done
 
 stats: ../include/optbwtrl/optbwtrl.h ../include/optbwtrl/util.h $(objs) stats.cpp
-	$(CXX) $(cppflags) $(incs) -L$(sdsl_optbwt_libdir) $^ -o $@ $(libs)
+	$(CXX) $(cppflags) $(incs) -L$(libdir) $^ -o $@ $(libs)
