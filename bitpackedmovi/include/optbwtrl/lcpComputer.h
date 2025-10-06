@@ -367,13 +367,13 @@ class LCPComputer {
 
     void ConstructPhiAndSamples(const sdsl::int_vector<>& F, const MoveStructure& Psi, const uint64_t FlensBits,
             const std::vector<uint64_t>& numTopRuns, const std::vector<uint64_t>& seqLens, const sdsl::int_vector<>& intAtTop, const uint64_t numSequences, const uint64_t maxPhiIntLen,
-            MoveStructure& Phi, sdsl::int_vector<> &Psi_Index_Samples, sdsl::int_vector<> &Psi_Offset_Samples) {
+            MoveStructure& Phi, uint64_t & sampleInterval, sdsl::int_vector<> &Psi_Index_Samples, sdsl::int_vector<> &Psi_Offset_Samples) {
         Timer.start("Construct Phi and Samples");
         //computing, for each seq i, 
         // 1. whenever suffix j of i is at the bottom of a run, the input interval and offset of suffix j of i in Phi (D_index and D_offset of the top of the run below it)
         // 2. Psi_Index_Samples and Psi_Offset_Samples: ISA samples (in psi move data structure), for every suffix that is a multiple of n/r (of the original text)
         uint64_t numRuns = F.size();
-        uint64_t sampleInterval = totalLen/numRuns;
+        sampleInterval = totalLen/numRuns;
         uint64_t numSamples = (totalLen%sampleInterval != 0) + (totalLen/sampleInterval);
         //std::cout << "sampleInterval " << sampleInterval << std::endl;
         //std::cout << "numSamples " << numSamples << std::endl;
@@ -512,6 +512,82 @@ class LCPComputer {
         Timer.stop(); //Construct Phi and Samples
     }
 
+    void ComputePLCPSamples(const sdsl::int_vector<>& intAtEnd, const uint64_t numSequences, const sdsl::int_vector<>& F, 
+            const MoveStructure& Psi, const std::vector<uint64_t>& numTopRuns, const std::vector<uint64_t>& seqLens, const MoveStructure& Phi,
+            const uint64_t sampleInterval, const sdsl::int_vector<>& Psi_Index_Samples, const sdsl::int_vector<>& Psi_Offset_Samples, 
+            sdsl::int_vector<>& PLCPsamples) {
+        Timer.start("LCP Computation");
+        //initialize to -1 for testing only, revert to 0 later
+        PLCPsamples = sdsl::int_vector<>(F.size(), static_cast<uint64_t>(-1));
+
+        sdsl::int_vector<> suffStartingPhiInt(F.size(), 0, sdsl::bits::hi(seqLens.back() - 1) + 1);
+        for (uint64_t i = 1; i < F.size(); ++i)
+            suffStartingPhiInt[i] = suffStartingPhiInt[i-1] + (*Phi.intLens)[i-1];
+
+        #pragma omp parallel for schedule (dynamic, 1)
+        for (uint64_t seq = 0; seq < numSequences; ++seq) {
+            uint64_t suffMatchEnd = seqLens[seq], currIntStart = seqLens[seq];
+            MoveStructure::IntervalPoint suffMatchEndIntPoint = Psi.map({static_cast<uint64_t>(-1), ((seq)? seq - 1 : numSequences - 1), 0});
+            for (uint64_t phiInt = numTopRuns[seq]; phiInt < numTopRuns[seq+1]; ++phiInt) { 
+                //get suffix above phiInt
+                MoveStructure::IntervalPoint suffMatchingToPhiIntPoint = Phi.map({static_cast<uint64_t>(-1), phiInt, 0});
+                uint64_t suffMatchingTo = suffStartingPhiInt[suffMatchingToPhiIntPoint.interval] + suffMatchingToPhiIntPoint.offset;
+                uint64_t psiIntAbove = intAtEnd[(phiInt)? phiInt - 1 : F.size() - 1];
+                MoveStructure::IntervalPoint coordAbove = Psi.map({static_cast<uint64_t>(-1), psiIntAbove, 0});
+                if (coordAbove.offset == 0) {
+                    coordAbove.interval = (coordAbove.interval)? coordAbove.interval - 1 : F.size() - 1;
+                    coordAbove.offset = (*Psi.intLens)[coordAbove.interval];
+                }
+                --coordAbove.offset;
+                if (suffMatchEnd - currIntStart) {
+                    uint64_t destinationSuff = suffMatchingTo + (suffMatchEnd - currIntStart);
+                    uint64_t sampleNum = destinationSuff/sampleInterval;
+                    uint64_t closestSampledSuff = sampleNum * sampleInterval;
+                    //by default, use above run
+                    uint64_t dist = suffMatchEnd - currIntStart;
+                    //otherwise, if sample is closer
+                    if (dist > destinationSuff - closestSampledSuff) {
+                        coordAbove = {static_cast<uint64_t>(-1), Psi_Index_Samples[sampleNum], Psi_Offset_Samples[sampleNum]};
+                        dist = destinationSuff - closestSampledSuff;
+                    }
+
+                    for (uint64_t i = 0; i < dist; ++i) 
+                        coordAbove = Psi.map(coordAbove);
+                }
+                //compute lcp of interval phiInt
+                //the LCP value at the start of this interval is at least the interval length - 1
+                //(it is only the interval length - 1 when the suffix at the start of the interval starts with c
+                //and is the lexicographically smallest suffix that starts with c.
+                //happens by default for all endmarkers since multidollar bwt
+
+                //In our application, LCP can be less than the interval length when Ns are present in the interval
+                //since we don't allow matches to include Ns. If this wasn't the case, the currLCP could be initialized to at least (*Phi.intLens)[phiInt] - 1
+
+                while (F[suffMatchEndIntPoint.interval] != 0 && F[suffMatchEndIntPoint.interval] != 5 &&
+                        F[suffMatchEndIntPoint.interval] == F[coordAbove.interval]) {
+                    suffMatchEndIntPoint = Psi.map(suffMatchEndIntPoint);
+                    coordAbove = Psi.map(coordAbove);
+                    ++suffMatchEnd;
+                }
+
+                #pragma omp critical
+                {
+                    PLCPsamples[phiInt] = suffMatchEnd - currIntStart;
+                }
+
+
+                currIntStart += (*Phi.intLens)[phiInt];
+                if (suffMatchEnd < currIntStart) {
+                    suffMatchEnd = currIntStart;
+                    suffMatchEndIntPoint = Psi.map({static_cast<uint64_t>(-1), intAtEnd[phiInt], 0});
+                }
+            }
+        }
+
+        sdsl::util::bit_compress(PLCPsamples);
+        Timer.stop(); //LCP Computation
+    }
+
     public:
     typedef uint64_t size_type;
 
@@ -622,8 +698,9 @@ class LCPComputer {
 
         MoveStructure Phi;
         Phi.intLens = &PhiLens;
+        uint64_t sampleInterval;
         sdsl::int_vector<> Psi_Index_Samples, Psi_Offset_Samples;
-        ConstructPhiAndSamples(F, Psi, Flens.width(), numTopRuns, seqLens, intAtTop, numSequences, maxPhiIntLen, Phi, Psi_Index_Samples, Psi_Offset_Samples);
+        ConstructPhiAndSamples(F, Psi, Flens.width(), numTopRuns, seqLens, intAtTop, numSequences, maxPhiIntLen, Phi, sampleInterval, Psi_Index_Samples, Psi_Offset_Samples);
 
         /*
         {
@@ -689,6 +766,73 @@ class LCPComputer {
         std::cout << "Phi is a permutation of length n\n";
         Timer.stop(); //Verifying Phi
         */
+
+        //intAtEnd[j] is the input interval of Psi where the suffix at the end of input interval j of Phi occurs
+        //(at the top of, necessarily)
+        sdsl::int_vector<> intAtEnd(F.size(), 0, sdsl::bits::hi(F.size() - 1) + 1);
+        for (uint64_t i = 0; i < F.size(); ++i)
+            intAtEnd[intAtTop[i]] = i;
+
+        sdsl::int_vector<> PLCPsamples;
+        ComputePLCPSamples(intAtEnd, numSequences, F, Psi, numTopRuns, seqLens, Phi, sampleInterval, Psi_Index_Samples, Psi_Offset_Samples, PLCPsamples);
+
+        /*
+        Timer.start("Verifying Psi");
+        if (!Psi.permutationLengthN(totalLen)) {
+            std::cerr << "ERROR: Psi is not a permutation of length n!" << std::endl;
+            exit(1);
+        }
+        std::cout << "Psi is a permutation of length n\n";
+        Timer.stop(); //Verifying Psi
+        //Verifying Phi is VERY slow compared to verifying Psi ~300 seconds on mtb152 with 64 cores vs ~30 seconds for Psi on coombs c0-4. Why?
+        Timer.start("Verifying Phi");
+        if (!Phi.permutationLengthN(totalLen)) {
+            std::cerr << "ERROR: Phi is not a permutation of length n!" << std::endl;
+            exit(1);
+        }
+        std::cout << "Phi is a permutation of length n\n";
+        Timer.stop(); //Verifying Phi
+
+        printPhiAndLCP(Phi, PLCPsamples);
+        */
+    }
+
+    void printRaw(const MoveStructure& Phi, const sdsl::int_vector<>& PLCPsamples, const sdsl::int_vector<>& intAtTop) const {
+        std::cout << "LCP\n";
+        std::vector<uint64_t> lcp(totalLen);
+        MoveStructure::IntervalPoint phiPoint{static_cast<uint64_t>(-1), intAtTop[0], 0};
+        phiPoint.offset = (*Phi.intLens)[phiPoint.interval] - 1;
+        phiPoint = Phi.map(phiPoint);
+        for (uint64_t i = 0; i < totalLen; ++i) {
+            lcp[totalLen - 1 - i] = PLCPsamples[phiPoint.interval] - phiPoint.offset;
+            phiPoint = Phi.map(phiPoint);
+        }
+        for (uint64_t i = 0; i < totalLen; ++i) {
+            std::cout << lcp[i] << '\n';
+        }
+
+        std::cout << "\n\n";
+        std::cout << "PLCP";
+        phiPoint = {static_cast<uint64_t>(-1), 0, 0};
+        for (uint64_t i = 0; i < totalLen; ++i) {
+            std::cout << '\t' << PLCPsamples[phiPoint.interval] - phiPoint.offset;
+            ++phiPoint.offset;
+            phiPoint.offset %= (*Phi.intLens)[phiPoint.interval];
+            phiPoint.interval += (phiPoint.offset == 0);
+        }
+        std::cout << "\n";
+    }
+
+    void printPhiAndLCP(const MoveStructure& Phi, const sdsl::int_vector<>& PLCPsamples) const {
+        std::cout << "runInd\tD_index\tD_offset\tintlen\tPLCPsamp\n";
+        uint64_t numRuns = PLCPsamples.size();
+        for (uint64_t i = 0; i < numRuns; ++i) {
+            std::cout << i << '\t'
+                << Phi.D_index[i] << '\t'
+                << Phi.D_offset[i] << '\t'
+                << (*Phi.intLens)[i] << '\t'
+                << PLCPsamples[i] << '\n';
+        }
     }
 
     static bool validateRB3(const rb3_fmi_t* rb3);
