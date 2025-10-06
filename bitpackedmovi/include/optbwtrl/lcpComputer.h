@@ -601,6 +601,8 @@ class LCPComputer {
     //in the text. max_char is the maximum character in the text
     LCPComputer(rb3_fmi_t* rb3) {
 
+        sdsl::memory_monitor::start();
+
         MoveStructure Psi;
         sdsl::int_vector<> F;
         sdsl::int_vector<> Flens;
@@ -801,6 +803,15 @@ class LCPComputer {
 
         printPhiAndLCP(Phi, PLCPsamples);
         */
+        
+        sdsl::memory_monitor::stop();
+        std::cout << "peak usage = " << sdsl::memory_monitor::peak() << " bytes" << std::endl;
+
+        std::ofstream cstofs("construction.html");
+        std::cout << "writing memory usage visualization to construction.html\n";
+        sdsl::memory_monitor::write_memory_log<sdsl::HTML_FORMAT>(cstofs);
+        cstofs.close();
+
     }
 
     void printRaw(const MoveStructure& Phi, const sdsl::int_vector<>& PLCPsamples, const sdsl::int_vector<>& intAtTop) const {
