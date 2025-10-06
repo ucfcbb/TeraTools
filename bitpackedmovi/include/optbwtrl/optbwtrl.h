@@ -1510,6 +1510,53 @@ class OptBWTRL {
         }
     }
 
+    void printPhiAndLCP() const {
+        uint64_t numInts = PL.AboveLCP.size();
+        std::vector<bool> isTop(numInts);
+        for (uint64_t i = 0; i < SATopRunInt.size(); ++i)
+            isTop[SATopRunInt[i]] = true;
+
+        sdsl::int_vector<> phiInd(numInts, 0, sdsl::bits::hi(rlbwt.size() - 1) + 1);
+        uint64_t runInd = static_cast<uint64_t>(-1);
+        for (uint64_t i = 0; i < numInts; ++i) {
+            runInd += (isTop[i]);
+            phiInd[i] = runInd;
+        }
+        if (runInd != rlbwt.size() - 1) {
+            std::cerr << "ERROR: runInd didn't end up at the number of runs in printPhiAndLCP!" << std::endl;
+            std::cout << "runInd " << runInd << " rlbwt.size() " << rlbwt.size() << std::endl;
+            exit(1);
+        }
+
+        std::cout << "runInd\tD_index\tD_offset\tintlen\tPLCPsamp\n";
+        for (uint64_t i = 0; i < numInts; ++i) {
+            if (isTop[i]) {
+                uint64_t currOff = 0;
+                if (PL.phi.D_offset[i]) {
+                    std::cerr << "ERROR: Non zero offset for phi for top of run!" << std::endl;
+                    exit(1);
+                }
+                uint64_t j = i;
+                while (j && phiInd[--j] == phiInd[i])
+                    currOff += PL.IntLen[j];
+                j += (phiInd[j] != phiInd[i]);
+                uint64_t k = PL.phi.D_index[i];
+                while (k && phiInd[--k] == phiInd[PL.phi.D_index[i]])
+                    currOff += PL.IntLen[k];
+                uint64_t currLen = 0;
+                while (j < numInts && phiInd[j] == phiInd[i])
+                    currLen += PL.IntLen[j++];
+
+
+                std::cout << phiInd[i] << '\t'
+                    << phiInd[PL.phi.D_index[i]] << '\t'
+                    << currOff << '\t'
+                    << currLen << '\t'
+                    << PL.AboveLCP[i] << '\n';
+            }
+        }
+    }
+
     static bool validateRB3(const rb3_fmi_t* rb3);
 
     size_type serialize(std::ostream &out, sdsl::structure_tree_node *v=NULL, std::string name="") const {

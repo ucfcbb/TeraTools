@@ -28,8 +28,8 @@ libs = -lsdsl -lpthread -lz -lm
 incs = -I$(optIncDir) -isystem$(incdir) -isystem$(ropebwt3dir)
 
 developmentflags+= -Wall -Wpedantic -Wextra -pedantic-errors -Wold-style-cast
-#cppflags+=$(developmentflags) -O3 -DNDEBUG
-cppflags+=-Wall -g
+cppflags+=$(developmentflags) -O3 -DNDEBUG
+#cppflags+=-Wall -g
 
 ifneq ($(asan),)
 	cppflags+=-fsanitize=address

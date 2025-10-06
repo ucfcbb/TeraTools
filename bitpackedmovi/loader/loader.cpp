@@ -9,7 +9,9 @@ int main(int argc, char *argv[]) {
     }
     OptBWTRL index(argv[1]);
 
-    index.printRaw();
+    //index.printRaw();
+
+    index.printPhiAndLCP();
 
     /*
     if (index.validateAllExceptRLBWT())
