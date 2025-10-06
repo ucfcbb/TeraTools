@@ -318,6 +318,8 @@ class LCPComputer {
         }
         Timer.stop(); //Prefix summing auxiliary data
 
+        std::cout << "INFO: maximum interval length for phi data structure: " << maxPhiIntLen << std::endl;
+
         PhiIntLen = sdsl::int_vector<>(F.size(), 0, sdsl::bits::hi(maxPhiIntLen) + 1);
         //computing intAtTop and PhiIntLen
         Timer.start("Second Parallel seq traversal");
@@ -381,6 +383,8 @@ class LCPComputer {
         Phi.D_offset = sdsl::int_vector<>(numRuns, 0, sdsl::bits::hi(maxPhiIntLen - 1) + 1);
         Psi_Index_Samples = sdsl::int_vector<>(numSamples, 0, sdsl::bits::hi(numRuns - 1) + 1);
         Psi_Offset_Samples = sdsl::int_vector<>(numSamples, 0, FlensBits);
+        std::cout << "FlensBits: " << FlensBits << std::endl;
+        std::cout << "Psi_Offset_Samples.width(): " << static_cast<uint64_t>(Psi_Offset_Samples.width()) << std::endl;
         #pragma omp parallel for schedule (dynamic, 1)
         for (uint64_t seq = 0; seq < numSequences; ++seq) {
             //curr is the interval point in the psi move data structure of suffix suff
@@ -585,6 +589,7 @@ class LCPComputer {
         }
 
         sdsl::util::bit_compress(PLCPsamples);
+        std::cout << "PLCP width: " << static_cast<uint64_t>(PLCPsamples.width()) << std::endl;
         Timer.stop(); //LCP Computation
     }
 
