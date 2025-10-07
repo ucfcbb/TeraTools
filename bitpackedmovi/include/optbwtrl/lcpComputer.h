@@ -5,6 +5,10 @@
 class LCPComputer {
     uint64_t totalLen;
 
+    sdsl::int_vector<> PhiIntLen;
+    MoveStructure Phi;
+    sdsl::int_vector<> PLCPsamples;
+
     void ConstructPsi(const rb3_fmi_t* rb3, sdsl::int_vector<> & F, MoveStructure &Psi, uint64_t & numSequences) {
         Timer.start("Constructing Psi from FMD");
 
@@ -234,7 +238,7 @@ class LCPComputer {
     //with suffix x-1 at the top of the input interval,
     //how many suffixes < x are at the top of a run in the BWT
     void ComputeAuxAndRepairPsi(uint64_t& maxPhiIntLen, std::vector<uint64_t> & numTopRuns, std::vector<uint64_t> & seqLens, sdsl::int_vector<> & intAtTop, 
-            const sdsl::int_vector<>& F, MoveStructure& Psi, const uint64_t numSequences, sdsl::int_vector<>& PhiIntLen) {
+            const sdsl::int_vector<>& F, MoveStructure& Psi, const uint64_t numSequences) {
         Timer.start("Computing numTopRuns, seqLens, and repairing Psi of endmarkers in F");
 
         numTopRuns.resize(numSequences + 1);
@@ -369,7 +373,7 @@ class LCPComputer {
 
     void ConstructPhiAndSamples(const sdsl::int_vector<>& F, const MoveStructure& Psi, const uint64_t FlensBits,
             const std::vector<uint64_t>& numTopRuns, const std::vector<uint64_t>& seqLens, const sdsl::int_vector<>& intAtTop, const uint64_t numSequences, const uint64_t maxPhiIntLen,
-            MoveStructure& Phi, uint64_t & sampleInterval, sdsl::int_vector<> &Psi_Index_Samples, sdsl::int_vector<> &Psi_Offset_Samples) {
+            uint64_t & sampleInterval, sdsl::int_vector<> &Psi_Index_Samples, sdsl::int_vector<> &Psi_Offset_Samples) {
         Timer.start("Construct Phi and Samples");
         //computing, for each seq i, 
         // 1. whenever suffix j of i is at the bottom of a run, the input interval and offset of suffix j of i in Phi (D_index and D_offset of the top of the run below it)
@@ -517,9 +521,8 @@ class LCPComputer {
     }
 
     void ComputePLCPSamples(const sdsl::int_vector<>& intAtEnd, const uint64_t numSequences, const sdsl::int_vector<>& F, 
-            const MoveStructure& Psi, const std::vector<uint64_t>& numTopRuns, const std::vector<uint64_t>& seqLens, const MoveStructure& Phi,
-            const uint64_t sampleInterval, const sdsl::int_vector<>& Psi_Index_Samples, const sdsl::int_vector<>& Psi_Offset_Samples, 
-            sdsl::int_vector<>& PLCPsamples) {
+            const MoveStructure& Psi, const std::vector<uint64_t>& numTopRuns, const std::vector<uint64_t>& seqLens,
+            const uint64_t sampleInterval, const sdsl::int_vector<>& Psi_Index_Samples, const sdsl::int_vector<>& Psi_Offset_Samples) {
         Timer.start("LCP Computation");
         PLCPsamples = sdsl::int_vector<>(F.size(), 0, 1);
 
@@ -653,10 +656,9 @@ class LCPComputer {
         //how many suffixes < x - 1 are at the top of a run in the BWT
         sdsl::int_vector<> intAtTop;
         uint64_t maxPhiIntLen;
-        sdsl::int_vector<> PhiLens;
         {
             auto event = sdsl::memory_monitor::event("Compute Auxiliary Data and Repair Endmarker Psis");
-            ComputeAuxAndRepairPsi(maxPhiIntLen, numTopRuns, seqLens, intAtTop, F, Psi, numSequences, PhiLens);
+            ComputeAuxAndRepairPsi(maxPhiIntLen, numTopRuns, seqLens, intAtTop, F, Psi, numSequences);
         }
 
         /*
@@ -709,13 +711,12 @@ class LCPComputer {
         Timer.stop(); //Verifying Psi
         */
 
-        MoveStructure Phi;
-        Phi.intLens = &PhiLens;
+        Phi.intLens = &PhiIntLen;
         uint64_t sampleInterval;
         sdsl::int_vector<> Psi_Index_Samples, Psi_Offset_Samples;
         {
             auto event = sdsl::memory_monitor::event("Construct Phi and Equidistant ISA Samples");
-            ConstructPhiAndSamples(F, Psi, Flens.width(), numTopRuns, seqLens, intAtTop, numSequences, maxPhiIntLen, Phi, sampleInterval, Psi_Index_Samples, Psi_Offset_Samples);
+            ConstructPhiAndSamples(F, Psi, Flens.width(), numTopRuns, seqLens, intAtTop, numSequences, maxPhiIntLen, sampleInterval, Psi_Index_Samples, Psi_Offset_Samples);
         }
 
         /*
@@ -783,7 +784,6 @@ class LCPComputer {
         Timer.stop(); //Verifying Phi
         */
 
-        sdsl::int_vector<> PLCPsamples;
         {
             auto event = sdsl::memory_monitor::event("Compute PLCP Samples");
 
@@ -794,7 +794,7 @@ class LCPComputer {
                 intAtEnd[intAtTop[i]] = i;
 
             intAtTop = sdsl::int_vector<>();
-            ComputePLCPSamples(intAtEnd, numSequences, F, Psi, numTopRuns, seqLens, Phi, sampleInterval, Psi_Index_Samples, Psi_Offset_Samples, PLCPsamples);
+            ComputePLCPSamples(intAtEnd, numSequences, F, Psi, numTopRuns, seqLens, sampleInterval, Psi_Index_Samples, Psi_Offset_Samples);
         }
 
         /*
@@ -827,7 +827,7 @@ class LCPComputer {
 
     }
 
-    void printRaw(const MoveStructure& Phi, const sdsl::int_vector<>& PLCPsamples, const sdsl::int_vector<>& intAtTop) const {
+    void printRaw(const sdsl::int_vector<>& intAtTop) const {
         std::cout << "LCP\n";
         std::vector<uint64_t> lcp(totalLen);
         MoveStructure::IntervalPoint phiPoint{static_cast<uint64_t>(-1), intAtTop[0], 0};
@@ -853,7 +853,7 @@ class LCPComputer {
         std::cout << "\n";
     }
 
-    void printPhiAndLCP(const MoveStructure& Phi, const sdsl::int_vector<>& PLCPsamples) const {
+    void printPhiAndLCP(const sdsl::int_vector<>& PLCPsamples) const {
         std::cout << "runInd\tD_index\tD_offset\tintlen\tPLCPsamp\n";
         uint64_t numRuns = PLCPsamples.size();
         for (uint64_t i = 0; i < numRuns; ++i) {
@@ -866,11 +866,15 @@ class LCPComputer {
     }
 
     static bool validateRB3(const rb3_fmi_t* rb3);
+
     size_type serialize(std::ostream &out, sdsl::structure_tree_node *v=NULL, std::string name="") const {
         sdsl::structure_tree_node* child = sdsl::structure_tree::add_child(v, name, sdsl::util::class_name(*this));
         size_type bytes = 0;
 
         bytes += sdsl::serialize(totalLen, out, child, "totalLen");
+        bytes += sdsl::serialize(PhiIntLen, out, child, "PhiIntLen");
+        bytes += sdsl::serialize(Phi, out, child, "Phi");
+        bytes += sdsl::serialize(PLCPsamples, out, child, "PLCPsamples");
 
         sdsl::structure_tree::add_size(child, bytes);
         return bytes;
@@ -878,6 +882,10 @@ class LCPComputer {
 
     void load(std::istream& in) {
         sdsl::load(totalLen, in);
+        sdsl::load(PhiIntLen, in);
+        sdsl::load(Phi, in);
+        sdsl::load(PLCPsamples, in);
+        Phi.intLens = &PhiIntLen;
     }
 };
 
