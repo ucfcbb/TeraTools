@@ -608,9 +608,12 @@ class LCPComputer {
         sdsl::int_vector<> Flens;
         Psi.intLens = &Flens;
         uint64_t numSequences;
-        ConstructPsi(rb3, F, Psi, numSequences);
+        {
+            auto event = sdsl::memory_monitor::event("Construct Psi");
+            ConstructPsi(rb3, F, Psi, numSequences);
 
-        rb3_fmi_free(rb3);
+            rb3_fmi_free(rb3);
+        }
 
         /*
         for (uint64_t i = 0; i < Psi.D_index.size(); ++i) {
@@ -651,7 +654,10 @@ class LCPComputer {
         sdsl::int_vector<> intAtTop;
         uint64_t maxPhiIntLen;
         sdsl::int_vector<> PhiLens;
-        ComputeAuxAndRepairPsi(maxPhiIntLen, numTopRuns, seqLens, intAtTop, F, Psi, numSequences, PhiLens);
+        {
+            auto event = sdsl::memory_monitor::event("Compute Auxiliary Data and Repair Endmarker Psis");
+            ComputeAuxAndRepairPsi(maxPhiIntLen, numTopRuns, seqLens, intAtTop, F, Psi, numSequences, PhiLens);
+        }
 
         /*
         {
@@ -707,7 +713,10 @@ class LCPComputer {
         Phi.intLens = &PhiLens;
         uint64_t sampleInterval;
         sdsl::int_vector<> Psi_Index_Samples, Psi_Offset_Samples;
-        ConstructPhiAndSamples(F, Psi, Flens.width(), numTopRuns, seqLens, intAtTop, numSequences, maxPhiIntLen, Phi, sampleInterval, Psi_Index_Samples, Psi_Offset_Samples);
+        {
+            auto event = sdsl::memory_monitor::event("Construct Phi and Equidistant ISA Samples");
+            ConstructPhiAndSamples(F, Psi, Flens.width(), numTopRuns, seqLens, intAtTop, numSequences, maxPhiIntLen, Phi, sampleInterval, Psi_Index_Samples, Psi_Offset_Samples);
+        }
 
         /*
         {
@@ -774,15 +783,19 @@ class LCPComputer {
         Timer.stop(); //Verifying Phi
         */
 
-        //intAtEnd[j] is the input interval of Psi where the suffix at the end of input interval j of Phi occurs
-        //(at the top of, necessarily)
-        sdsl::int_vector<> intAtEnd(F.size(), 0, sdsl::bits::hi(F.size() - 1) + 1);
-        for (uint64_t i = 0; i < F.size(); ++i)
-            intAtEnd[intAtTop[i]] = i;
-
-        intAtTop = sdsl::int_vector<>();
         sdsl::int_vector<> PLCPsamples;
-        ComputePLCPSamples(intAtEnd, numSequences, F, Psi, numTopRuns, seqLens, Phi, sampleInterval, Psi_Index_Samples, Psi_Offset_Samples, PLCPsamples);
+        {
+            auto event = sdsl::memory_monitor::event("Compute PLCP Samples");
+
+            //intAtEnd[j] is the input interval of Psi where the suffix at the end of input interval j of Phi occurs
+            //(at the top of, necessarily)
+            sdsl::int_vector<> intAtEnd(F.size(), 0, sdsl::bits::hi(F.size() - 1) + 1);
+            for (uint64_t i = 0; i < F.size(); ++i)
+                intAtEnd[intAtTop[i]] = i;
+
+            intAtTop = sdsl::int_vector<>();
+            ComputePLCPSamples(intAtEnd, numSequences, F, Psi, numTopRuns, seqLens, Phi, sampleInterval, Psi_Index_Samples, Psi_Offset_Samples, PLCPsamples);
+        }
 
         /*
         Timer.start("Verifying Psi");
