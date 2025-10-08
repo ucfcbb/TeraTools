@@ -1,6 +1,7 @@
 #include"util.h"
 #include"moveStructure.h"
 #include"fm-index.h"
+#include<queue>
 
 class LCPComputer {
     uint64_t totalLen;
@@ -596,6 +597,66 @@ class LCPComputer {
         Timer.stop(); //LCP Computation
     }
 
+    void ComputeMinLCPRun(const sdsl::int_vector<>& intAtTop, const sdsl::int_vector<>& F, const sdsl::int_vector<>& Flens, const MoveStructure& Psi) {
+        //O(r log sigma) time, can be skipped if RLBWT is maintained or re-read
+        Timer.start("Computing Min LCP per Run");
+        struct MappedPositionRunPair {
+            uint64_t psiInputInt;
+            MoveStructure::IntervalPoint runStart;
+
+            MappedPositionRunPair(uint64_t interval, const MoveStructure& psi): psiInputInt(interval) {
+                runStart = psi.map({static_cast<uint64_t>(-1), psiInputInt, 0});
+            }
+        };
+
+        struct ComparePositionPair {
+            bool operator()(const MappedPositionRunPair& lhs, const MappedPositionRunPair& rhs) const {
+                return lhs.runStart.interval > rhs.runStart.interval || (lhs.runStart.interval == rhs.runStart.interval && lhs.runStart.offset > rhs.runStart.offset);
+            }
+        };
+
+
+        std::priority_queue<MappedPositionRunPair,std::vector<MappedPositionRunPair>,ComparePositionPair> nextAlph;
+
+        //get first of each character
+        for (uint64_t i = 0; i < F.size(); ++i)
+            if (i == 0 || F[i] != F[i-1])
+                nextAlph.emplace(i, Psi);
+
+        MappedPositionRunPair firstRun = nextAlph.top();
+
+        uint64_t runs = 0;
+        while (nextAlph.size()) {
+            MappedPositionRunPair t = nextAlph.top();
+            nextAlph.pop();
+            if (t.psiInputInt != F.size() - 1 && F[t.psiInputInt] == F[t.psiInputInt+1])
+                nextAlph.emplace(t.psiInputInt+1, Psi);
+            ++runs;
+
+            uint64_t runLen = Flens[t.psiInputInt];
+            t = (nextAlph.size())? nextAlph.top() : firstRun;
+            uint64_t phiInt = (intAtTop[t.psiInputInt]+1) % F.size();
+            MoveStructure::IntervalPoint pPoint = {static_cast<uint64_t>(-1), phiInt, 0};
+            uint64_t minL = static_cast<uint64_t>(-1), minLloc = static_cast<uint64_t>(-1);
+            for (uint64_t i = 0; i < runLen; ++i) {
+                pPoint = Phi.map(pPoint);
+                uint64_t l = PLCPsamples[pPoint.interval] - pPoint.offset;
+                //use <= for first index
+                if (l < minL) {
+                    minL = l;
+                    minLloc = runLen - 1 - i;
+                }
+            }
+            std::cout << "( " << minLloc << ", " << minL << ")\n";
+        }
+
+        if (runs != F.size()) {
+            std::cerr << "ERROR: runs found by recovering RLBWT not equal to runs in F!\n";
+            exit(1);
+        }
+        Timer.stop(); //Computing Min LCP per Run
+    }
+
     public:
     typedef uint64_t size_type;
 
@@ -784,12 +845,12 @@ class LCPComputer {
         Timer.stop(); //Verifying Phi
         */
 
+        sdsl::int_vector<> intAtEnd(F.size(), 0, sdsl::bits::hi(F.size() - 1) + 1);
         {
             auto event = sdsl::memory_monitor::event("Compute PLCP Samples");
 
             //intAtEnd[j] is the input interval of Psi where the suffix at the end of input interval j of Phi occurs
             //(at the top of, necessarily)
-            sdsl::int_vector<> intAtEnd(F.size(), 0, sdsl::bits::hi(F.size() - 1) + 1);
             for (uint64_t i = 0; i < F.size(); ++i)
                 intAtEnd[intAtTop[i]] = i;
 
@@ -797,26 +858,50 @@ class LCPComputer {
             ComputePLCPSamples(intAtEnd, numSequences, F, Psi, numTopRuns, seqLens, sampleInterval, Psi_Index_Samples, Psi_Offset_Samples);
         }
 
-        /*
-        Timer.start("Verifying Psi");
-        if (!Psi.permutationLengthN(totalLen)) {
-            std::cerr << "ERROR: Psi is not a permutation of length n!" << std::endl;
-            exit(1);
+        {
+            Timer.start("Verifying Psi");
+            {
+                auto event = sdsl::memory_monitor::event("Verifying Psi");
+                if (!Psi.permutationLengthN(totalLen)) {
+                    std::cerr << "ERROR: Psi is not a permutation of length n!" << std::endl;
+                    exit(1);
+                }
+                std::cout << "Psi is a permutation of length n\n";
+            }
+            Timer.stop(); //Verifying Psi
+            //Verifying Phi is VERY slow compared to verifying Psi ~300 seconds on mtb152 with 64 cores vs ~30 seconds for Psi on coombs c0-4. Why?
+            Timer.start("Verifying Phi");
+            {
+                auto event = sdsl::memory_monitor::event("Verifying Phi");
+                if (!Phi.permutationLengthN(totalLen)) {
+                    std::cerr << "ERROR: Phi is not a permutation of length n!" << std::endl;
+                    exit(1);
+                }
+                std::cout << "Phi is a permutation of length n\n";
+            }
+            Timer.stop(); //Verifying Phi
         }
-        std::cout << "Psi is a permutation of length n\n";
-        Timer.stop(); //Verifying Psi
-        //Verifying Phi is VERY slow compared to verifying Psi ~300 seconds on mtb152 with 64 cores vs ~30 seconds for Psi on coombs c0-4. Why?
-        Timer.start("Verifying Phi");
-        if (!Phi.permutationLengthN(totalLen)) {
-            std::cerr << "ERROR: Phi is not a permutation of length n!" << std::endl;
-            exit(1);
-        }
-        std::cout << "Phi is a permutation of length n\n";
-        Timer.stop(); //Verifying Phi
 
-        printPhiAndLCP(Phi, PLCPsamples);
-        */
+        //printPhiAndLCP(Phi, PLCPsamples);
         
+        Timer.start("Computing minLCP per run");
+        {
+            auto event = sdsl::memory_monitor::event("Computing minLCP per run");
+            //Psi = MoveStructure();
+            Psi_Index_Samples = sdsl::int_vector<>();
+            Psi_Offset_Samples = sdsl::int_vector<>();
+            
+
+            intAtTop = sdsl::int_vector<>(F.size(), 0, sdsl::bits::hi(F.size() - 1) + 1);
+            //reinvert intAtEnd
+            for (uint64_t i = 0; i < F.size(); ++i)
+                intAtTop[intAtEnd[i]] = i;
+            intAtEnd = sdsl::int_vector<>();
+            
+            ComputeMinLCPRun(intAtTop, F, Flens, Psi);
+        }
+        Timer.stop(); //Computing minLCP per run"
+
         sdsl::memory_monitor::stop();
         std::cout << "peak usage = " << sdsl::memory_monitor::peak() << " bytes" << std::endl;
 
