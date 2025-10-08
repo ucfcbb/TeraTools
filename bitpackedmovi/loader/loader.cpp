@@ -2,16 +2,21 @@
 
 
 int main(int argc, char *argv[]) {
-    if (argc != 2) {
-        std::cerr << "Usage: loader <input.optbwtrl>\n"
-            << argc-1 << " arguments passed instead of 1" << std::endl;
+    if (argc != 3) {
+        std::cerr << "Usage: loader [BWT,MINLCP] <input.optbwtrl>\n"
+            << argc-1 << " arguments passed instead of 2" << std::endl;
         exit(1);
     }
-    OptBWTRL index(argv[1]);
+    if (strcmp(argv[1], "BWT") && strcmp(argv[1], "MINLCP")) {
+        std::cerr << "Second parameter must be either 'BWT' or 'MINLCP', '" << argv[1] << "' passed." << std::endl;
+        exit(1);
+    }
+    OptBWTRL index(argv[2]);
 
-    //index.printRaw();
-
-    index.printPhiAndLCP();
+    if (strcmp(argv[1], "BWT") == 0)
+        index.printRaw();
+    else if (strcmp(argv[1], "MINLCP") == 0)
+        index.ComputeMinLCPRun(std::cout);
 
     /*
     if (index.validateAllExceptRLBWT())

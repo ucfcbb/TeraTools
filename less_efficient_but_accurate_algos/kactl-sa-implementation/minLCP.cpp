@@ -133,16 +133,18 @@ int main() {
     };
 
     for (int i = 0; i < n; ++i) {
-        if (i != 0 && BWT(i) == BWT(i-1)) 
+        if (i != 0 && BWT(i) != '$' && BWT(i) == BWT(i-1)) 
             continue;
         int minLCP = sa.lcp[i + 1];
         int minLCPLoc = 0;
-        for (int j = 1; i+j < n && BWT(i+j) == BWT(i); ++j) {
+        int j;
+        for (j = 1; i+j < n && BWT(i) != '$' && BWT(i+j) == BWT(i); ++j) {
             if (sa.lcp[i + j + 1] <= minLCP) {
                 minLCP = sa.lcp[i + j + 1];
                 minLCPLoc = j;
             }
         }
+        //std::cout << BWTInt[BWT(i)] << ' ' << j << ' ';
         std::cout << "( " << minLCPLoc << ", " << minLCP << ")\n";
     }
 
