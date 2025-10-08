@@ -80,7 +80,7 @@ class OptBWTRL {
             sdsl::load(AboveLCP, in);
         }
 
-        uint64_t LCP(const MoveStructure::IntervalPoint plPoint) {
+        uint64_t LCP(const MoveStructure::IntervalPoint plPoint) const {
 //            std::cout << "InvMovStr::LCP( " << plPoint.interval 
 //                << ", " << plPoint.offset << ") called."
 //                << " AboveLCP[] = " << AboveLCP[plPoint.interval] << std::endl;
@@ -1338,9 +1338,9 @@ class OptBWTRL {
 
     public:
     struct LFPhiCoordinate {
-        MoveStructure* LF;
-        InvertibleMoveStructure* PL;
-        sdsl::int_vector<>* SATopRunInt;
+        const MoveStructure* LF;
+        const InvertibleMoveStructure* PL;
+        const sdsl::int_vector<>* SATopRunInt;
 
         MoveStructure::IntervalPoint LFpoint;
         MoveStructure::IntervalPoint phiPoint;
@@ -1357,7 +1357,7 @@ class OptBWTRL {
             phiPoint = PL->phi.map(phiPoint);
         }
 
-        uint64_t LCP() {
+        uint64_t LCP() const {
             return PL->LCP(phiPoint);
         }
 
@@ -1385,7 +1385,7 @@ class OptBWTRL {
         }
 
         //takes as input top of run to initialize to, defaults to top of BWT
-        LFPhiCoordinate(MoveStructure* lf, InvertibleMoveStructure* pl, sdsl::int_vector<>* satoprunint, uint64_t run = 0): LF(lf), PL(pl), SATopRunInt(satoprunint) {
+        LFPhiCoordinate(const MoveStructure* lf, const InvertibleMoveStructure* pl, const sdsl::int_vector<>* satoprunint, uint64_t run = 0): LF(lf), PL(pl), SATopRunInt(satoprunint) {
             setToTop(run);
         }
 
@@ -1441,7 +1441,7 @@ class OptBWTRL {
         in.close();
     }
 
-    void printRaw() { 
+    void printRaw() const { 
         std::cout << "i\tSA_S\tSA_O\tLCP\tLF\tBWT\n";
         std::vector<uint64_t> runlenPrefSum(runlens.size());
         for (uint64_t i = 1; i < runlens.size(); ++i)
@@ -1555,6 +1555,34 @@ class OptBWTRL {
                     << PL.AboveLCP[i] << '\n';
             }
         }
+    }
+
+    void ComputeMinLCPRun(std::ostream& out) const {
+        uint64_t runs = rlbwt.size();
+        sdsl::int_vector<> offset(runs, 0, runlens.width()), minLCPRun(runs, 0, PL.AboveLCP.width());
+
+        #pragma omp parallel for schedule(dynamic, 1)
+        for (uint64_t i = 0; i < runs; ++i) {
+            LFPhiCoordinate curr(&LF, &PL, &SATopRunInt, (i+1)%runs);
+            uint64_t rlen = runlens[i];
+            uint64_t minLCP = static_cast<uint64_t>(-1), minLCPloc = static_cast<uint64_t>(-1);
+            for (uint64_t j = 0; j < rlen; ++j) {
+                curr.doPhi();
+                //use <= for first position in run
+                if (curr.LCP() < minLCP) {
+                    minLCP = curr.LCP();
+                    minLCPloc = rlen - 1 - j;
+                }
+            }
+            #pragma omp critical
+            {
+                offset[i] = minLCPloc;
+                minLCPRun[i] = minLCP;
+            }
+        }
+
+        for (uint64_t i = 0; i < runs; ++i)
+            out << "( " << offset[i] << ", " << minLCPRun[i] << ")\n";
     }
 
     static bool validateRB3(const rb3_fmi_t* rb3);
