@@ -597,7 +597,7 @@ class LCPComputer {
         Timer.stop(); //LCP Computation
     }
 
-    void ComputeMinLCPRun(const sdsl::int_vector<>& intAtTop, const sdsl::int_vector<>& F, const sdsl::int_vector<>& Flens, const MoveStructure& Psi) {
+    void ComputeMinLCPRun(const sdsl::int_vector<>& intAtTop, const sdsl::int_vector<>& F, const sdsl::int_vector<>& Flens, const MoveStructure& Psi, std::ofstream& out) {
         //O(r log sigma) time, can be skipped if RLBWT is maintained or re-read
         Timer.start("Computing Min LCP per Run");
         struct MappedPositionRunPair {
@@ -617,23 +617,38 @@ class LCPComputer {
 
 
         std::priority_queue<MappedPositionRunPair,std::vector<MappedPositionRunPair>,ComparePositionPair> nextAlph;
+        std::vector<uint64_t> endmarkerOrder;
+        {
+            uint64_t seq = 0;
+            while (F[seq] == 0)
+                nextAlph.emplace(seq++,Psi);
+            endmarkerOrder.reserve(nextAlph.size());
+            while(nextAlph.size()) {
+                endmarkerOrder.push_back(nextAlph.top().psiInputInt);
+                nextAlph.pop();
+            }
+        }
 
         //get first of each character
-        for (uint64_t i = 0; i < F.size(); ++i)
-            if (i == 0 || F[i] != F[i-1])
+        nextAlph.emplace(endmarkerOrder[0], Psi);
+        for (uint64_t i = endmarkerOrder.size(); i < F.size(); ++i)
+            if (F[i] != F[i-1])
                 nextAlph.emplace(i, Psi);
 
         MappedPositionRunPair firstRun = nextAlph.top();
 
-        uint64_t runs = 0;
+        uint64_t runs = 0, endmarkerPosition = 0;
         while (nextAlph.size()) {
             MappedPositionRunPair t = nextAlph.top();
             nextAlph.pop();
-            if (t.psiInputInt != F.size() - 1 && F[t.psiInputInt] == F[t.psiInputInt+1])
+            if (F[t.psiInputInt] != 0 && t.psiInputInt != F.size() - 1 && F[t.psiInputInt] == F[t.psiInputInt+1])
                 nextAlph.emplace(t.psiInputInt+1, Psi);
+            if (F[t.psiInputInt] == 0 && endmarkerPosition != endmarkerOrder.size() - 1)
+                nextAlph.emplace(endmarkerOrder[++endmarkerPosition], Psi);
             ++runs;
 
             uint64_t runLen = Flens[t.psiInputInt];
+            //out << F[t.psiInputInt] << ' ' << runLen << ' ';
             t = (nextAlph.size())? nextAlph.top() : firstRun;
             uint64_t phiInt = (intAtTop[t.psiInputInt]+1) % F.size();
             MoveStructure::IntervalPoint pPoint = {static_cast<uint64_t>(-1), phiInt, 0};
@@ -647,7 +662,7 @@ class LCPComputer {
                     minLloc = runLen - 1 - i;
                 }
             }
-            std::cout << "( " << minLloc << ", " << minL << ")\n";
+            out << "( " << minLloc << ", " << minL << ")\n";
         }
 
         if (runs != F.size()) {
@@ -663,7 +678,7 @@ class LCPComputer {
     //input: a run length encoding of a multidollar BWT where all dollars are represented by 0
     //All characters between (and including) 0 and max_char are assumed to have more than 0 occurrences
     //in the text. max_char is the maximum character in the text
-    LCPComputer(rb3_fmi_t* rb3) {
+    LCPComputer(rb3_fmi_t* rb3, std::ofstream& lcpOut) {
 
         sdsl::memory_monitor::start();
 
@@ -898,7 +913,7 @@ class LCPComputer {
                 intAtTop[intAtEnd[i]] = i;
             intAtEnd = sdsl::int_vector<>();
             
-            ComputeMinLCPRun(intAtTop, F, Flens, Psi);
+            ComputeMinLCPRun(intAtTop, F, Flens, Psi, lcpOut);
         }
         Timer.stop(); //Computing minLCP per run"
 
