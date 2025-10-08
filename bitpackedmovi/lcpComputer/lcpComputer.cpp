@@ -4,7 +4,7 @@ int main(int argc, char*argv[]) {
     Timer.start("lcpComputer");
     Timer.start("Program Initialization");
     rb3_fmi_t fmi;
-    std::ofstream indOut, treeOut;
+    std::ofstream indOut, treeOut, lcpOut;
     {
         bool use_mmap;
         Timer.start("Reading Arguments");
@@ -49,11 +49,16 @@ int main(int argc, char*argv[]) {
             std::cerr << "ERROR: File '" << outputPref << "_StructTree.html' failed to open for writing!\n";
             exit(1);
         }
+        lcpOut.open(outputPref + ".rlcp");
+        if (!lcpOut.is_open()) {
+            std::cerr << "ERRPR: File '" << outputPref << ".rlcp' failed to open for writing!\n";
+            exit(1);
+        }
     }
     Timer.stop(); //Program Initialization
 
     Timer.start("LCP construction");
-    LCPComputer ourIndex(&fmi);
+    LCPComputer ourIndex(&fmi, lcpOut);
     Timer.stop(); //LCP construction
 
     /*
