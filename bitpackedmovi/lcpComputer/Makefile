@@ -2,7 +2,7 @@ SHELL := /bin/bash
 
 all: lcpComputer
 
-.PHONY: all clean test testrand ropebwt3 kactl-sa-implmentation generation
+.PHONY: all clean test
 
 numIterRand=10
 
@@ -61,26 +61,3 @@ test: lcpComputer
 
 lcpComputer: $(lcpHeads) $(objs) lcpComputer.cpp
 	$(CXX) $(cppflags) $(incs) -L$(libdir) $^ -o $@ $(libs)
-
-loader:
-	make -C ../loader
-
-ropebwt3: 
-	make -C ../../ropebwt3/
-
-generation:
-	make -C ../../data/generation/
-
-kactl-sa-implementation:
-	make -C ../../less_efficient_but_accurate_algos/kactl-sa-implementation/
-
-testrand: ropebwt3 lcpComputer kactl-sa-implementation generation loader
-	test=0;\
-	while ./compare.sh 500 5000 1000 10000; do \
-		echo passed test $$((++test)); \
-		if [[ $$test == $(numIterRand) ]]; then \
-			echo passed all $(numIterRand) tests; \
-			break; \
-		fi \
-	done
-
