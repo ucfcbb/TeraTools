@@ -1,6 +1,6 @@
-all: bitpackedmovi less_efficient_but_accurate_algos
+all: bitpackedmovi less_efficient_but_accurate_algos MoveDataStructureBenchmark
 
-.PHONY: all clean bitpackedmovi less_efficient_but_accurate_algos
+.PHONY: all clean bitpackedmovi less_efficient_but_accurate_algos MoveDataStructureBenchmark
 
 clean:
 	-rm -r ropebwt3
@@ -16,3 +16,6 @@ ropebwt3:
 
 less_efficient_but_accurate_algos:
 	make -C less_efficient_but_accurate_algos/
+
+MoveDataStructureBenchmark:
+	make -C MoveDataStructureBenchmark/

@@ -16,14 +16,16 @@ class timer {
             os.flush();
         processes.emplace(std::chrono::high_resolution_clock::now(), processName);
     }
-    void stop() {
+    double stop() {
         auto end = std::chrono::high_resolution_clock::now();
         auto beginNamePair = processes.top();
+        double sec = std::chrono::duration<double>(end - beginNamePair.first).count();
         processes.pop();
         os << prefix << std::string(1+processes.size(), scopeChar) << "Ending '" << beginNamePair.second 
-            << "'. It took " << std::chrono::duration<double>(end - beginNamePair.first).count() << " seconds\n";
+            << "'. It took " << sec << " seconds\n";
         if (flush)
             os.flush();
+        return sec;
     }
     void stopAllProcesses() {
         while (processes.size())
