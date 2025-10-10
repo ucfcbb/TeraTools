@@ -1006,6 +1006,7 @@ class LCPComputer {
         sdsl::load(Phi, in);
         sdsl::load(PLCPsamples, in);
         Phi.intLens = &PhiIntLen;
+        Psi.intLens = &Flens;
     }
 };
 
