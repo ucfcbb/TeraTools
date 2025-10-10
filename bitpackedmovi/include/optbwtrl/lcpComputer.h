@@ -6,8 +6,16 @@
 class LCPComputer {
     uint64_t totalLen;
 
+    sdsl::int_vector<> F;
+    
+    sdsl::int_vector<> Flens;
+    MoveStructure Psi;
+
+    sdsl::int_vector<> intAtTop;
+
     sdsl::int_vector<> PhiIntLen;
     MoveStructure Phi;
+
     sdsl::int_vector<> PLCPsamples;
 
     void ConstructPsi(const rb3_fmi_t* rb3, sdsl::int_vector<> & F, MoveStructure &Psi, uint64_t & numSequences) {
@@ -682,9 +690,6 @@ class LCPComputer {
 
         sdsl::memory_monitor::start();
 
-        MoveStructure Psi;
-        sdsl::int_vector<> F;
-        sdsl::int_vector<> Flens;
         Psi.intLens = &Flens;
         uint64_t numSequences;
         {
@@ -730,7 +735,6 @@ class LCPComputer {
         //intAtTop stores, for every input interval of psi
         //with suffix x-1 at the top of the input interval,
         //how many suffixes < x - 1 are at the top of a run in the BWT
-        sdsl::int_vector<> intAtTop;
         uint64_t maxPhiIntLen;
         {
             auto event = sdsl::memory_monitor::event("Compute Auxiliary Data and Repair Endmarker Psis");
@@ -925,6 +929,14 @@ class LCPComputer {
         sdsl::memory_monitor::write_memory_log<sdsl::HTML_FORMAT>(cstofs);
         cstofs.close();
 
+        /*
+        std::ofstream outpsi("lcpcomputer.psi");
+        Flens.serialize(outpsi);
+        Psi.serialize(outpsi);
+        std::ofstream outphi("lcpcomputer.phi");
+        (*Phi.intLens).serialize(outphi);
+        Phi.serialize(outphi);
+        */
     }
 
     void printRaw(const sdsl::int_vector<>& intAtTop) const {
@@ -972,6 +984,10 @@ class LCPComputer {
         size_type bytes = 0;
 
         bytes += sdsl::serialize(totalLen, out, child, "totalLen");
+        bytes += sdsl::serialize(F, out, child, "F");
+        bytes += sdsl::serialize(Flens, out, child, "Flens");
+        bytes += sdsl::serialize(Psi, out, child, "Psi");
+        bytes += sdsl::serialize(intAtTop, out, child, "intAtTop");
         bytes += sdsl::serialize(PhiIntLen, out, child, "PhiIntLen");
         bytes += sdsl::serialize(Phi, out, child, "Phi");
         bytes += sdsl::serialize(PLCPsamples, out, child, "PLCPsamples");
@@ -982,6 +998,10 @@ class LCPComputer {
 
     void load(std::istream& in) {
         sdsl::load(totalLen, in);
+        sdsl::load(F, in);
+        sdsl::load(Flens, in);
+        sdsl::load(Psi, in);
+        sdsl::load(intAtTop, in);
         sdsl::load(PhiIntLen, in);
         sdsl::load(Phi, in);
         sdsl::load(PLCPsamples, in);
