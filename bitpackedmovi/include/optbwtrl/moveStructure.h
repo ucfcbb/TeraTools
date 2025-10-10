@@ -33,6 +33,15 @@ struct MoveStructure {
         res.offset = D_offset[intPoint.interval] + intPoint.offset;
         while ((*intLens)[res.interval] <= res.offset)
             res.offset -= (*intLens)[res.interval++];
+        /*
+        auto it = intLens->begin();
+        it += static_cast<uint64_t>(res.interval);
+        while (*it <= res.offset) {
+            res.offset -= *it;
+            ++res.interval;
+            ++it;
+        }
+        */
         return res;
     }
 
@@ -135,5 +144,19 @@ struct MoveStructure {
         }
 
         return traversed == runs && nextInt[curr] == 0;
+    }
+
+    //returns whether the move structure is a permutation of length N with exactly one cycle
+    bool permutationLengthNOneCycleSequential(size_type N) const {
+        size_type totalOps = 0;
+
+        IntervalPoint curr{static_cast<uint64_t>(-1), 0, 0};
+
+        do {
+            curr = map(curr);
+            ++totalOps;
+        } while ((curr.interval || curr.offset) && totalOps < N + 1);
+
+        return totalOps == N;
     }
 };
