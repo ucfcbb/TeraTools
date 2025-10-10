@@ -1,0 +1,24 @@
+#!/bin/bash
+
+ropebwt3=../../ropebwt3/ropebwt3
+
+seq=$(wc -l < $1.len)
+cropSeq=$(echo "$seq * $2" | bc)
+cropSeq=${cropSeq%.*}
+
+newFile=$2crop_$1
+
+echo "Outputting first $cropSeq of $seq sequences from $1 into '$newFile'"
+
+cp /dev/null $newFile.len
+index=0
+$ropebwt3 build -Ldo $newFile <(head -n $cropSeq $1.len | while read p; do 
+    seq=$(cut -f 1 <(echo "$p"))
+    len=$(cut -f 2 <(echo "$p"))
+    cropLen=$(echo "$len * $2" | bc)
+    cropLen=${cropLen%.*}
+    echo -e "$seq\t$cropLen" >> $newFile.len
+    $ropebwt3 get $1 $(($index * 2)) | tail -n 1 | head -c $cropLen
+    echo 
+    ((index++))
+done)
