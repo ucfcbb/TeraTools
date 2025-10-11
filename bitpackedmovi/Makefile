@@ -1,17 +1,19 @@
-all: thirdparty/ builder/ loader/
+ourdirs = builder extract lcpComputer loader msComputer msIndexBuilder repeats stats 
+subdirs = $(ourdirs) thirdparty
 
-.PHONY: all clean thirdparty/ builder/ loader/
+all: $(subdirs)
+
+.PHONY: all clean $(subdirs)
 
 clean:
-	make -C thirdparty/ clean
-	make -C builder/ clean
-	make -C loader/ clean
+	for dir in $(subdirs); do \
+        $(MAKE) -C $$dir clean; \
+    done
 
-thirdparty/:
-	make -C thirdparty/
+$(ourdirs): thirdparty ../ropebwt3
 
-builder/: thirdparty/
-	make -C builder/
+../ropebwt3:
+	$(MAKE) -C .. ropebwt3
 
-loader/: thirdparty/
-	make -C loader/
+$(subdirs):
+	$(MAKE) -C $@

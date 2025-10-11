@@ -7,8 +7,9 @@ cppflags+=$(developmentflags) -O3 -DNDEBUG
 #cppflags+=$(developmentflags) -Wall -g
 
 optIncDir = ../bitpackedmovi/include
-incdir = ../bitpackedmovi/thirdparty/include
-libdir = ../bitpackedmovi/thirdparty/lib
+thDir = ../bitpackedmovi/thirdparty
+incdir = $(thDir)/include
+libdir = $(thDir)/lib
 
 libs = -lsdsl -lpthread -lz -lm
 incs = -I$(optIncDir) -isystem$(incdir)
@@ -23,5 +24,10 @@ benchHeads = $(optIncDir)/optbwtrl/util.h\
 clean:
 	-rm bench
 
-bench: $(benchHeads) bench.cpp
-	$(CXX) $(cppflags) $(incs) -L$(libdir) $^ -o $@ $(libs)
+bench: $(incdir) $(libdir) $(benchHeads) 
+
+bench: bench.cpp
+	$(CXX) $(cppflags) $(incs) -L$(libdir) bench.cpp -o $@ $(libs)
+
+$(incdir) $(libdir) &:
+	$(MAKE) -C $(thDir)

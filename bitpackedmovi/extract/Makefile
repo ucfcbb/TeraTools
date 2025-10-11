@@ -5,8 +5,9 @@ all: extract extractMultiple
 testinds = "../../data/testing/idx.len ../../data/testing/idx.fmd.optbwtrl" "../../data/testing/mtb152.fmd.len ../../data/testing/mtb152.fmd.optbwtrl"
 testindsMul = "idxQueries ../../data/testing/idx.len ../../data/testing/idx.fmd.optbwtrl" "mtbQueries ../../data/testing/mtb152.fmd.len ../../data/testing/mtb152.fmd.optbwtrl"
 
-sdsl_optbwt_incdir = ../include
-sdsl_optbwt_libdir = ../lib
+optIncDir = ../include
+incdir = ../thirdparty/include
+libdir = ../thirdparty/lib
 ropebwt3dir = ../../ropebwt3
 
 objs = $(ropebwt3dir)/bre.o\
@@ -25,7 +26,7 @@ objs = $(ropebwt3dir)/bre.o\
 	   $(ropebwt3dir)/ssa.o
 
 libs = -lsdsl -lpthread -lz -lm
-incs = -I$(sdsl_optbwt_incdir) -I$(ropebwt3dir)
+incs = -I$(optIncDir) -isystem$(incdir) -isystem$(ropebwt3dir)
 
 cppflags+=-Wall -O3 -DNDEBUG
 #cppflags+=-Wall -g
@@ -55,7 +56,7 @@ test: extract extractMultiple
 	done
 
 extract: ../include/optbwtrl/optbwtrl.h ../include/optbwtrl/util.h $(objs) extract.cpp
-	$(CXX) $(cppflags) $(incs) -L$(sdsl_optbwt_libdir) $^ -o $@ $(libs)
+	$(CXX) $(cppflags) $(incs) -L$(libdir) $^ -o $@ $(libs)
 
 extractMultiple: ../include/optbwtrl/optbwtrl.h ../include/optbwtrl/util.h $(objs) extractMultiple.cpp
-	$(CXX) $(cppflags) $(incs) -L$(sdsl_optbwt_libdir) $^ -o $@ $(libs)
+	$(CXX) $(cppflags) $(incs) -L$(libdir) $^ -o $@ $(libs)

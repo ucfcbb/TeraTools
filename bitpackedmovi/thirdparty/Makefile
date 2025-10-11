@@ -1,5 +1,4 @@
 all: lib/ include/
-
 .PHONY: all clean
 
 clean: 
@@ -8,5 +7,8 @@ clean:
 sdsl-lite/:
 	git clone https://github.com/simongog/sdsl-lite
 
-lib/ include/: sdsl-lite/
+lib/ include/ &: sdsl-lite/
 	cd sdsl-lite && ./install.sh ..
+
+override MAKEFLAGS=""
+.NOTPARALLEL:

@@ -1,6 +1,7 @@
 /data/*
 !/data/testing
 !/data/generation
+!/data/Makefile
 /Movi
 /pfp-thresholds
 /ropebwt3
