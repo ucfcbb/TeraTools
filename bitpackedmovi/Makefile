@@ -10,6 +10,11 @@ clean:
         $(MAKE) -C $$dir clean; \
     done
 
+cleanours:
+	for dir in $(ourdirs); do \
+        $(MAKE) -C $$dir clean; \
+    done
+
 $(ourdirs): thirdparty ../ropebwt3
 
 ../ropebwt3:

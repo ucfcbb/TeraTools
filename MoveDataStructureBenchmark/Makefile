@@ -21,7 +21,7 @@ endif
 
 benchHeads = $(optIncDir)/optbwtrl/util.h\
              $(optIncDir)/optbwtrl/moveStructure.h
-clean:
+clean cleanours:
 	-rm bench
 
 bench: $(incdir) $(libdir) $(benchHeads) 

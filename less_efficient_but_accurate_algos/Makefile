@@ -1,13 +1,12 @@
+subdirs = kactl-sa-implementation Repeats
 all: kactl-sa-implementation Repeats
 
-.PHONY: all clean kactl-sa-implementation Repeats
+.PHONY: all clean $(subdirs)
 
-clean:
-	make -C kactl-sa-implementation/ clean
-	make -C Repeats/ clean
+clean cleanours:
+	for dir in $(subdirs); do \
+        $(MAKE) -C $$dir clean; \
+    done
 
-kactl-sa-implementation:
-	make -C kactl-sa-implementation/
-
-Repeats:
-	make -C Repeats/
+$(subdirs): 
+	$(MAKE) -C $@

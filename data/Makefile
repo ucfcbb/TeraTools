@@ -3,7 +3,7 @@ all: $(subdirs)
 
 .PHONY: all clean $(subdirs)
 
-clean:
+clean cleanours:
 	for dir in $(subdirs); do \
         $(MAKE) -C $$dir clean; \
     done

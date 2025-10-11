@@ -10,6 +10,11 @@ clean:
         $(MAKE) -C $$dir clean; \
     done
 
+cleanours:
+	for dir in $(subdirs); do \
+		$(MAKE) -C $$dir cleanours; \
+	done
+
 bitpackedmovi: ropebwt3
 
 ropebwt3:
