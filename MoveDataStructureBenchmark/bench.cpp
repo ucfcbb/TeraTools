@@ -82,7 +82,7 @@ enum initialInputIntervalRecoveryMethodSPARSECOMPBV { NA, RANK_vCOMPBV, RANK_v5C
 
 struct MoveStructure {
     typedef uint64_t size_type;
-    sdsl::int_vector<>* intLens;
+    sdsl::int_vector<> intLens;
     sdsl::int_vector<> D_index;
     sdsl::int_vector<> D_offset;
 
@@ -113,7 +113,7 @@ struct MoveStructure {
 
         size_type bytes = 0;
 
-        bytes += sdsl::serialize(*intLens, out, child, "*intLens");
+        bytes += sdsl::serialize(intLens, out, child, "intLens");
         bytes += sdsl::serialize(D_index, out, child, "D_index");
         bytes += sdsl::serialize(D_offset, out, child, "D_offset");
 
@@ -122,9 +122,10 @@ struct MoveStructure {
         return bytes;
     }
 
+    //WARNING!!!!!!!! THIS LOAD FUNCTION IS INCORRECT FOR THIS CLASS IMPLEMENTATION, IT IS WRITTEN FOR THE CURRENT IMPLEMENTED OUTPUT OF LCPCOMPUTER AND BUILDER MOVE STRUCTURE
     void load(std::istream& in) {
-        sdsl::load(intLens, in);
-        intLens = nullptr;
+        sdsl::int_vector<> *dummy;
+        sdsl::load(dummy, in);
         sdsl::load(D_index, in);
         sdsl::load(D_offset, in);
     }
@@ -139,8 +140,8 @@ struct MoveStructure {
         uint64_t remaining = intPoint.offset + distance;
         //if intPoint.interval == intLens->size(), this will result in a BUG
         //TODO: FIX?
-        while (remaining && remaining >= (*intLens)[intPoint.interval])
-            remaining -= (*intLens)[intPoint.interval++];
+        while (remaining && remaining >= intLens[intPoint.interval])
+            remaining -= intLens[intPoint.interval++];
         intPoint.offset = remaining;
         intPoint.position += distance;
     }
@@ -148,28 +149,28 @@ struct MoveStructure {
     void MakeHistogram(std::vector<uint64_t>& hist) const {
         //std::cout << "In MakeHistogram" << std::endl;
         hist = std::vector<uint64_t>();
-        uint64_t intervals = intLens->size(), numTraversed;
+        uint64_t intervals = intLens.size(), numTraversed;
 
         uint64_t interval, offset;
         for (uint64_t i = 0; i < intervals; ++i) {
             //std::cout << "HERE" << std::endl;
             //position of first position after interval, so not counted
             interval = D_index[i];
-            offset = D_offset[i] + (*intLens)[i];
+            offset = D_offset[i] + intLens[i];
             numTraversed = 0;
 
             if (numTraversed >= hist.size())
                 hist.resize(numTraversed+1);
-            hist[numTraversed] += std::min(offset, uint64_t((*intLens)[interval])) - D_offset[i];
-            offset -= std::min(offset, uint64_t((*intLens)[interval]));
+            hist[numTraversed] += std::min(offset, uint64_t(intLens[interval])) - D_offset[i];
+            offset -= std::min(offset, uint64_t(intLens[interval]));
 
             while (offset) {
                 ++interval;
                 ++numTraversed;
                 if (numTraversed >= hist.size())
                     hist.resize(numTraversed+1);
-                hist[numTraversed] += std::min(offset, uint64_t((*intLens)[interval]));
-                offset -= std::min(offset, uint64_t((*intLens)[interval]));
+                hist[numTraversed] += std::min(offset, uint64_t(intLens[interval]));
+                offset -= std::min(offset, uint64_t(intLens[interval]));
             }
         }
     }
@@ -232,8 +233,8 @@ MoveStructure::IntervalPoint MoveStructure::map<RANDOM_ACCESS>(const IntervalPoi
     res.position = static_cast<uint64_t>(-1);
     res.interval = D_index[intPoint.interval];
     res.offset = D_offset[intPoint.interval] + intPoint.offset;
-    while ((*intLens)[res.interval] <= res.offset)
-        res.offset -= (*intLens)[res.interval++];
+    while (intLens[res.interval] <= res.offset)
+        res.offset -= intLens[res.interval++];
     /*
        auto it = intLens->begin();
        it += static_cast<uint64_t>(res.interval);
@@ -252,7 +253,7 @@ MoveStructure::IntervalPoint MoveStructure::map<ITERATOR>(const IntervalPoint& i
     res.position = static_cast<uint64_t>(-1);
     res.interval = D_index[intPoint.interval];
     res.offset = D_offset[intPoint.interval] + intPoint.offset;
-    auto it = intLens->begin() + static_cast<uint64_t>(res.interval);
+    auto it = intLens.begin() + static_cast<uint64_t>(res.interval);
     while (*it <= res.offset) {
         res.offset -= *it;
         ++res.interval;
@@ -266,7 +267,7 @@ struct MoveStructureTable {
     //D_index, D_offset, intlens
     packedTripleVector data;
 
-    MoveStructureTable(const MoveStructure& mv): data(mv.D_index.width(), mv.D_offset.width(), mv.intLens->width(), mv.D_index.size()) {
+    MoveStructureTable(const MoveStructure& mv): data(mv.D_index.width(), mv.D_offset.width(), mv.intLens.width(), mv.D_index.size()) {
         //std::cout << "calc: " << ((mv.D_index.width()+mv.D_offset.width() + mv.intLens->width())*mv.D_index.size()+7)/8 << std::endl;
         //std::cout << "Input index size: " << sdsl::size_in_bytes(mv) << std::endl;
         //std::cout << "This index size: " << sdsl::size_in_bytes(*this) << std::endl;
@@ -276,7 +277,7 @@ struct MoveStructureTable {
             //std::cout << "i " << i << std::endl;
             data.set<0>(i, mv.D_index[i]);
             data.set<1>(i, mv.D_offset[i]);
-            data.set<2>(i, (*mv.intLens)[i]);
+            data.set<2>(i, mv.intLens[i]);
         }
         //std::cout << "Out constructor" << std::endl;
     }
@@ -346,7 +347,7 @@ struct MoveStructureStart<PACKEDINT> {
     sdsl::int_vector<> D_index;
     sdsl::int_vector<> D_offset;
 
-    MoveStructureStart(const MoveStructure& mv): D_index(mv.D_index), D_offset(mv.D_offset), startPos(*(mv.intLens)) {
+    MoveStructureStart(const MoveStructure& mv): D_index(mv.D_index), D_offset(mv.D_offset), startPos(mv.intLens) {
         uint64_t totalLen = 0;
         for (uint64_t i = 1; i < startPos.size(); ++i)
             totalLen += startPos[i];
@@ -365,8 +366,7 @@ struct MoveStructureStart<PACKEDINT> {
     MoveStructureStart(MoveStructure&& mv) {
         D_index.swap(mv.D_index);
         D_offset.swap(mv.D_offset);
-        startPos.swap(*(mv.intLens));
-        mv.intLens = nullptr;
+        startPos.swap(mv.intLens);
         uint64_t totalLen = 0;
         for (uint64_t i = 1; i < startPos.size(); ++i)
             totalLen += startPos[i];
@@ -707,7 +707,7 @@ struct MoveStructureStart<SPARSEBV> {
             outputInputPairs[i].first = {mv.D_index[i], mv.D_offset[i]};
             outputInputPairs[i].second = i;
             list.push_back(curPos);
-            curPos += (*mv.intLens)[i];
+            curPos += mv.intLens[i];
         }
         list.push_back(curPos);
         //std::cout << "Done list" << std::endl;
@@ -863,7 +863,7 @@ struct MoveStructureStart<SPARSECOMPBV, SELECT_mclCOMPBV> {
             outputInputPairs[i].first = {mv.D_index[i], mv.D_offset[i]};
             outputInputPairs[i].second = i;
             list.push_back(curPos);
-            curPos += (*mv.intLens)[i];
+            curPos += mv.intLens[i];
         }
         list.push_back(curPos);
         //std::cout << "Done list" << std::endl;
@@ -1013,7 +1013,7 @@ struct MoveStructureStart<SPARSECOMPBV, SELECT_scanCOMPBV> {
             outputInputPairs[i].first = {mv.D_index[i], mv.D_offset[i]};
             outputInputPairs[i].second = i;
             list.push_back(curPos);
-            curPos += (*mv.intLens)[i];
+            curPos += mv.intLens[i];
         }
         list.push_back(curPos);
         //std::cout << "Done list" << std::endl;
@@ -1124,7 +1124,7 @@ struct MoveStructureStart<SPARSECOMPBV, SELECT_scanCOMPBV> {
     }
 };
 
-MoveStructure generateBalanced(const MoveStructure& mv) {
+MoveStructure generateBalanced(const MoveStructure& mv, const uint64_t N, const uint64_t d) {
     MoveStructure res;
 
     res = mv;
@@ -1154,7 +1154,7 @@ int main(int argc, char* argv[]) {
         }
         Lens.load(mvIn);
         mvOG.load(mvIn);
-        mvOG.intLens = &Lens;
+        mvOG.intLens = Lens;
         Timer.stop(); //Reading move structure
     }
 
@@ -1177,12 +1177,17 @@ int main(int argc, char* argv[]) {
     while (currD != 1) {
         Timer.start("Timing " + std::string((currD == firstD)? "unbalanced" : "balanced" ) + " move structures, d = " + std::to_string(std::min(currD, (maxFF+1)/2)));
 
-        MoveStructure mv = generateBalanced(mvOG);
 
 
         uint64_t N = 0;
         for (uint64_t i = 0; i < mvOG.D_index.size(); ++i)
-            N += (*mvOG.intLens)[i];
+            N += mvOG.intLens[i];
+
+        MoveStructure mv;
+        if (currD == firstD)
+            mv = mvOG;
+        else 
+            mv = generateBalanced(mvOG, N, currD);
 
         //std::vector<uint64_t> t, v;
         //mvOG.MakeHistogram(t);
