@@ -3,6 +3,7 @@ all: bench
 .PHONY: all clean test
 
 developmentflags+= -Wall -Wpedantic -Wextra -pedantic-errors -Wold-style-cast
+cppflags+= -std=c++17
 cppflags+=$(developmentflags) -O3 -DNDEBUG
 #cppflags+=$(developmentflags) -Wall -g
 
