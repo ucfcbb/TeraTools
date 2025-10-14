@@ -2,6 +2,7 @@
 //#include"optbwtrl/moveStructure.h"
 #include<sdsl/sd_vector.hpp>
 #include<sdsl/select_support.hpp>
+#include"move_data_structure/move_data_structure.hpp"
 
 struct packedTripleVector {
     typedef uint64_t size_type;
@@ -1126,7 +1127,15 @@ struct MoveStructureStart<SPARSECOMPBV, SELECT_scanCOMPBV> {
 
 MoveStructure generateBalanced(const MoveStructure& mv, const uint64_t N, const uint64_t d) {
     MoveStructure res;
+    std::vector<std::pair<uint64_t,uint64_t>> intervals;
+    intervals[0].first = 0;
+    for (uint64_t i = 0; i < startPos.size(); ++i) 
+        intervals[i].first = intervals[i-1].first + mv.intLens[i-1];
+    for (uint64_t i = 0; i < startPos.size(); ++i)
+        intervals[i].second = intervals[mv.D_index[i]].first + mv.D_offset[i];
 
+    move_data_structure<> mds(intervals, N, {.a = d})
+       
     res = mv;
     return res;
 }
