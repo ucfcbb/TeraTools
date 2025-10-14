@@ -184,7 +184,7 @@ struct MoveStructure {
         sdsl::int_vector<> nextInt(runs, runs, sdsl::bits::hi(runs) + 1);
         size_type totalOps = 0;
 
-        #pragma omp parallel for schedule(dynamic, 1)
+        #pragma omp parallel for schedule(dynamic, 1024)
         for (uint64_t i = 0; i < runs; ++i) {
             IntervalPoint curr{static_cast<uint64_t>(-1), i, 0};
             uint64_t ops = 0;
@@ -334,6 +334,41 @@ struct MoveStructureTable {
 
         return totalOps == N;
     }
+
+    //returns whether the move structure is a permutation of length N
+    //uses numIntervals log numIntervals auxiliary bits
+    bool permutationLengthN(size_type N) const {
+        size_type runs = data.size();
+        sdsl::int_vector<> nextInt(runs, runs, sdsl::bits::hi(runs) + 1);
+        size_type totalOps = 0;
+
+        #pragma omp parallel for schedule(dynamic, 1024)
+        for (uint64_t i = 0; i < runs; ++i) {
+            IntervalPoint curr{static_cast<uint64_t>(-1), i, 0};
+            uint64_t ops = 0;
+            do {
+                curr = map(curr);
+                ++ops;
+            } while (curr.offset);
+
+            #pragma omp critical 
+            {
+                nextInt[i] = curr.interval;
+                totalOps += ops;
+            }
+        }
+
+        if (totalOps != N)
+            return false;
+
+        uint64_t traversed = 1, curr = 0;
+        while (nextInt[curr] && nextInt[curr] != runs && traversed < runs) {
+            curr = nextInt[curr];
+            ++traversed;
+        }
+
+        return traversed == runs && nextInt[curr] == 0;
+    }
 };
 
 template<storageMethod s, initialInputIntervalRecoveryMethodSPARSECOMPBV = NA>
@@ -420,6 +455,42 @@ struct MoveStructureStart<PACKEDINT> {
 
     template <FFMethod M>
     IntervalPoint map(const IntervalPoint& intPoint) const;
+
+    template<FFMethod M>
+    //returns whether the move structure is a permutation of length N with exactly one cycle
+    //uses numIntervals log numIntervals auxiliary bits
+    bool permutationLengthN(size_type N) const {
+        size_type runs = D_index.size();
+        sdsl::int_vector<> nextInt(runs, runs, sdsl::bits::hi(runs) + 1);
+        size_type totalOps = 0;
+
+        #pragma omp parallel for schedule(dynamic, 1024)
+        for (uint64_t i = 0; i < runs; ++i) {
+            IntervalPoint curr{static_cast<uint64_t>(-1), i, 0};
+            uint64_t ops = 0;
+            do {
+                curr = map<M>(curr);
+                ++ops;
+            } while (curr.offset);
+
+            #pragma omp critical 
+            {
+                nextInt[i] = curr.interval;
+                totalOps += ops;
+            }
+        }
+
+        if (totalOps != N)
+            return false;
+
+        uint64_t traversed = 1, curr = 0;
+        while (nextInt[curr] && nextInt[curr] != runs && traversed < runs) {
+            curr = nextInt[curr];
+            ++traversed;
+        }
+
+        return traversed == runs && nextInt[curr] == 0;
+    }
 
     template<FFMethod M>
     //returns whether the move structure is a permutation of length N with exactly one cycle
@@ -624,6 +695,43 @@ struct MoveStructureStartTable {
         } while (curr.position && totalOps < N + 1);
 
         return totalOps == N;
+
+    }
+    
+    template<FFMethod M>
+    //returns whether the move structure is a permutation of length N with exactly one cycle
+    //uses numIntervals log numIntervals auxiliary bits
+    bool permutationLengthN(size_type N) const {
+        size_type runs = data.size() - 1;
+        sdsl::int_vector<> nextInt(runs, runs, sdsl::bits::hi(runs) + 1);
+        size_type totalOps = 0;
+
+        #pragma omp parallel for schedule(dynamic, 1024)
+        for (uint64_t i = 0; i < runs; ++i) {
+            IntervalPoint curr{static_cast<uint64_t>(-1), i, 0};
+            uint64_t ops = 0;
+            do {
+                curr = map<M>(curr);
+                ++ops;
+            } while (curr.offset);
+
+            #pragma omp critical 
+            {
+                nextInt[i] = curr.interval;
+                totalOps += ops;
+            }
+        }
+
+        if (totalOps != N)
+            return false;
+
+        uint64_t traversed = 1, curr = 0;
+        while (nextInt[curr] && nextInt[curr] != runs && traversed < runs) {
+            curr = nextInt[curr];
+            ++traversed;
+        }
+
+        return traversed == runs && nextInt[curr] == 0;
     }
 };
 
@@ -818,6 +926,39 @@ struct MoveStructureStart<SPARSEBV> {
 
         return totalOps == N;
     }
+
+    bool permutationLengthN(size_type N) const {
+        size_type runs = outputRank.size();
+        sdsl::int_vector<> nextInt(runs, runs, sdsl::bits::hi(runs) + 1);
+        size_type totalOps = 0;
+
+        #pragma omp parallel for schedule(dynamic, 1024)
+        for (uint64_t i = 0; i < runs; ++i) {
+            IntervalPoint curr{static_cast<uint64_t>(-1), i, 0};
+            uint64_t ops = 0;
+            do {
+                curr = map(curr);
+                ++ops;
+            } while (curr.offset);
+
+            #pragma omp critical 
+            {
+                nextInt[i] = curr.interval;
+                totalOps += ops;
+            }
+        }
+
+        if (totalOps != N)
+            return false;
+
+        uint64_t traversed = 1, curr = 0;
+        while (nextInt[curr] && nextInt[curr] != runs && traversed < runs) {
+            curr = nextInt[curr];
+            ++traversed;
+        }
+
+        return traversed == runs && nextInt[curr] == 0;
+    }
 };
 
 template<>
@@ -972,6 +1113,39 @@ struct MoveStructureStart<SPARSECOMPBV, SELECT_mclCOMPBV> {
         } while (curr.position && totalOps < N + 1);
 
         return totalOps == N;
+    }
+
+    bool permutationLengthN(size_type N) const {
+        size_type runs = outputRank.size();
+        sdsl::int_vector<> nextInt(runs, runs, sdsl::bits::hi(runs) + 1);
+        size_type totalOps = 0;
+
+        #pragma omp parallel for schedule(dynamic, 1024)
+        for (uint64_t i = 0; i < runs; ++i) {
+            IntervalPoint curr{static_cast<uint64_t>(-1), i, 0};
+            uint64_t ops = 0;
+            do {
+                curr = map(curr);
+                ++ops;
+            } while (curr.offset);
+
+            #pragma omp critical 
+            {
+                nextInt[i] = curr.interval;
+                totalOps += ops;
+            }
+        }
+
+        if (totalOps != N)
+            return false;
+
+        uint64_t traversed = 1, curr = 0;
+        while (nextInt[curr] && nextInt[curr] != runs && traversed < runs) {
+            curr = nextInt[curr];
+            ++traversed;
+        }
+
+        return traversed == runs && nextInt[curr] == 0;
     }
 };
 
@@ -1178,13 +1352,44 @@ std::pair<MoveStructure,move_data_structure<uint64_t>> generateBalanced(const Mo
 
 int main(int argc, char* argv[]) {
     Timer.start("bench");
-    if (argc != 2 && argc != 3) {
-        std::cerr << "1 or 2 parameter needs to be passed: the name of the file containing the move structure"
-            << " to be benchmarked (and optionally the outputPref of the outputFiles)! " << argc - 1 << " passed!\n";
+
+    bool parallel = false;
+    bool sparsebitvectest = true;
+    bool testunbalanced = true;
+    if (argc < 2 || argc > 5) {
+        std::cout << "Usage: bench [-p] [-noSPBV] [-noUNBALANCED] inputFile" << std::endl
+            << "-p : perform move queries in parallel\n"
+            << "-noSPBV : don't benchmark move data structure implementations using sparse bit vectors\n"
+            << "-noUNBALANCED : don't benchmark the input (unbalanced) move data structure\n"
+            << "inputFile : file name of input file containing move structure to be benchmarked\n";
+
+        std::cerr << "2, 3, 4, or 5 parameters needs to be passed: the name of the file containing the move structure"
+            << " to be benchmarked (and optionally, option flags)! " << argc - 1 << " passed!\n";
         exit(1);
     }
-    std::string outputPref(argv[argc-1]);
-    std::cout << "Timing move structures for move structure found at: " << argv[1] << std::endl;
+    {
+        int optInd = 1;
+        if (optInd != argc - 1) {
+            if (argv[optInd] == std::string("-p")) {
+                parallel = true;
+                ++optInd;
+            }
+        }
+        if (optInd != argc - 1) {
+            if (argv[optInd] == std::string("-noSPBV")) {
+                sparsebitvectest = false;
+                ++optInd;
+            }
+        }
+        if (optInd != argc - 1) {
+            if (argv[optInd] == std::string("-noUNBALANCED")) {
+                testunbalanced = false;
+                ++optInd;
+            }
+        }
+    }
+    //std::string outputPref(argv[argc-1]);
+    std::cout << "Timing move structures for move structure found at: " << argv[argc-1] << std::endl;
     sdsl::memory_monitor::start(); 
 
     MoveStructure mvOG;
@@ -1192,9 +1397,9 @@ int main(int argc, char* argv[]) {
     {
         Timer.start("Reading move structure");
         auto event = sdsl::memory_monitor::event("Reading move structure");
-        std::ifstream mvIn(argv[1]);
+        std::ifstream mvIn(argv[argc-1]);
         if (!mvIn.is_open()) {
-            std::cerr << "Move structure file '" << argv[1] << "' failed to open!" << std::endl;
+            std::cerr << "Move structure file '" << argv[argc-1] << "' failed to open!" << std::endl;
             exit(1);
         }
         Lens.load(mvIn);
@@ -1232,6 +1437,8 @@ int main(int argc, char* argv[]) {
     std::vector<stats> allResults;
     uint64_t currD = firstD;
     while (currD != 1) {
+        if (currD == firstD && !testunbalanced) 
+            currD /= 2;
         Timer.start("Timing " + std::string((currD == firstD)? "unbalanced" : "balanced" ) + " move structures, d = " + std::to_string(std::min(currD, (maxFF+1)/2)));
         stats currStats;
 
@@ -1306,7 +1513,7 @@ int main(int argc, char* argv[]) {
             uint64_t ops = 0;
             uint64_t bytes = -1;
             double time = -1;
-            if (currD != firstD) {
+            if (!parallel && currD != firstD) {
                 do {
                     coord = mv_r.move(coord);
                     ++ops;
@@ -1332,11 +1539,13 @@ int main(int argc, char* argv[]) {
 
         {
             Timer.start("run length, int, linear scan with random access");
-            if (!mv.permutationLengthNOneCycleSequential<RANDOM_ACCESS>(N)) {
+            if (!((parallel)? mv.permutationLengthN<RANDOM_ACCESS>(N) : mv.permutationLengthNOneCycleSequential<RANDOM_ACCESS>(N))) {
                 std::cerr << "ERROR: move data structure is not a permutation of length N with one cycle!" << std::endl;
                 exit(1);
             }
             double time = Timer.stop(); //run length, int, linear scan
+            if (parallel)
+                time *= omp_get_max_threads();
             std::cout << "Per operation: " << time/N << " seconds." << std::endl;
             uint64_t bytes = sdsl::size_in_bytes(mv);
             std::cout << "Struct size: " << bytes << " bytes.\n";
@@ -1349,11 +1558,13 @@ int main(int argc, char* argv[]) {
         {
             MoveStructureTable mvT(mv);
             Timer.start("run length, int, linear scan with random access, tablefied");
-            if (!mvT.permutationLengthNOneCycleSequential(N)) {
+            if (!((parallel)? mvT.permutationLengthN(N) : mvT.permutationLengthNOneCycleSequential(N))) {
                 std::cerr << "ERROR: move data structure is not a permutation of length N with one cycle!" << std::endl;
                 exit(1);
             }
             double time = Timer.stop(); //run length, int, linear scan, tablefied
+            if (parallel)
+                time *= omp_get_max_threads();
             std::cout << "Per operation: " << time/N << " seconds." << std::endl;
             uint64_t bytes = sdsl::size_in_bytes(mvT);
             std::cout << "Struct size: " << bytes << " bytes.\n";
@@ -1365,11 +1576,13 @@ int main(int argc, char* argv[]) {
 
         {
             Timer.start("run length, int, linear scan with iterator");
-            if (!mv.permutationLengthNOneCycleSequential<ITERATOR>(N)) {
+            if (!((parallel)? mv.permutationLengthN<ITERATOR>(N) : mv.permutationLengthNOneCycleSequential<ITERATOR>(N))) {
                 std::cerr << "ERROR: move data structure is not a permutation of length N with one cycle!" << std::endl;
                 exit(1);
             }
             double time = Timer.stop(); //run length, int, linear scan
+            if (parallel)
+                time *= omp_get_max_threads();
             std::cout << "Per operation: " << time/N << " seconds." << std::endl;
             uint64_t bytes = sdsl::size_in_bytes(mv);
             std::cout << "Struct size: " << bytes << " bytes.\n";
@@ -1381,11 +1594,13 @@ int main(int argc, char* argv[]) {
 
         {
             Timer.start("start pos, int, linear scan");
-            if (!mvS.permutationLengthNOneCycleSequential<LINEAR>(N)) {
+            if (!((parallel)? mvS.permutationLengthN<LINEAR>(N) : mvS.permutationLengthNOneCycleSequential<LINEAR>(N))) {
                 std::cerr << "ERROR: move data structure is not a permutation of length N with one cycle!" << std::endl;
                 exit(1);
             }
             double time = Timer.stop(); //start pos, int, linear scan
+            if (parallel)
+                time *= omp_get_max_threads();
             std::cout << "Per operation: " << time/N << " seconds." << std::endl;
             uint64_t bytes = sdsl::size_in_bytes(mvS);
             std::cout << "Struct size: " << bytes << " bytes.\n";
@@ -1398,11 +1613,13 @@ int main(int argc, char* argv[]) {
         {
             MoveStructureStartTable mvST = MoveStructureStartTable(MoveStructureStart<PACKEDINT>(mv));
             Timer.start("start pos, int, linear scan, tablefied");
-            if (!mvST.permutationLengthNOneCycleSequential<LINEAR>(N)) {
+            if (!((parallel)? mvST.permutationLengthN<LINEAR>(N) : mvST.permutationLengthNOneCycleSequential<LINEAR>(N))) {
                 std::cerr << "ERROR: move data structure is not a permutation of length N with one cycle!" << std::endl;
                 exit(1);
             }
             double time = Timer.stop(); //start pos, int, linear scan
+            if (parallel)
+                time *= omp_get_max_threads();
             std::cout << "Per operation: " << time/N << " seconds." << std::endl;
             uint64_t bytes = sdsl::size_in_bytes(mvST);
             std::cout << "Struct size: " << bytes << " bytes.\n";
@@ -1414,11 +1631,13 @@ int main(int argc, char* argv[]) {
 
         {
             Timer.start("start pos, int, exponential scan");
-            if (!mvS.permutationLengthNOneCycleSequential<EXPONENTIAL>(N)) {
+            if (!((parallel)? mvS.permutationLengthN<EXPONENTIAL>(N) : mvS.permutationLengthNOneCycleSequential<EXPONENTIAL>(N))) {
                 std::cerr << "ERROR: move data structure is not a permutation of length N with one cycle!" << std::endl;
                 exit(1);
             }
             double time = Timer.stop(); //start pos, int, exponential scan
+            if (parallel)
+                time *= omp_get_max_threads();
             std::cout << "Per operation: " << time/N << " seconds." << std::endl;
             uint64_t bytes = sdsl::size_in_bytes(mvS);
             std::cout << "Struct size: " << bytes << " bytes.\n";
@@ -1431,11 +1650,13 @@ int main(int argc, char* argv[]) {
         {
             MoveStructureStartTable mvST = MoveStructureStartTable(MoveStructureStart<PACKEDINT>(mv));
             Timer.start("start pos, int, exponential scan, tablefied");
-            if (!mvST.permutationLengthNOneCycleSequential<EXPONENTIAL>(N)) {
+            if (!((parallel)? mvST.permutationLengthN<EXPONENTIAL>(N) : mvST.permutationLengthNOneCycleSequential<EXPONENTIAL>(N))) {
                 std::cerr << "ERROR: move data structure is not a permutation of length N with one cycle!" << std::endl;
                 exit(1);
             }
             double time = Timer.stop(); //start pos, int, exponential scan
+            if (parallel)
+                time *= omp_get_max_threads();
             std::cout << "Per operation: " << time/N << " seconds." << std::endl;
             uint64_t bytes = sdsl::size_in_bytes(mvST);
             std::cout << "Struct size: " << bytes << " bytes.\n";
@@ -1446,14 +1667,24 @@ int main(int argc, char* argv[]) {
         }
 
         {
-            Timer.start("start pos, sparse bv, rank/select on sparse bv");
-            if (!mvSP.permutationLengthNOneCycleSequential(N)) {
-                std::cerr << "ERROR: move data structure is not a permutation of length N with one cycle!" << std::endl;
-                exit(1);
+            double time;
+            uint64_t bytes;
+            if (sparsebitvectest) {
+                Timer.start("start pos, sparse bv, rank/select on sparse bv");
+                if (!((parallel)? mvSP.permutationLengthN(N) : mvSP.permutationLengthNOneCycleSequential(N))) {
+                    std::cerr << "ERROR: move data structure is not a permutation of length N with one cycle!" << std::endl;
+                    exit(1);
+                }
+                time = Timer.stop(); //start pos, int, exponential scan
+                if (parallel)
+                    time *= omp_get_max_threads();
+                bytes = sdsl::size_in_bytes(mvSP);
             }
-            double time = Timer.stop(); //start pos, int, exponential scan
+            else {
+                time = 0;
+                bytes = 0;
+            }
             std::cout << "Per operation: " << time/N << " seconds." << std::endl;
-            uint64_t bytes = sdsl::size_in_bytes(mvSP);
             std::cout << "Struct size: " << bytes << " bytes.\n";
             currStats.timeSpaceRes.push_back(time/N*(1e9));
             std::cout << "ns\tMiB\n" << currStats.timeSpaceRes.back(); 
@@ -1462,15 +1693,25 @@ int main(int argc, char* argv[]) {
         }
 
         {
-            MoveStructureStart<SPARSECOMPBV, SELECT_mclCOMPBV> mvSP(mv);
-            Timer.start("start pos, sparse bv, LINEAR, select_mcl on comp bv");
-            if (!mvSP.permutationLengthNOneCycleSequential(N)) {
-                std::cerr << "ERROR: move data structure is not a permutation of length N with one cycle!" << std::endl;
-                exit(1);
+            double time;
+            uint64_t bytes;
+            if (sparsebitvectest) {
+                MoveStructureStart<SPARSECOMPBV, SELECT_mclCOMPBV> mvSP(mv);
+                Timer.start("start pos, sparse bv, LINEAR, select_mcl on comp bv");
+                if (!((parallel)? mvSP.permutationLengthN(N) : mvSP.permutationLengthNOneCycleSequential(N))) {
+                    std::cerr << "ERROR: move data structure is not a permutation of length N with one cycle!" << std::endl;
+                    exit(1);
+                }
+                time = Timer.stop(); //start pos, int, select_mcl on comp bv
+                if (parallel)
+                    time *= omp_get_max_threads();
+                bytes = sdsl::size_in_bytes(mvSP);
             }
-            double time = Timer.stop(); //start pos, int, select_mcl on comp bv
+            else {
+                time = 0;
+                bytes = 0;
+            }
             std::cout << "Per operation: " << time/N << " seconds." << std::endl;
-            uint64_t bytes = sdsl::size_in_bytes(mvSP);
             std::cout << "Struct size: " << bytes << " bytes.\n";
             currStats.timeSpaceRes.push_back(time/N*(1e9));
             std::cout << "ns\tMiB\n" << currStats.timeSpaceRes.back(); 

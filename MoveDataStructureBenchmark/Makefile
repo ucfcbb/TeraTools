@@ -42,7 +42,7 @@ bench: bench.cpp
 	$(CXX) $(cppflags) $(incs) -L$(libdir) bench.cpp -o $@ $(libs)
 
 $(move-rdir): Move-r
-	cd Move-r && mkdir build && cd build && cmake .. && cp -r ../patched-files/* .. && make
+	cd Move-r && mkdir -p build && cd build && cmake .. && cp -r ../patched-files/* .. && make
 
 Move-r:
 	git clone --recurse-submodules https://github.com/asanaullah2015/Move-r.git
