@@ -5,9 +5,7 @@
 
 struct packedTripleVector {
     typedef uint64_t size_type;
-    private:
     uint8_t a,b,c,width;
-    public:
     sdsl::bit_vector data;
 
     packedTripleVector() = default;
@@ -207,7 +205,8 @@ class LCPComputer {
 
     sdsl::int_vector<> F;
     
-    sdsl::int_vector<> Flens;
+    //Flens is now part of Psi
+    //sdsl::int_vector<> Flens;
     MoveStructureTable Psi;
 
     sdsl::int_vector<> intAtTop;
@@ -857,7 +856,7 @@ class LCPComputer {
                 nextAlph.emplace(endmarkerOrder[++endmarkerPosition], Psi);
             ++runs;
 
-            uint64_t runLen = Flens[t.psiInputInt];
+            uint64_t runLen = Psi.data.get<2>(t.psiInputInt);
             //out << F[t.psiInputInt] << ' ' << runLen << ' ';
             t = (nextAlph.size())? nextAlph.top() : firstRun;
             uint64_t phiInt = (intAtTop[t.psiInputInt]+1) % F.size();
@@ -998,7 +997,7 @@ class LCPComputer {
         sdsl::int_vector<> Psi_Index_Samples, Psi_Offset_Samples;
         {
             auto event = sdsl::memory_monitor::event("Construct Phi and Equidistant ISA Samples");
-            ConstructPhiAndSamples(F, Psi, Flens.width(), numTopRuns, seqLens, intAtTop, numSequences, maxPhiIntLen, sampleInterval, Psi_Index_Samples, Psi_Offset_Samples);
+            ConstructPhiAndSamples(F, Psi, Psi.data.c, numTopRuns, seqLens, intAtTop, numSequences, maxPhiIntLen, sampleInterval, Psi_Index_Samples, Psi_Offset_Samples);
         }
 
         /*
@@ -1133,12 +1132,15 @@ class LCPComputer {
         sdsl::memory_monitor::write_memory_log<sdsl::HTML_FORMAT>(cstofs);
         cstofs.close();
 
+        /*
+        needs to be rewritten, affects bench
         std::ofstream outpsi("lcpcomputer.psi");
-        Flens.serialize(outpsi);
+        //Flens.serialize(outpsi);
         Psi.serialize(outpsi);
         std::ofstream outphi("lcpcomputer.phi");
         (*Phi.intLens).serialize(outphi);
         Phi.serialize(outphi);
+        */
     }
 
     void printRaw(const sdsl::int_vector<>& intAtTop) const {
@@ -1187,7 +1189,7 @@ class LCPComputer {
 
         bytes += sdsl::serialize(totalLen, out, child, "totalLen");
         bytes += sdsl::serialize(F, out, child, "F");
-        bytes += sdsl::serialize(Flens, out, child, "Flens");
+        //bytes += sdsl::serialize(Flens, out, child, "Flens");
         bytes += sdsl::serialize(Psi, out, child, "Psi");
         bytes += sdsl::serialize(intAtTop, out, child, "intAtTop");
         bytes += sdsl::serialize(PhiIntLen, out, child, "PhiIntLen");
@@ -1201,7 +1203,7 @@ class LCPComputer {
     void load(std::istream& in) {
         sdsl::load(totalLen, in);
         sdsl::load(F, in);
-        sdsl::load(Flens, in);
+        //sdsl::load(Flens, in);
         sdsl::load(Psi, in);
         sdsl::load(intAtTop, in);
         sdsl::load(PhiIntLen, in);
