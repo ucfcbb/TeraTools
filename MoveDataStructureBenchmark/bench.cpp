@@ -1125,19 +1125,55 @@ struct MoveStructureStart<SPARSECOMPBV, SELECT_scanCOMPBV> {
     }
 };
 
-MoveStructure generateBalanced(const MoveStructure& mv, const uint64_t N, const uint64_t d) {
+std::pair<MoveStructure,move_data_structure<uint64_t>> generateBalanced(const MoveStructure& mv, const uint64_t N, const uint16_t d) {
+    //std::cout << "In generate Balanced" << std::endl;
     MoveStructure res;
-    std::vector<std::pair<uint64_t,uint64_t>> intervals;
+    std::vector<std::pair<uint64_t,uint64_t>> intervals(mv.D_index.size());
     intervals[0].first = 0;
-    for (uint64_t i = 0; i < startPos.size(); ++i) 
+    sdsl::memory_monitor::start();
+    {
+        auto event = sdsl::memory_monitor::event("d");
+    for (uint64_t i = 1; i < intervals.size(); ++i) 
         intervals[i].first = intervals[i-1].first + mv.intLens[i-1];
-    for (uint64_t i = 0; i < startPos.size(); ++i)
+    for (uint64_t i = 0; i < intervals.size(); ++i)
         intervals[i].second = intervals[mv.D_index[i]].first + mv.D_offset[i];
+    }
+    sdsl::memory_monitor::stop();
+    uint64_t prev = sdsl::memory_monitor::peak();
 
-    move_data_structure<> mds(intervals, N, {.a = d})
+
+    //std::cout << "In generate Balanced, starting move-r" << std::endl;
+    sdsl::memory_monitor::start();
+    move_data_structure<uint64_t> mds;
+    {
+        auto event = sdsl::memory_monitor::event("d");
+    Timer.start("Balancing/constructing Move-r move data structure with balancing parameter " + std::to_string(d));
+    mds = move_data_structure<uint64_t>(std::move(intervals), N, {.a = d});
+    Timer.stop();
+    }
+    sdsl::memory_monitor::stop();
+    std::cout << "Peak memory usage during balancing: " << sdsl::memory_monitor::peak()
+        << ". Peak before: " << prev 
+        << ". Therefore maximum of, during: " << sdsl::memory_monitor::peak() - prev << std::endl;
+    std::cout << "Move-r move data structure #bytes: " << mds.size_in_bytes() << std::endl;
        
-    res = mv;
-    return res;
+    uint64_t newRuns = mds.num_intervals();
+    uint64_t maxOffset = 0, maxLen = 0;
+    for (uint64_t i = 0; i < newRuns; ++i) {
+        maxOffset = std::max(maxOffset, mds.offs(i));
+        maxLen = std::max(maxLen, mds.p(i+1) - mds.p(i));
+    }
+    res.D_index = sdsl::int_vector<>(newRuns, 0, sdsl::bits::hi(newRuns - 1) + 1);
+    res.D_offset = sdsl::int_vector<>(newRuns, 0, sdsl::bits::hi(maxOffset) + 1);
+    res.intLens = sdsl::int_vector<>(newRuns, 0, sdsl::bits::hi(maxLen) + 1);
+    for (uint64_t i = 0; i < newRuns; ++i) {
+        res.D_index[i] = mds.idx(i);
+        res.D_offset[i] = mds.offs(i);
+        res.intLens[i] = mds.p(i+1) - mds.p(i);
+    }
+
+    //std::cout << "done generate Balanced" << std::endl;
+    return std::pair{res,mds};
 }
 
 int main(int argc, char* argv[]) {
@@ -1164,6 +1200,9 @@ int main(int argc, char* argv[]) {
         Lens.load(mvIn);
         mvOG.load(mvIn);
         mvOG.intLens = Lens;
+        sdsl::util::bit_compress(Lens);
+        sdsl::util::bit_compress(mvOG.D_index);
+        sdsl::util::bit_compress(mvOG.D_offset);
         Timer.stop(); //Reading move structure
     }
 
@@ -1181,10 +1220,20 @@ int main(int argc, char* argv[]) {
     std::cout << "Maximum fast forwards from passed move structure: " << maxFF << std::endl;
     std::cout << "Minimum balancing parameter d (that is a power of two) s.t. input move structure is d-balanced: " << firstD << std::endl; 
 
-    std::vector<std::pair<uint64_t,std::vector<double>>> allResults;
+    struct stats{
+        std::string d;
+        uint64_t maxFF;
+        uint64_t n, r;
+        double nOverR;
+        double avgFFLinear, avgFFExp;
+        std::vector<double> timeSpaceRes;
+    };
+
+    std::vector<stats> allResults;
     uint64_t currD = firstD;
     while (currD != 1) {
         Timer.start("Timing " + std::string((currD == firstD)? "unbalanced" : "balanced" ) + " move structures, d = " + std::to_string(std::min(currD, (maxFF+1)/2)));
+        stats currStats;
 
 
 
@@ -1193,21 +1242,35 @@ int main(int argc, char* argv[]) {
             N += mvOG.intLens[i];
 
         MoveStructure mv;
+        move_data_structure<uint64_t> mv_r;
+        //firstD should not change mv
+        //in the move-r implementation, it does, manually fix
+        if (currD == firstD) 
+            mv = mvOG;
+        else 
+            std::tie(mv, mv_r) = generateBalanced(mvOG, N, currD);
+
+        N = 0;
+        for (uint64_t i = 0; i < mv.D_index.size(); ++i)
+            N += mv.intLens[i];
+
+        /*
         if (currD == firstD)
             mv = mvOG;
         else 
-            mv = generateBalanced(mvOG, N, currD);
+            std::tie(mv, mv_r) = generateBalanced(mvOG, N, currD);
+        */
 
         //std::vector<uint64_t> t, v;
         //mvOG.MakeHistogram(t);
-        MoveStructureStart<PACKEDINT> mvS(mvOG);
+        MoveStructureStart<PACKEDINT> mvS(mv);
         //mvS.MakeHistogram(v);
         //if (t != v) {
         //std::cerr << "ERROR: Histograms not equal!" << std::endl;
         //std::cout << t.size() << ' ' << v.size() << std::endl;; 
         //exit(1);
         //}
-        MoveStructureStart<SPARSEBV> mvSP(mvOG);
+        MoveStructureStart<SPARSEBV> mvSP(mv);
         if (!mvSP.equalTo(mvS)) {
             std::cerr << "MOVE STRUCTURE START SPARSEBV NOT EQUAL TO PACKEDINT!" << std::endl;
             exit(1);
@@ -1217,11 +1280,55 @@ int main(int argc, char* argv[]) {
         std::cout << "total operations for linear fast forwards: " << (totLin = mvS.sumOpsFastForward<LINEAR>()) << std::endl;
         std::cout << "total operations for exponential fast forwards: " << (totExp = mvS.sumOpsFastForward<EXPONENTIAL>()) << std::endl;
 
-        std::cout << "n: " << N << " r: " << mvOG.D_index.size() 
+        uint64_t thisMaxFF;
+        {
+            std::vector<uint64_t> a;
+            mv.MakeHistogram(a);
+            thisMaxFF = a.size() - 1;
+        }
+        std::cout << "n: " << N << " original r: " << mvOG.D_index.size() 
+            << " new r: " << mv.D_index.size()
+            << " maxFFLinear: " << thisMaxFF 
             << " AvgFFLinear: " << static_cast<double>(totLin)/N 
             << " AvgFFExpon: " << static_cast<double>(totExp)/N << std::endl;
 
-        std::vector<double> results;
+        currStats.d = ((currD == firstD)? "unbalanced" : std::to_string(currD));
+        currStats.maxFF = thisMaxFF;
+        currStats.n = N;
+        currStats.r = mv.D_index.size();
+        currStats.nOverR = static_cast<double>(currStats.n)/currStats.r;
+        currStats.avgFFLinear = static_cast<double>(totLin)/currStats.n;
+        currStats.avgFFExp = static_cast<double>(totExp)/currStats.n;
+
+        {
+            Timer.start("Move-r move data structure");
+            std::pair<uint64_t,uint64_t> coord{0,0};
+            uint64_t ops = 0;
+            uint64_t bytes = -1;
+            double time = -1;
+            if (currD != firstD) {
+                do {
+                    coord = mv_r.move(coord);
+                    ++ops;
+                } while (coord.first);
+                time = Timer.stop();
+                if (ops != N) {
+                    std::cerr << "ERROR: move data structure is not a permutation of length N with one cycle!" << std::endl;
+                    exit(1);
+                }
+                bytes = mv_r.size_in_bytes();
+            }
+            else {
+                time = Timer.stop();
+                bytes = time = 0;
+            }
+            std::cout << "Per operation: " << time/N << " seconds." << std::endl;
+            std::cout << "Struct size: " << bytes << " bytes.\n";
+            currStats.timeSpaceRes.push_back(time/N*(1e9));
+            std::cout << "ns\tMiB\n" << currStats.timeSpaceRes.back(); 
+            currStats.timeSpaceRes.push_back(static_cast<double>(bytes)/1024/1024); 
+            std::cout << '\t' << currStats.timeSpaceRes.back()  << std::endl;
+        }
 
         {
             Timer.start("run length, int, linear scan with random access");
@@ -1233,10 +1340,10 @@ int main(int argc, char* argv[]) {
             std::cout << "Per operation: " << time/N << " seconds." << std::endl;
             uint64_t bytes = sdsl::size_in_bytes(mv);
             std::cout << "Struct size: " << bytes << " bytes.\n";
-            results.push_back(time/N*(1e9));
-            std::cout << "ns\tMiB\n" << results.back(); 
-            results.push_back(static_cast<double>(bytes)/1024/1024); 
-            std::cout << '\t' << results.back()  << std::endl;
+            currStats.timeSpaceRes.push_back(time/N*(1e9));
+            std::cout << "ns\tMiB\n" << currStats.timeSpaceRes.back(); 
+            currStats.timeSpaceRes.push_back(static_cast<double>(bytes)/1024/1024); 
+            std::cout << '\t' << currStats.timeSpaceRes.back()  << std::endl;
         }
 
         {
@@ -1250,10 +1357,10 @@ int main(int argc, char* argv[]) {
             std::cout << "Per operation: " << time/N << " seconds." << std::endl;
             uint64_t bytes = sdsl::size_in_bytes(mvT);
             std::cout << "Struct size: " << bytes << " bytes.\n";
-            results.push_back(time/N*(1e9));
-            std::cout << "ns\tMiB\n" << results.back(); 
-            results.push_back(static_cast<double>(bytes)/1024/1024); 
-            std::cout << '\t' << results.back()  << std::endl;
+            currStats.timeSpaceRes.push_back(time/N*(1e9));
+            std::cout << "ns\tMiB\n" << currStats.timeSpaceRes.back(); 
+            currStats.timeSpaceRes.push_back(static_cast<double>(bytes)/1024/1024); 
+            std::cout << '\t' << currStats.timeSpaceRes.back()  << std::endl;
         }
 
         {
@@ -1266,10 +1373,10 @@ int main(int argc, char* argv[]) {
             std::cout << "Per operation: " << time/N << " seconds." << std::endl;
             uint64_t bytes = sdsl::size_in_bytes(mv);
             std::cout << "Struct size: " << bytes << " bytes.\n";
-            results.push_back(time/N*(1e9));
-            std::cout << "ns\tMiB\n" << results.back(); 
-            results.push_back(static_cast<double>(bytes)/1024/1024); 
-            std::cout << '\t' << results.back()  << std::endl;
+            currStats.timeSpaceRes.push_back(time/N*(1e9));
+            std::cout << "ns\tMiB\n" << currStats.timeSpaceRes.back(); 
+            currStats.timeSpaceRes.push_back(static_cast<double>(bytes)/1024/1024); 
+            std::cout << '\t' << currStats.timeSpaceRes.back()  << std::endl;
         }
 
         {
@@ -1282,10 +1389,10 @@ int main(int argc, char* argv[]) {
             std::cout << "Per operation: " << time/N << " seconds." << std::endl;
             uint64_t bytes = sdsl::size_in_bytes(mvS);
             std::cout << "Struct size: " << bytes << " bytes.\n";
-            results.push_back(time/N*(1e9));
-            std::cout << "ns\tMiB\n" << results.back(); 
-            results.push_back(static_cast<double>(bytes)/1024/1024); 
-            std::cout << '\t' << results.back()  << std::endl;
+            currStats.timeSpaceRes.push_back(time/N*(1e9));
+            std::cout << "ns\tMiB\n" << currStats.timeSpaceRes.back(); 
+            currStats.timeSpaceRes.push_back(static_cast<double>(bytes)/1024/1024); 
+            std::cout << '\t' << currStats.timeSpaceRes.back()  << std::endl;
         }
 
         {
@@ -1299,10 +1406,10 @@ int main(int argc, char* argv[]) {
             std::cout << "Per operation: " << time/N << " seconds." << std::endl;
             uint64_t bytes = sdsl::size_in_bytes(mvST);
             std::cout << "Struct size: " << bytes << " bytes.\n";
-            results.push_back(time/N*(1e9));
-            std::cout << "ns\tMiB\n" << results.back(); 
-            results.push_back(static_cast<double>(bytes)/1024/1024); 
-            std::cout << '\t' << results.back()  << std::endl;
+            currStats.timeSpaceRes.push_back(time/N*(1e9));
+            std::cout << "ns\tMiB\n" << currStats.timeSpaceRes.back(); 
+            currStats.timeSpaceRes.push_back(static_cast<double>(bytes)/1024/1024); 
+            std::cout << '\t' << currStats.timeSpaceRes.back()  << std::endl;
         }
 
         {
@@ -1315,10 +1422,10 @@ int main(int argc, char* argv[]) {
             std::cout << "Per operation: " << time/N << " seconds." << std::endl;
             uint64_t bytes = sdsl::size_in_bytes(mvS);
             std::cout << "Struct size: " << bytes << " bytes.\n";
-            results.push_back(time/N*(1e9));
-            std::cout << "ns\tMiB\n" << results.back(); 
-            results.push_back(static_cast<double>(bytes)/1024/1024); 
-            std::cout << '\t' << results.back()  << std::endl;
+            currStats.timeSpaceRes.push_back(time/N*(1e9));
+            std::cout << "ns\tMiB\n" << currStats.timeSpaceRes.back(); 
+            currStats.timeSpaceRes.push_back(static_cast<double>(bytes)/1024/1024); 
+            std::cout << '\t' << currStats.timeSpaceRes.back()  << std::endl;
         }
 
         {
@@ -1332,10 +1439,10 @@ int main(int argc, char* argv[]) {
             std::cout << "Per operation: " << time/N << " seconds." << std::endl;
             uint64_t bytes = sdsl::size_in_bytes(mvST);
             std::cout << "Struct size: " << bytes << " bytes.\n";
-            results.push_back(time/N*(1e9));
-            std::cout << "ns\tMiB\n" << results.back(); 
-            results.push_back(static_cast<double>(bytes)/1024/1024); 
-            std::cout << '\t' << results.back()  << std::endl;
+            currStats.timeSpaceRes.push_back(time/N*(1e9));
+            std::cout << "ns\tMiB\n" << currStats.timeSpaceRes.back(); 
+            currStats.timeSpaceRes.push_back(static_cast<double>(bytes)/1024/1024); 
+            std::cout << '\t' << currStats.timeSpaceRes.back()  << std::endl;
         }
 
         {
@@ -1348,10 +1455,10 @@ int main(int argc, char* argv[]) {
             std::cout << "Per operation: " << time/N << " seconds." << std::endl;
             uint64_t bytes = sdsl::size_in_bytes(mvSP);
             std::cout << "Struct size: " << bytes << " bytes.\n";
-            results.push_back(time/N*(1e9));
-            std::cout << "ns\tMiB\n" << results.back(); 
-            results.push_back(static_cast<double>(bytes)/1024/1024); 
-            std::cout << '\t' << results.back()  << std::endl;
+            currStats.timeSpaceRes.push_back(time/N*(1e9));
+            std::cout << "ns\tMiB\n" << currStats.timeSpaceRes.back(); 
+            currStats.timeSpaceRes.push_back(static_cast<double>(bytes)/1024/1024); 
+            std::cout << '\t' << currStats.timeSpaceRes.back()  << std::endl;
         }
 
         {
@@ -1365,10 +1472,10 @@ int main(int argc, char* argv[]) {
             std::cout << "Per operation: " << time/N << " seconds." << std::endl;
             uint64_t bytes = sdsl::size_in_bytes(mvSP);
             std::cout << "Struct size: " << bytes << " bytes.\n";
-            results.push_back(time/N*(1e9));
-            std::cout << "ns\tMiB\n" << results.back(); 
-            results.push_back(static_cast<double>(bytes)/1024/1024); 
-            std::cout << '\t' << results.back()  << std::endl;
+            currStats.timeSpaceRes.push_back(time/N*(1e9));
+            std::cout << "ns\tMiB\n" << currStats.timeSpaceRes.back(); 
+            currStats.timeSpaceRes.push_back(static_cast<double>(bytes)/1024/1024); 
+            std::cout << '\t' << currStats.timeSpaceRes.back()  << std::endl;
         }
 
         {
@@ -1444,20 +1551,26 @@ int main(int argc, char* argv[]) {
            cstofs.close();
          */
 
-        for (auto d: results) 
+        for (auto d: currStats.timeSpaceRes) 
             std::cout << '\t' << d;
         std::cout << std::endl;
 
-        allResults.emplace_back(std::min(currD, (maxFF+1)/2), results);
+        allResults.push_back(std::move(currStats));
 
         currD /= 2;
         Timer.stop(); //this d
     }
 
-    std::cout << maxFF << std::endl;
-    for (auto [b, r] : allResults) {
-        std::cout << b;
-        for (auto d: r) 
+    for (auto b : allResults) {
+        std::cout << b.d;
+        std::cout << '\t'
+            << b.maxFF << '\t' 
+            << b.n << '\t' 
+            << b.r << '\t'
+            << b.nOverR << '\t'
+            << b.avgFFLinear << '\t'
+            << b.avgFFExp;
+        for (auto d: b.timeSpaceRes) 
             std::cout << '\t' << d;
         std::cout << std::endl;
     }
