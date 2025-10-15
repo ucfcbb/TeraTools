@@ -714,7 +714,7 @@ class LCPComputer {
         //computing intAtTop and PhiIntLen
         Timer.start("Second Parallel seq traversal");
         {
-            uint64_t dangerousInts = std::min(PhiIntLen.width(), intAtTop.width())/64 + (std::min(PhiIntLen.width(), intAtTop.width())%64 != 0);
+            uint64_t dangerousInts = 64/std::min(PhiIntLen.width(), intAtTop.width()) + (64 % std::min(PhiIntLen.width(), intAtTop.width()) != 0);
             #pragma omp parallel for schedule(dynamic, 1)
             for (uint64_t seq = 0; seq < numSequences; ++seq) {
                 uint64_t prevSeq = (seq)? seq - 1 : numSequences - 1;
@@ -722,9 +722,9 @@ class LCPComputer {
                 curr = Psi.map(curr);
 
                 uint64_t currentInt = numTopRuns[seq];
-                uint64_t start = numTopRuns[seq];
-                uint64_t end = numTopRuns[seq + 1];
-                uint64_t safeStart = start + dangerousInts,
+                const uint64_t start = numTopRuns[seq];
+                const uint64_t end = numTopRuns[seq + 1];
+                const uint64_t safeStart = start + dangerousInts,
                          safeEnd = numTopRuns[seq + 1] - dangerousInts;
                 uint64_t currIntLen = 1;
                 sdsl::int_vector<> intAtTopIndex(end - start, 0, Psi.data.a);
@@ -795,6 +795,14 @@ class LCPComputer {
                 //}
             }
         }
+        /*
+        uint64_t sum = 0;
+        for (uint64_t i = 0; i < PhiIntLen.size(); ++i) {
+            std::cout << "PhiIntLen[" << i << "]: " << PhiIntLen[i] << ", sum: " << sum << std::endl;
+            sum += PhiIntLen[i];
+        }
+        std::cout << "total sum: " << sum << std::endl;
+        */
         Timer.stop(); //Second Parallel seq traversal
         Timer.stop(); //Computing numTopRuns, seqLens, and repairing Psi of endmarkers in F
     }
@@ -820,13 +828,16 @@ class LCPComputer {
             for (uint64_t i = 0; i < PhiIntLen.size(); ++i)
                 sum += PhiIntLen[i];
             PhiNEWONEHE.data = packedTripleVector(sdsl::bits::hi(numRuns - 1) + 1, sdsl::bits::hi(maxPhiIntLen - 1) + 1, sdsl::bits::hi(sum) + 1, PhiIntLen.size() + 1);
+            //std::cout << "Total sum: "  << sum << std::endl;
             sum = 0;
             for (uint64_t i = 0; i < PhiIntLen.size(); ++i){
                 PhiNEWONEHE.data.set<2>(i, sum);
+                //std::cout << "current sum: " << sum << std::endl;
                 sum += PhiIntLen[i];
             }
             PhiNEWONEHE.data.set<2>(PhiIntLen.size(), sum);
             PhiIntLen = sdsl::int_vector<>();
+            //std::cout << "Total sum: "  << sum << std::endl;
         }
         Psi_Index_Samples = sdsl::int_vector<>(numSamples, 0, sdsl::bits::hi(numRuns - 1) + 1);
         Psi_Offset_Samples = sdsl::int_vector<>(numSamples, 0, FlensBits);
@@ -859,6 +870,14 @@ class LCPComputer {
                 ++phiPoint.offset;
                 ++phiPoint.position;
                 //phiPoint.offset == (*Phi.intLens)[phiPoint.interval] iff curr.offset == 0)
+                /*
+                if((phiPoint.position == PhiNEWONEHE.data.get<2>(phiPoint.interval + 1)) !=
+                        (curr.offset == 0))
+                    std::cout << "phiPoint " << phiPoint.position << ' ' << phiPoint.interval << ' ' << phiPoint.offset 
+                        << "\ncurr " << curr.position << ' ' << curr.interval << ' ' << curr.offset << "\n"
+                        << "PhiNEWONEHE.data.get<2>(phiPoint.interval + 1) " << PhiNEWONEHE.data.get<2>(phiPoint.interval + 1) << std::endl;
+                 */
+
                 assert((phiPoint.position == PhiNEWONEHE.data.get<2>(phiPoint.interval + 1)) ==
                         (curr.offset == 0));
                 //suff + 1 starts an input interval iff suff ends an input interval
