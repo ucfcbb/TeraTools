@@ -1029,7 +1029,7 @@ class LCPComputer {
                 }
 
 
-                currIntStart += PhiNEWONEHE.data.get<2>(phiInt);
+                currIntStart = PhiNEWONEHE.data.get<2>(phiInt+1);
                 if (suffMatchEnd < currIntStart) {
                     suffMatchEnd = currIntStart;
                     suffMatchEndIntPoint = Psi.map({static_cast<uint64_t>(-1), intAtEnd[phiInt], 0});
@@ -1339,6 +1339,7 @@ class LCPComputer {
         }
 
         /*
+        */
         {
             Timer.start("Verifying Psi");
             {
@@ -1354,7 +1355,7 @@ class LCPComputer {
             Timer.start("Verifying Phi");
             {
                 auto event = sdsl::memory_monitor::event("Verifying Phi");
-                if (!Phi.permutationLengthN(totalLen)) {
+                if (!PhiNEWONEHE.permutationLengthN<EXPONENTIAL>(totalLen)) {
                     std::cerr << "ERROR: Phi is not a permutation of length n!" << std::endl;
                     exit(1);
                 }
@@ -1363,7 +1364,7 @@ class LCPComputer {
             Timer.stop(); //Verifying Phi
         }
 
-        //printPhiAndLCP(Phi, PLCPsamples);
+        //printPhiAndLCP(PLCPsamples);
         
         Timer.start("Computing minLCP per run");
         {
@@ -1382,7 +1383,6 @@ class LCPComputer {
             ComputeMinLCPRun(intAtTop, F, Psi, lcpOut);
         }
         Timer.stop(); //Computing minLCP per run"
-        */
 
         sdsl::memory_monitor::stop();
         std::cout << "peak usage = " << sdsl::memory_monitor::peak() << " bytes" << std::endl;
@@ -1436,7 +1436,7 @@ class LCPComputer {
             std::cout << i << '\t'
                 << PhiNEWONEHE.data.get<0>(i) << '\t'
                 << PhiNEWONEHE.data.get<1>(i) << '\t'
-                << PhiNEWONEHE.data.get<2>(i) << '\t'
+                << PhiNEWONEHE.data.get<2>(i+1) - PhiNEWONEHE.data.get<2>(i) << '\t'
                 << PLCPsamples[i] << '\n';
         }
     }

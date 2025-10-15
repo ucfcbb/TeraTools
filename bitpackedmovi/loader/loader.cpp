@@ -7,7 +7,7 @@ int main(int argc, char *argv[]) {
             << argc-1 << " arguments passed instead of 2" << std::endl;
         exit(1);
     }
-    if (strcmp(argv[1], "BWT") && strcmp(argv[1], "MINLCP")) {
+    if (strcmp(argv[1], "BWT") && strcmp(argv[1], "PHI") && strcmp(argv[1], "MINLCP")) {
         std::cerr << "Second parameter must be either 'BWT' or 'MINLCP', '" << argv[1] << "' passed." << std::endl;
         exit(1);
     }
@@ -15,6 +15,8 @@ int main(int argc, char *argv[]) {
 
     if (strcmp(argv[1], "BWT") == 0)
         index.printRaw();
+    else if (strcmp(argv[1], "PHI") == 0)
+        index.printPhiAndLCP();
     else if (strcmp(argv[1], "MINLCP") == 0)
         index.ComputeMinLCPRun(std::cout);
 
