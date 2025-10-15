@@ -3,6 +3,8 @@
 #include"fm-index.h"
 #include<queue>
 
+enum FFMethod { LINEAR, EXPONENTIAL };
+
 struct packedTripleVector {
     typedef uint64_t size_type;
     uint8_t a,b,c,width;
@@ -200,6 +202,180 @@ struct MoveStructureTable {
     }
 };
 
+//copied from bench.cpp, clean up structure of code later
+struct MoveStructureStartTable {
+    typedef uint64_t size_type;
+    //D_index, D_offset, startPos
+    packedTripleVector data;
+    
+    MoveStructureStartTable() = default;
+
+    MoveStructureStartTable(const MoveStructure& mv) {
+        uint64_t largestStartPos = 0;
+        for (uint64_t i = 1; i < mv.D_index.size(); ++i)
+            largestStartPos += (*mv.intLens)[i - 1];
+
+        data = packedTripleVector(mv.D_index.width(), mv.D_offset.width(), sdsl::bits::hi(largestStartPos) + 1, mv.D_index.size() + 1);
+        //std::cout << "In constructor" << std::endl;
+        //std::cout << data.data.size() << std::endl;
+        largestStartPos = 0;
+        for (uint64_t i = 0; i < mv.D_index.size(); ++i) {
+            //std::cout << "i " << i << std::endl;
+            data.set<0>(i, mv.D_index[i]);
+            data.set<1>(i, mv.D_offset[i]);
+            data.set<2>(i, largestStartPos);
+            largestStartPos += (*mv.intLens)[i];
+        }
+        data.set<2>(mv.D_index.size(), largestStartPos);
+        //std::cout << "Out constructor" << std::endl;
+    }
+
+    struct IntervalPoint {
+        /*
+        //represents a position in a range [0,n-1] that is composed of x intervals
+        //[i_0,i_1-1],[i_1,i_2-1],[i_2,i_3-1],...,[i_{x-1},n-1]
+        //a position p in [0,n-1] in this range is represented by 
+        //position, interval, offset s.t.
+        // - position = p
+        // - interval = j s.t. i_j <= p and i_{j+1} > p
+        // - offset   = k s.t. i_j + k = p (therefore, k in [0,i_{j+1}-i_j-1]
+         */
+        uint64_t position, interval, offset;
+
+        bool operator!=(const IntervalPoint& rhs) const {
+            return position != rhs.position || interval != rhs.interval || offset != rhs.offset;
+        }
+    };
+    
+    template <FFMethod M = EXPONENTIAL>
+    IntervalPoint map(const IntervalPoint& intPoint) const;
+
+    size_type serialize(std::ostream &out, sdsl::structure_tree_node *v=NULL, std::string name="") const {
+        sdsl::structure_tree_node* child = sdsl::structure_tree::add_child(v, name, sdsl::util::class_name(*this));
+
+        size_type bytes = 0;
+
+        bytes += sdsl::serialize(data, out, child, "data");
+
+        sdsl::structure_tree::add_size(child, bytes);
+
+        return bytes;
+    }
+
+    void load(std::istream& in) {
+        sdsl::load(data, in);
+    }
+
+    template<FFMethod M>
+    //returns whether the move structure is a permutation of length N with exactly one cycle
+    //uses numIntervals log numIntervals auxiliary bits
+    bool permutationLengthNOneCycleSequential(size_type N) const {
+        size_type totalOps = 0;
+
+        IntervalPoint curr{0, 0, 0};
+
+        do {
+            curr = map<M>(curr);
+            ++totalOps;
+        } while (curr.position && totalOps < N + 1);
+
+        return totalOps == N;
+
+    }
+    
+    template<FFMethod M>
+    //returns whether the move structure is a permutation of length N with exactly one cycle
+    //uses numIntervals log numIntervals auxiliary bits
+    bool permutationLengthN(size_type N) const {
+        size_type runs = data.size() - 1;
+        sdsl::int_vector<> nextInt(runs, runs, sdsl::bits::hi(runs) + 1);
+        size_type totalOps = 0;
+
+        #pragma omp parallel for schedule(dynamic, 1024)
+        for (uint64_t i = 0; i < runs; ++i) {
+            IntervalPoint curr{static_cast<uint64_t>(-1), i, 0};
+            uint64_t ops = 0;
+            do {
+                curr = map<M>(curr);
+                ++ops;
+            } while (curr.offset);
+
+            #pragma omp critical 
+            {
+                nextInt[i] = curr.interval;
+                totalOps += ops;
+            }
+        }
+
+        if (totalOps != N)
+            return false;
+
+        uint64_t traversed = 1, curr = 0;
+        while (nextInt[curr] && nextInt[curr] != runs && traversed < runs) {
+            curr = nextInt[curr];
+            ++traversed;
+        }
+
+        return traversed == runs && nextInt[curr] == 0;
+    }
+};
+
+template<> 
+MoveStructureStartTable::IntervalPoint MoveStructureStartTable::map<LINEAR>(const IntervalPoint& intPoint) const {
+    //std::cout << "enter map" << std::endl;
+    IntervalPoint res;
+    res.interval = data.get<0>(intPoint.interval);
+    res.offset = data.get<1>(intPoint.interval) + intPoint.offset;
+    res.position = data.get<2>(res.interval) + res.offset;
+    if (data.get<2>(res.interval + 1) > res.position)
+        return res;
+    //std::cout << res.position << ' ' << res.interval << ' ' << res.offset << std::endl;
+    //res.interval should never be > data.get<2>.size()
+    while (data.get<2>(res.interval + 1) <= res.position)
+        ++res.interval;
+    res.offset = res.position - data.get<2>(res.interval);
+    //std::cout << "exit map" << std::endl;
+    return res;
+}
+
+template<> 
+MoveStructureStartTable::IntervalPoint MoveStructureStartTable::map<EXPONENTIAL>(const IntervalPoint& intPoint) const {
+    //std::cout << "enter map" << std::endl;
+    IntervalPoint res;
+    res.interval = data.get<0>(intPoint.interval);
+    res.offset = data.get<1>(intPoint.interval) + intPoint.offset;
+    res.position = data.get<2>(res.interval) + res.offset;
+    if (data.get<2>(res.interval + 1) > res.position)
+        return res;
+    uint64_t dist = 2;
+    //std::cout << res.position << ' ' << res.interval << ' ' << res.offset << std::endl;
+    //res.interval should never be > data.size()
+    while (dist < data.size() - 1 - res.interval && data.get<2>(res.interval + dist) <= res.position)
+        dist *= 2;
+    res.interval += dist/2;
+    
+    dist = dist/2 - 1;
+    using myint = uint64_t;
+
+    myint lo = res.interval;
+    myint hi = std::min(lo + dist, data.size() - 2);
+    myint ans = -1;
+    while(lo <= hi) {
+        myint mid = (lo + hi) >> 1;
+        myint here = data.get<2>(mid);
+        if (here <= res.position){
+            lo = (ans = mid) + 1;
+        } else {
+            hi = mid - 1;
+        }
+    }
+    
+    res.interval = ans;
+    res.offset = res.position - data.get<2>(res.interval);
+    //std::cout << "exit map" << std::endl;
+    return res;
+}
+
 class LCPComputer {
     uint64_t totalLen;
 
@@ -211,8 +387,8 @@ class LCPComputer {
 
     sdsl::int_vector<> intAtTop;
 
-    sdsl::int_vector<> PhiIntLen;
-    MoveStructure Phi;
+    //sdsl::int_vector<> PhiIntLen;
+    MoveStructureStartTable PhiNEWONEHE;
 
     sdsl::int_vector<> PLCPsamples;
 
@@ -448,7 +624,7 @@ class LCPComputer {
     //with suffix x-1 at the top of the input interval,
     //how many suffixes < x are at the top of a run in the BWT
     void ComputeAuxAndRepairPsi(uint64_t& maxPhiIntLen, std::vector<uint64_t> & numTopRuns, std::vector<uint64_t> & seqLens, sdsl::int_vector<> & intAtTop, 
-            const sdsl::int_vector<>& F, MoveStructureTable& Psi, const uint64_t numSequences) {
+            const sdsl::int_vector<>& F, MoveStructureTable& Psi, sdsl::int_vector<>& PhiIntLen, const uint64_t numSequences) {
         Timer.start("Computing numTopRuns, seqLens, and repairing Psi of endmarkers in F");
 
         numTopRuns.resize(numSequences + 1);
@@ -581,10 +757,12 @@ class LCPComputer {
         Timer.stop(); //Computing numTopRuns, seqLens, and repairing Psi of endmarkers in F
     }
 
-    void ConstructPhiAndSamples(const sdsl::int_vector<>& F, const MoveStructureTable& Psi, const uint64_t FlensBits,
+    void ConstructPhiAndSamples(const sdsl::int_vector<>& F, const MoveStructureTable& Psi, sdsl::int_vector<>& PhiIntLen, const uint64_t FlensBits,
             const std::vector<uint64_t>& numTopRuns, const std::vector<uint64_t>& seqLens, const sdsl::int_vector<>& intAtTop, const uint64_t numSequences, const uint64_t maxPhiIntLen,
             uint64_t & sampleInterval, sdsl::int_vector<> &Psi_Index_Samples, sdsl::int_vector<> &Psi_Offset_Samples) {
         Timer.start("Construct Phi and Samples");
+        //MoveStructure tempPhi;
+        //tempPhi.intLens = &PhiIntLen;
         //computing, for each seq i, 
         // 1. whenever suffix j of i is at the bottom of a run, the input interval and offset of suffix j of i in Phi (D_index and D_offset of the top of the run below it)
         // 2. Psi_Index_Samples and Psi_Offset_Samples: ISA samples (in psi move data structure), for every suffix that is a multiple of n/r (of the original text)
@@ -593,8 +771,21 @@ class LCPComputer {
         uint64_t numSamples = (totalLen%sampleInterval != 0) + (totalLen/sampleInterval);
         //std::cout << "sampleInterval " << sampleInterval << std::endl;
         //std::cout << "numSamples " << numSamples << std::endl;
-        Phi.D_index = sdsl::int_vector<>(numRuns, 0, sdsl::bits::hi(numRuns - 1) + 1);
-        Phi.D_offset = sdsl::int_vector<>(numRuns, 0, sdsl::bits::hi(maxPhiIntLen - 1) + 1);
+        //tempPhi.D_index = sdsl::int_vector<>(numRuns, 0, sdsl::bits::hi(numRuns - 1) + 1);
+        //tempPhi.D_offset = sdsl::int_vector<>(numRuns, 0, sdsl::bits::hi(maxPhiIntLen - 1) + 1);
+        {
+            uint64_t sum = 0;
+            for (uint64_t i = 0; i < PhiIntLen.size(); ++i)
+                sum += PhiIntLen[i];
+            PhiNEWONEHE.data = packedTripleVector(sdsl::bits::hi(numRuns - 1) + 1, sdsl::bits::hi(maxPhiIntLen - 1) + 1, sdsl::bits::hi(sum) + 1, PhiIntLen.size() + 1);
+            sum = 0;
+            for (uint64_t i = 0; i < PhiIntLen.size(); ++i){
+                PhiNEWONEHE.data.set<2>(i, sum);
+                sum += PhiIntLen[i];
+            }
+            PhiNEWONEHE.data.set<2>(PhiIntLen.size(), sum);
+            PhiIntLen = sdsl::int_vector<>();
+        }
         Psi_Index_Samples = sdsl::int_vector<>(numSamples, 0, sdsl::bits::hi(numRuns - 1) + 1);
         Psi_Offset_Samples = sdsl::int_vector<>(numSamples, 0, FlensBits);
         std::cout << "FlensBits: " << FlensBits << std::endl;
@@ -608,8 +799,8 @@ class LCPComputer {
             curr = Psi.map(curr);
             uint64_t suff = seqLens[seq];
             //phiPoint is the interval point in the move structure of suff
-            MoveStructure::IntervalPoint phiPoint = {static_cast<uint64_t>(-1), numTopRuns[seq], 0};
-            MoveStructure::IntervalPoint phiPointAtPhiOutputIntervalStart = phiPoint;
+            MoveStructureStartTable::IntervalPoint phiPoint = {PhiNEWONEHE.data.get<2>(numTopRuns[seq]), numTopRuns[seq], 0};
+            MoveStructureStartTable::IntervalPoint phiPointAtPhiOutputIntervalStart = phiPoint;
 
             while (suff < seqLens[seq+1]) {
                 //2.
@@ -624,12 +815,13 @@ class LCPComputer {
 
                 //update phiPoint to suff + 1
                 ++phiPoint.offset;
+                ++phiPoint.position;
                 //phiPoint.offset == (*Phi.intLens)[phiPoint.interval] iff curr.offset == 0)
-                assert((phiPoint.offset == (*Phi.intLens)[phiPoint.interval]) ==
+                assert((phiPoint.position == PhiNEWONEHE.data.get<2>(phiPoint.interval + 1)) ==
                         (curr.offset == 0));
                 //suff + 1 starts an input interval iff suff ends an input interval
                 if (curr.offset == 0) {
-                    if (phiPoint.offset != (*Phi.intLens)[phiPoint.interval]) {
+                    if (phiPoint.position != PhiNEWONEHE.data.get<2>(phiPoint.interval + 1)) {
                         std::cerr << "Offset != length at the end of phi interval!" << std::endl;
                         exit(1);
                     }
@@ -643,8 +835,8 @@ class LCPComputer {
                     uint64_t phiInterval = intAtTop[runBelow];
                     #pragma omp critical 
                     {
-                        Phi.D_index[phiInterval] = phiPointAtPhiOutputIntervalStart.interval;
-                        Phi.D_offset[phiInterval] = phiPointAtPhiOutputIntervalStart.offset;
+                        PhiNEWONEHE.data.set<0>(phiInterval, phiPointAtPhiOutputIntervalStart.interval);
+                        PhiNEWONEHE.data.set<1>(phiInterval, phiPointAtPhiOutputIntervalStart.offset);
                     }
                     phiPointAtPhiOutputIntervalStart = phiPoint;
                 }
@@ -736,9 +928,11 @@ class LCPComputer {
         Timer.start("LCP Computation");
         PLCPsamples = sdsl::int_vector<>(F.size(), 0, 1);
 
+        /*
         sdsl::int_vector<> suffStartingPhiInt(F.size(), 0, sdsl::bits::hi(seqLens.back() - 1) + 1);
         for (uint64_t i = 1; i < F.size(); ++i)
-            suffStartingPhiInt[i] = suffStartingPhiInt[i-1] + (*Phi.intLens)[i-1];
+            suffStartingPhiInt[i] = suffStartingPhiInt[i-1] + PhiNEWONEHE.data.get<2>(i-1);
+         */
 
         #pragma omp parallel for schedule (dynamic, 1)
         for (uint64_t seq = 0; seq < numSequences; ++seq) {
@@ -746,8 +940,8 @@ class LCPComputer {
             MoveStructureTable::IntervalPoint suffMatchEndIntPoint = Psi.map({static_cast<uint64_t>(-1), ((seq)? seq - 1 : numSequences - 1), 0});
             for (uint64_t phiInt = numTopRuns[seq]; phiInt < numTopRuns[seq+1]; ++phiInt) { 
                 //get suffix above phiInt
-                MoveStructure::IntervalPoint suffMatchingToPhiIntPoint = Phi.map({static_cast<uint64_t>(-1), phiInt, 0});
-                uint64_t suffMatchingTo = suffStartingPhiInt[suffMatchingToPhiIntPoint.interval] + suffMatchingToPhiIntPoint.offset;
+                MoveStructureStartTable::IntervalPoint suffMatchingToPhiIntPoint = PhiNEWONEHE.map({static_cast<uint64_t>(-1), phiInt, 0});
+                uint64_t suffMatchingTo = PhiNEWONEHE.data.get<2>(suffMatchingToPhiIntPoint.interval) + suffMatchingToPhiIntPoint.offset;
                 uint64_t psiIntAbove = intAtEnd[(phiInt)? phiInt - 1 : F.size() - 1];
                 MoveStructureTable::IntervalPoint coordAbove = Psi.map({static_cast<uint64_t>(-1), psiIntAbove, 0});
                 if (coordAbove.offset == 0) {
@@ -793,7 +987,7 @@ class LCPComputer {
                 }
 
 
-                currIntStart += (*Phi.intLens)[phiInt];
+                currIntStart += PhiNEWONEHE.data.get<2>(phiInt);
                 if (suffMatchEnd < currIntStart) {
                     suffMatchEnd = currIntStart;
                     suffMatchEndIntPoint = Psi.map({static_cast<uint64_t>(-1), intAtEnd[phiInt], 0});
@@ -806,7 +1000,7 @@ class LCPComputer {
         Timer.stop(); //LCP Computation
     }
 
-    void ComputeMinLCPRun(const sdsl::int_vector<>& intAtTop, const sdsl::int_vector<>& F, const sdsl::int_vector<>& Flens, const MoveStructureTable& Psi, std::ofstream& out) {
+    void ComputeMinLCPRun(const sdsl::int_vector<>& intAtTop, const sdsl::int_vector<>& F, const MoveStructureTable& Psi, std::ofstream& out) {
         //O(r log sigma) time, can be skipped if RLBWT is maintained or re-read
         Timer.start("Computing Min LCP per Run");
         struct MappedPositionRunPair {
@@ -860,10 +1054,10 @@ class LCPComputer {
             //out << F[t.psiInputInt] << ' ' << runLen << ' ';
             t = (nextAlph.size())? nextAlph.top() : firstRun;
             uint64_t phiInt = (intAtTop[t.psiInputInt]+1) % F.size();
-            MoveStructure::IntervalPoint pPoint = {static_cast<uint64_t>(-1), phiInt, 0};
+            MoveStructureStartTable::IntervalPoint pPoint = {static_cast<uint64_t>(-1), phiInt, 0};
             uint64_t minL = static_cast<uint64_t>(-1), minLloc = static_cast<uint64_t>(-1);
             for (uint64_t i = 0; i < runLen; ++i) {
-                pPoint = Phi.map(pPoint);
+                pPoint = PhiNEWONEHE.map(pPoint);
                 uint64_t l = PLCPsamples[pPoint.interval] - pPoint.offset;
                 //use <= for first index
                 if (l < minL) {
@@ -887,7 +1081,12 @@ class LCPComputer {
     //input: a run length encoding of a multidollar BWT where all dollars are represented by 0
     //All characters between (and including) 0 and max_char are assumed to have more than 0 occurrences
     //in the text. max_char is the maximum character in the text
-    LCPComputer(rb3_fmi_t* rb3, std::ofstream& lcpOut) {
+    LCPComputer(rb3_fmi_t* rb3, const std::string& safeTempName, std::ofstream& lcpOut) {
+        std::ofstream tempOutFile(safeTempName);
+        if (!tempOutFile.is_open()) {
+            std::cerr << "ERROR: File provided for temporary writing/reading, '" << safeTempName << "' failed to open for writing!" << std::endl;
+            exit(1);
+        }
 
         sdsl::memory_monitor::start();
 
@@ -937,11 +1136,23 @@ class LCPComputer {
         //with suffix x-1 at the top of the input interval,
         //how many suffixes < x - 1 are at the top of a run in the BWT
         uint64_t maxPhiIntLen;
+        sdsl::int_vector<> PhiIntLen;
         {
             auto event = sdsl::memory_monitor::event("Compute Auxiliary Data and Repair Endmarker Psis");
-            ComputeAuxAndRepairPsi(maxPhiIntLen, numTopRuns, seqLens, intAtTop, F, Psi, numSequences);
+            ComputeAuxAndRepairPsi(maxPhiIntLen, numTopRuns, seqLens, intAtTop, F, Psi, PhiIntLen, numSequences);
         }
 
+        {
+            auto event = sdsl::memory_monitor::event("Computing and storing intAtEnd");
+            Timer.start("Computing and storing intAtEnd");
+            sdsl::int_vector<> intAtEnd(F.size(), 0, sdsl::bits::hi(F.size() - 1) + 1);
+            //intAtEnd[j] is the input interval of Psi where the suffix at the end of input interval j of Phi occurs
+            //(at the top of, necessarily)
+            for (uint64_t i = 0; i < F.size(); ++i)
+                intAtEnd[intAtTop[i]] = i;
+            sdsl::serialize(intAtEnd, tempOutFile);
+            Timer.stop(); //Computing and storing intAtEnd
+        }
         /*
         {
             std::cout << "Checking if intAtTop is a permutation of [0,r-1]" << std::endl;
@@ -992,12 +1203,11 @@ class LCPComputer {
         Timer.stop(); //Verifying Psi
         */
 
-        Phi.intLens = &PhiIntLen;
         uint64_t sampleInterval;
         sdsl::int_vector<> Psi_Index_Samples, Psi_Offset_Samples;
         {
             auto event = sdsl::memory_monitor::event("Construct Phi and Equidistant ISA Samples");
-            ConstructPhiAndSamples(F, Psi, Psi.data.c, numTopRuns, seqLens, intAtTop, numSequences, maxPhiIntLen, sampleInterval, Psi_Index_Samples, Psi_Offset_Samples);
+            ConstructPhiAndSamples(F, Psi, PhiIntLen, Psi.data.c, numTopRuns, seqLens, intAtTop, numSequences, maxPhiIntLen, sampleInterval, Psi_Index_Samples, Psi_Offset_Samples);
         }
 
         /*
@@ -1057,24 +1267,32 @@ class LCPComputer {
         /*
         Verifying Phi is VERY slow compared to verifying Psi ~300 seconds on mtb152 with 64 cores vs ~30 seconds for Psi on coombs c0-4. Why?
         Timer.start("Verifying Phi");
-        if (!Phi.permutationLengthN(totalLen)) {
+        if (!PhiNEWONEHE.permutationLengthN<EXPONENTIAL>(totalLen)) {
             std::cerr << "ERROR: Phi is not a permutation of length n!" << std::endl;
             exit(1);
         }
         std::cout << "Phi is a permutation of length n\n";
         Timer.stop(); //Verifying Phi
         */
+        sdsl::int_vector<> intAtEnd;
+        {
+            auto event = sdsl::memory_monitor::event("Recover intAtEnd from disk");
+            Timer.start("Recover intAtEnd from disk");
+            intAtTop = sdsl::int_vector<>();
+            tempOutFile.close();
+            std::ifstream tempInFile(safeTempName);
+            if (!tempInFile.is_open()) {
+                std::cerr << "ERROR: File provided for temporary writing/reading, '" << safeTempName << "' failed to open for reading!" << std::endl;
+                exit(1);
+            }
+            sdsl::load(intAtEnd, tempInFile);
+            tempInFile.close();
+            Timer.stop(); //Recover intAtEnd from disk
+        }
 
-        sdsl::int_vector<> intAtEnd(F.size(), 0, sdsl::bits::hi(F.size() - 1) + 1);
+
         {
             auto event = sdsl::memory_monitor::event("Compute PLCP Samples");
-
-            //intAtEnd[j] is the input interval of Psi where the suffix at the end of input interval j of Phi occurs
-            //(at the top of, necessarily)
-            for (uint64_t i = 0; i < F.size(); ++i)
-                intAtEnd[intAtTop[i]] = i;
-
-            intAtTop = sdsl::int_vector<>();
             ComputePLCPSamples(intAtEnd, numSequences, F, Psi, numTopRuns, seqLens, sampleInterval, Psi_Index_Samples, Psi_Offset_Samples);
         }
 
@@ -1119,7 +1337,7 @@ class LCPComputer {
                 intAtTop[intAtEnd[i]] = i;
             intAtEnd = sdsl::int_vector<>();
             
-            ComputeMinLCPRun(intAtTop, F, Flens, Psi, lcpOut);
+            ComputeMinLCPRun(intAtTop, F, Psi, lcpOut);
         }
         Timer.stop(); //Computing minLCP per run"
         */
@@ -1146,12 +1364,12 @@ class LCPComputer {
     void printRaw(const sdsl::int_vector<>& intAtTop) const {
         std::cout << "LCP\n";
         std::vector<uint64_t> lcp(totalLen);
-        MoveStructure::IntervalPoint phiPoint{static_cast<uint64_t>(-1), intAtTop[0], 0};
-        phiPoint.offset = (*Phi.intLens)[phiPoint.interval] - 1;
-        phiPoint = Phi.map(phiPoint);
+        MoveStructureStartTable::IntervalPoint phiPoint{static_cast<uint64_t>(-1), intAtTop[0], 0};
+        phiPoint.offset = PhiNEWONEHE.data.get<2>(phiPoint.interval) - 1;
+        phiPoint = PhiNEWONEHE.map(phiPoint);
         for (uint64_t i = 0; i < totalLen; ++i) {
             lcp[totalLen - 1 - i] = PLCPsamples[phiPoint.interval] - phiPoint.offset;
-            phiPoint = Phi.map(phiPoint);
+            phiPoint = PhiNEWONEHE.map(phiPoint);
         }
         for (uint64_t i = 0; i < totalLen; ++i) {
             std::cout << lcp[i] << '\n';
@@ -1163,7 +1381,7 @@ class LCPComputer {
         for (uint64_t i = 0; i < totalLen; ++i) {
             std::cout << '\t' << PLCPsamples[phiPoint.interval] - phiPoint.offset;
             ++phiPoint.offset;
-            phiPoint.offset %= (*Phi.intLens)[phiPoint.interval];
+            phiPoint.offset %= PhiNEWONEHE.data.get<2>(phiPoint.interval);
             phiPoint.interval += (phiPoint.offset == 0);
         }
         std::cout << "\n";
@@ -1174,9 +1392,9 @@ class LCPComputer {
         uint64_t numRuns = PLCPsamples.size();
         for (uint64_t i = 0; i < numRuns; ++i) {
             std::cout << i << '\t'
-                << Phi.D_index[i] << '\t'
-                << Phi.D_offset[i] << '\t'
-                << (*Phi.intLens)[i] << '\t'
+                << PhiNEWONEHE.data.get<0>(i) << '\t'
+                << PhiNEWONEHE.data.get<1>(i) << '\t'
+                << PhiNEWONEHE.data.get<2>(i) << '\t'
                 << PLCPsamples[i] << '\n';
         }
     }
@@ -1192,8 +1410,8 @@ class LCPComputer {
         //bytes += sdsl::serialize(Flens, out, child, "Flens");
         bytes += sdsl::serialize(Psi, out, child, "Psi");
         bytes += sdsl::serialize(intAtTop, out, child, "intAtTop");
-        bytes += sdsl::serialize(PhiIntLen, out, child, "PhiIntLen");
-        bytes += sdsl::serialize(Phi, out, child, "Phi");
+        //bytes += sdsl::serialize(PhiIntLen, out, child, "PhiIntLen");
+        bytes += sdsl::serialize(PhiNEWONEHE, out, child, "Phi");
         bytes += sdsl::serialize(PLCPsamples, out, child, "PLCPsamples");
 
         sdsl::structure_tree::add_size(child, bytes);
@@ -1206,10 +1424,10 @@ class LCPComputer {
         //sdsl::load(Flens, in);
         sdsl::load(Psi, in);
         sdsl::load(intAtTop, in);
-        sdsl::load(PhiIntLen, in);
-        sdsl::load(Phi, in);
+        //sdsl::load(PhiIntLen, in);
+        sdsl::load(PhiNEWONEHE, in);
         sdsl::load(PLCPsamples, in);
-        Phi.intLens = &PhiIntLen;
+        //Phi.intLens = &PhiIntLen;
         //Psi.intLens = &Flens;
     }
 };

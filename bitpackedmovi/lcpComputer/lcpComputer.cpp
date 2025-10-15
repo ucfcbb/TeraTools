@@ -5,6 +5,7 @@ int main(int argc, char*argv[]) {
     Timer.start("Program Initialization");
     rb3_fmi_t fmi;
     std::ofstream indOut, treeOut, lcpOut;
+    std::string outputPref;
     {
         bool use_mmap;
         Timer.start("Reading Arguments");
@@ -20,7 +21,7 @@ int main(int argc, char*argv[]) {
             exit(1);
         }
         std::string inputfmd = argv[argc-2];
-        std::string outputPref = argv[argc-1];
+        outputPref = argv[argc-1];
         use_mmap = (argc == 4);
 
         Timer.stop(); //Reading Arguments
@@ -58,7 +59,7 @@ int main(int argc, char*argv[]) {
     Timer.stop(); //Program Initialization
 
     Timer.start("LCP construction");
-    LCPComputer ourIndex(&fmi, lcpOut);
+    LCPComputer ourIndex(&fmi, outputPref + ".TEMPFILE101Y90HDOSJFN", lcpOut);
     Timer.stop(); //LCP construction
 
     /*
