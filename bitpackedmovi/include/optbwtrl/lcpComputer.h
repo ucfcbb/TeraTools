@@ -663,15 +663,15 @@ class LCPComputer {
                 }
 
                 //for last interval in sequence, if condition is unnecessary, guaranteed to be true.
-                if (curr.offset == 0) {
+                //if (curr.offset == 0) {
                     maxPhiIntLenThisSeq = std::max(maxPhiIntLenThisSeq, currPhiIntLen);
                     currPhiIntLen = 0;
-                }
+                //}
 
-                if (curr.offset) {
-                    std::cerr << "ERROR: Run of endmarkers in F of length more than 1!" << std::endl;
-                    exit(1);
-                }
+                //if (curr.offset) {
+                    //std::cerr << "ERROR: Run of endmarkers in F of length more than 1!" << std::endl;
+                    //exit(1);
+                //}
 
                 uint64_t seqStartingAtStart = curr.interval;
 
@@ -713,44 +713,86 @@ class LCPComputer {
         PhiIntLen = sdsl::int_vector<>(F.size(), 0, sdsl::bits::hi(maxPhiIntLen) + 1);
         //computing intAtTop and PhiIntLen
         Timer.start("Second Parallel seq traversal");
-        #pragma omp parallel for schedule(dynamic, 1)
-        for (uint64_t seq = 0; seq < numSequences; ++seq) {
-            uint64_t prevSeq = (seq)? seq - 1 : numSequences - 1;
-            MoveStructureTable::IntervalPoint curr = {static_cast<uint64_t>(-1), prevSeq, 0};
-            curr = Psi.map(curr);
-
-            uint64_t currentInt = numTopRuns[seq];
-            uint64_t currIntLen = 1;
-            do {
-                if (curr.offset == 0) {
-                    #pragma omp critical
-                    {
-                        PhiIntLen[currentInt] = currIntLen;
-                        currIntLen = 0;
-                        intAtTop[curr.interval] = currentInt++;
-                    }
-                }
+        {
+            uint64_t dangerousInts = std::min(PhiIntLen.width(), intAtTop.width())/64 + (std::min(PhiIntLen.width(), intAtTop.width())%64 != 0);
+            #pragma omp parallel for schedule(dynamic, 1)
+            for (uint64_t seq = 0; seq < numSequences; ++seq) {
+                uint64_t prevSeq = (seq)? seq - 1 : numSequences - 1;
+                MoveStructureTable::IntervalPoint curr = {static_cast<uint64_t>(-1), prevSeq, 0};
                 curr = Psi.map(curr);
-                ++currIntLen;
-                //std::cout << "curr.interval " << curr.interval << " curr.offset " << curr.offset << std::endl;
-            } while (curr.interval >= numSequences);
 
-            if (curr.offset == 0) {
+                uint64_t currentInt = numTopRuns[seq];
+                uint64_t start = numTopRuns[seq];
+                uint64_t end = numTopRuns[seq + 1];
+                uint64_t safeStart = start + dangerousInts,
+                         safeEnd = numTopRuns[seq + 1] - dangerousInts;
+                uint64_t currIntLen = 1;
+                sdsl::int_vector<> intAtTopIndex(end - start, 0, Psi.data.a);
+                sdsl::int_vector<> intAtTopValue(end - start, 0, Psi.data.a);
+                do {
+                    if (curr.offset == 0) {
+                        /*
+                        #pragma omp critical
+                        {
+                            PhiIntLen[currentInt] = currIntLen;
+                            currIntLen = 0;
+                            intAtTop[curr.interval] = currentInt++;
+                        }
+                        */
+                        if (currentInt >= safeStart && currentInt < safeEnd)
+                            PhiIntLen[currentInt] = currIntLen;
+                        else {
+                            #pragma omp critical
+                            {
+                                PhiIntLen[currentInt] = currIntLen;
+                            }
+                        }
+                        intAtTopIndex[currentInt - start] = curr.interval;
+                        intAtTopValue[currentInt - start] = currentInt;
+                        currIntLen = 0;
+                        currentInt++;
+                    }
+                    curr = Psi.map(curr);
+                    ++currIntLen;
+                    //std::cout << "curr.interval " << curr.interval << " curr.offset " << curr.offset << std::endl;
+                } while (curr.interval >= numSequences);
+
+                assert(curr.offset == 0);
+                //if (curr.offset == 0) {
+                #pragma omp critical
+                {
+                    PhiIntLen[currentInt] = currIntLen;
+                }
+                intAtTopIndex[currentInt - start] = curr.interval;
+                intAtTopValue[currentInt - start] = currentInt;
+                currIntLen = 0;
+                currentInt++;
+                /*
                 #pragma omp critical
                 {
                     PhiIntLen[currentInt] = currIntLen;
                     currIntLen = 0;
                     intAtTop[curr.interval] = currentInt++;
                 }
-            }
+                */
+                //}
+                #pragma omp critical
+                {
+                    for (uint64_t i = 0; i < intAtTopIndex.size(); ++i) {
+                        intAtTop[intAtTopIndex[i]] = intAtTopValue[i];
+                    }
+                }
 
-            if (currentInt != numTopRuns[seq + 1]) {
-                std::cerr << "ERROR: Didn't reach beginning of next sequence in numTopRuns!" << std::endl;
+
+                assert(currentInt == numTopRuns[seq + 1]);
+                //if (currentInt != numTopRuns[seq + 1]) {
+                //std::cerr << "ERROR: Didn't reach beginning of next sequence in numTopRuns!" << std::endl;
                 //std::cout << currentInt << " " << numTopRuns[seq + 1] << std::endl;
                 //for (uint64_t i = 0; i < F.size(); ++i) {
-                    //std::cout << intAtTop[i] << std::endl;
+                //std::cout << intAtTop[i] << std::endl;
                 //}
-                exit(1);
+                //exit(1);
+                //}
             }
         }
         Timer.stop(); //Second Parallel seq traversal
