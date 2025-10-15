@@ -2,6 +2,7 @@
 #include"moveStructure.h"
 #include"fm-index.h"
 #include<queue>
+#include<omp.h>
 
 enum FFMethod { LINEAR, EXPONENTIAL };
 
@@ -843,141 +844,240 @@ class LCPComputer {
         Psi_Offset_Samples = sdsl::int_vector<>(numSamples, 0, FlensBits);
         std::cout << "FlensBits: " << FlensBits << std::endl;
         std::cout << "Psi_Offset_Samples.width(): " << static_cast<uint64_t>(Psi_Offset_Samples.width()) << std::endl;
-        #pragma omp parallel for schedule (dynamic, 1)
-        for (uint64_t seq = 0; seq < numSequences; ++seq) {
-            //curr is the interval point in the psi move data structure of suffix suff
-            //if curr is at the top of a psi interval, then suff+1 is at the top of an rlbwt interval
-            //if curr is at the bottom of a psi interval, then suff+1 is at the bottom of an rlbwt interval
-            MoveStructureTable::IntervalPoint curr = {static_cast<uint64_t>(-1), (seq)? seq - 1 : numSequences - 1, 0};
-            curr = Psi.map(curr);
-            uint64_t suff = seqLens[seq];
-            //phiPoint is the interval point in the move structure of suff
-            MoveStructureStartTable::IntervalPoint phiPoint = {PhiNEWONEHE.data.get<2>(numTopRuns[seq]), numTopRuns[seq], 0};
-            MoveStructureStartTable::IntervalPoint phiPointAtPhiOutputIntervalStart = phiPoint;
+        {
+            /*
+               Fixing the thrashing of the Phi computation method without 
+               increasing the memory usage is not so simple. We have a few 
+               options:
 
-            while (suff < seqLens[seq+1]) {
-                //2.
-                //store psi samples if needed
-                if (suff % sampleInterval == 0) {
-                    #pragma omp critical
-                    {
-                        Psi_Index_Samples[suff/sampleInterval] = curr.interval;
-                        Psi_Offset_Samples[suff/sampleInterval] = curr.offset;
-                    }
-                }
+                    1. Separate Psi_Index_Samples and Psi_Index_Offsets 
+                    computation into another O(n) work traversal after 
+                    the current one. Use them to store PhiInfo temporarily,
+                    then remap to Phi Order in O(r) time afterwards. This is 
+                    worth it when thrashing would more than double the runtime 
+                    of the following loop. I.E. when #threads is high. How to
+                    tell when this is the case? Too complicated.
 
-                //update phiPoint to suff + 1
-                ++phiPoint.offset;
-                ++phiPoint.position;
-                //phiPoint.offset == (*Phi.intLens)[phiPoint.interval] iff curr.offset == 0)
-                /*
-                if((phiPoint.position == PhiNEWONEHE.data.get<2>(phiPoint.interval + 1)) !=
-                        (curr.offset == 0))
-                    std::cout << "phiPoint " << phiPoint.position << ' ' << phiPoint.interval << ' ' << phiPoint.offset 
-                        << "\ncurr " << curr.position << ' ' << curr.interval << ' ' << curr.offset << "\n"
-                        << "PhiNEWONEHE.data.get<2>(phiPoint.interval + 1) " << PhiNEWONEHE.data.get<2>(phiPoint.interval + 1) << std::endl;
-                 */
+                    2. Store the D_index and D_offset values in Phi temporarily
+                    here in output order. Later reorder them in O(r) time to 
+                    input order using intAtEnd and intAtTop. This requires 
+                    temporarily writing r log r bits to a file and reading
+                    them later, since we need an extra r log r bits for 
+                    intAtEnd. This can come from Psi_Index_Samples since it's not needed
+                    for the reordering step.
 
-                assert((phiPoint.position == PhiNEWONEHE.data.get<2>(phiPoint.interval + 1)) ==
-                        (curr.offset == 0));
-                //suff + 1 starts an input interval iff suff ends an input interval
-                if (curr.offset == 0) {
-                    if (phiPoint.position != PhiNEWONEHE.data.get<2>(phiPoint.interval + 1)) {
-                        std::cerr << "Offset != length at the end of phi interval!" << std::endl;
-                        exit(1);
-                    }
-                    phiPoint.offset = 0;
-                    ++phiPoint.interval;
-                }
-
-                //if suff is the end of an output interval
-                if (curr.offset == Psi.data.get<2>(curr.interval) - 1) {
-                    uint64_t runBelow = (curr.interval+1)%numRuns;
-                    uint64_t phiInterval = intAtTop[runBelow];
-                    #pragma omp critical 
-                    {
-                        PhiNEWONEHE.data.set<0>(phiInterval, phiPointAtPhiOutputIntervalStart.interval);
-                        PhiNEWONEHE.data.set<1>(phiInterval, phiPointAtPhiOutputIntervalStart.offset);
-                    }
-                    phiPointAtPhiOutputIntervalStart = phiPoint;
-                }
+                    3. Keep extra arrays for every thread, storing the temporary
+                    results per sequence, writing in one step at the end of the
+                    loop.
+                    
+                2. Is better than 1. when reading/writing + O(r) reordering
+                is faster than a parallel O(n) traversal. We assume this to
+                be the case. 
                 
-                //now, curr is the position of suff + 1
+                We pick 3. it may not reduce the thrashing to 0 but it 
+                should do enough. 1. Adds an O(n) traversal. This adds
+                20-25% run time when there is no thrashing (since we do
+                4 O(n) traversals for construction + 1 O(n) for minLCP).
+                2. is too complicated to implement.
+             */
+            //the number of bits the buffer for 3. can use is at most r log max lcp len
+            //max lcp len is not known ahead of time, but it is at least maxPhiIntLen - 1
+            //if Ns match. In our case, they don't so we use at most r bits for the buffer.
+            uint64_t threads = omp_get_max_threads();
+            packedTripleVector buffer;
+            uint64_t bufferElementsPerThread;
+            {
+                const uint64_t bufferMaxBits = numRuns;
+                uint64_t bufferElements = bufferMaxBits/(2*PhiNEWONEHE.data.a + PhiNEWONEHE.data.b);
+                //uses 64 bytes at least
+                if (bufferElements < 8)
+                    bufferElements = 8;
+                if (bufferElements < 8*threads) {
+                    //!!!!!!!!!!!!!!!!!!! should be rare, #threads is huge or r is very small
+                    //8 is an arbitrary constant I chose so that the buffer is not useless
+                    std::cout << "WARNING: limiting number of threads in Phi computation to " << bufferElements
+                        << " to save memory. Previously, would have been " << threads << std::endl;
+                    threads = bufferElements/8;
+                }
+                bufferElementsPerThread = bufferElements/threads;
+                bufferElements = bufferElementsPerThread*threads;
+                buffer = packedTripleVector(PhiNEWONEHE.data.a, PhiNEWONEHE.data.a, PhiNEWONEHE.data.b, bufferElements);
+            }
+            uint64_t dangerousInts = 64/std::min(Psi_Index_Samples.width(), Psi_Offset_Samples.width()) + (64 % std::min(Psi_Index_Samples.width(), Psi_Offset_Samples.width()) != 0);
+            uint64_t dangerousBufferInts;
+            if (buffer.width <= 64)
+                dangerousBufferInts = 64/buffer.width + (64 % buffer.width != 0);
+            else
+                dangerousBufferInts = 1;
+            #pragma omp parallel for num_threads(threads) schedule (dynamic, 1)
+            for (uint64_t seq = 0; seq < numSequences; ++seq) {
+                //curr is the interval point in the psi move data structure of suffix suff
+                //if curr is at the top of a psi interval, then suff+1 is at the top of an rlbwt interval
+                //if curr is at the bottom of a psi interval, then suff+1 is at the bottom of an rlbwt interval
+                MoveStructureTable::IntervalPoint curr = {static_cast<uint64_t>(-1), (seq)? seq - 1 : numSequences - 1, 0};
                 curr = Psi.map(curr);
-                //update suff
-                ++suff;
+                uint64_t suff = seqLens[seq];
+                //phiPoint is the interval point in the move structure of suff
+                MoveStructureStartTable::IntervalPoint phiPoint = {PhiNEWONEHE.data.get<2>(numTopRuns[seq]), numTopRuns[seq], 0};
+                MoveStructureStartTable::IntervalPoint phiPointAtPhiOutputIntervalStart = phiPoint;
+
+                const uint64_t suffSampleSafeStart = (seqLens[seq]/sampleInterval) + (seqLens[seq] % sampleInterval != 0) + dangerousInts;
+                const uint64_t suffSampleSafeEnd = (seqLens[seq + 1]/sampleInterval) + (seqLens[seq + 1] % sampleInterval != 0) - dangerousInts;
+
+                const uint64_t bufferStart = omp_get_thread_num() * bufferElementsPerThread;
+                const uint64_t bufferEnd = bufferStart + bufferElementsPerThread;
+                const uint64_t bufferSafeStart = bufferStart + dangerousBufferInts;
+                const uint64_t bufferSafeEnd = bufferEnd - dangerousBufferInts;
+                uint64_t bufferInd = bufferStart;
+
+
+                while (suff < seqLens[seq+1]) {
+                    //2.
+                    //store psi samples if needed
+                    if (suff % sampleInterval == 0) {
+                        if (suff / sampleInterval >= suffSampleSafeStart && suff / sampleInterval < suffSampleSafeEnd) {
+                            Psi_Index_Samples[suff/sampleInterval] = curr.interval;
+                            Psi_Offset_Samples[suff/sampleInterval] = curr.offset;
+                        }
+                        else {
+                            #pragma omp critical
+                            {
+                                Psi_Index_Samples[suff/sampleInterval] = curr.interval;
+                                Psi_Offset_Samples[suff/sampleInterval] = curr.offset;
+                            }
+                        }
+                    }
+
+                    //update phiPoint to suff + 1
+                    ++phiPoint.offset;
+                    ++phiPoint.position;
+                    //phiPoint.offset == (*Phi.intLens)[phiPoint.interval] iff curr.offset == 0)
+                    assert((phiPoint.position == PhiNEWONEHE.data.get<2>(phiPoint.interval + 1)) ==
+                            (curr.offset == 0));
+                    //suff + 1 starts an input interval iff suff ends an input interval
+                    if (curr.offset == 0) {
+                        if (phiPoint.position != PhiNEWONEHE.data.get<2>(phiPoint.interval + 1)) {
+                            std::cerr << "Offset != length at the end of phi interval!" << std::endl;
+                            exit(1);
+                        }
+                        phiPoint.offset = 0;
+                        ++phiPoint.interval;
+                    }
+
+                    //if suff is the end of an output interval
+                    if (curr.offset == Psi.data.get<2>(curr.interval) - 1) {
+                        uint64_t runBelow = (curr.interval+1)%numRuns;
+                        uint64_t phiInterval = intAtTop[runBelow];
+                        if (bufferInd >= bufferSafeStart && bufferInd < bufferSafeEnd) {
+                            buffer.set<0>(bufferInd, phiInterval);
+                            buffer.set<1>(bufferInd, phiPointAtPhiOutputIntervalStart.interval);
+                            buffer.set<2>(bufferInd, phiPointAtPhiOutputIntervalStart.offset);
+                        }
+                        else {
+                            #pragma omp critical 
+                            {
+                                buffer.set<0>(bufferInd, phiInterval);
+                                buffer.set<1>(bufferInd, phiPointAtPhiOutputIntervalStart.interval);
+                                buffer.set<2>(bufferInd, phiPointAtPhiOutputIntervalStart.offset);
+                            }
+                        }
+                        if (++bufferInd == bufferEnd) {
+                            #pragma omp critical
+                            {
+                                for (uint64_t i = bufferStart; i < bufferEnd; ++i) {
+                                    PhiNEWONEHE.data.set<0>(buffer.get<0>(i), buffer.get<1>(i));
+                                    PhiNEWONEHE.data.set<1>(buffer.get<0>(i), buffer.get<2>(i));
+                                }
+                            }
+                            bufferInd = bufferStart;
+                        }
+                        phiPointAtPhiOutputIntervalStart = phiPoint;
+                    }
+                    
+                    //now, curr is the position of suff + 1
+                    curr = Psi.map(curr);
+                    //update suff
+                    ++suff;
+                    /*
+                    std::cout << "suff " << suff << std::endl;
+                    std::cout << "curr: " << curr.interval << ' ' << curr.offset << std::endl;
+                    std::cout << "intLen: " << (*Psi.intLens)[curr.interval] << std::endl;
+                    //1. 
+                    //when curr at the bottom of a psi input interval, suff is the start of a phi output interval
+                    //then suff-1 is the end of a phi output interval, then invPhi(suff-1) is the end of a phi input interval
+                    //so, update the start of the previous input interval to phiPointAtPhiOutputIntervalStart
+                    if (curr.offset == (*Psi.intLens)[curr.interval] - 1)
+                        std::cout << "starts output interval" << std::endl;
+                    if (curr.offset == (*Psi.intLens)[curr.interval] - 1) {
+                        std::cout << "in if" << std::endl;
+                        uint64_t runBelow = (curr.interval+1)%numRuns;
+                        uint64_t phiInterval = intAtTop[runBelow];
+                        if (phiInterval == 25) {
+                            std::cout << "25: " << seq << " " << suff << std::endl;
+                        }
+                        #pragma omp critical 
+                        {
+                            Phi.D_index[phiInterval] = phiPointAtPhiOutputIntervalStart.interval;
+                            Phi.D_offset[phiInterval] = phiPointAtPhiOutputIntervalStart.offset;
+                        }
+                        phiPointAtPhiOutputIntervalStart = phiPoint;
+                    }
+
+                    bool suffAtTop = (curr.offset == 0);
+                    ++suff;
+                    ++phiPoint.offset;
+
+                    if (suff == 30) {
+                        std::cout << suffAtTop << std::endl;
+                    }
+                    //2.
+                    //start new interval in phi if suff is at the top of a run
+                    if (suffAtTop) {
+                        #pragma omp critical
+                        {
+                            ++phiPoint.interval;
+                            phiPoint.offset = 0;
+                        }
+                    }
+                    */
+                }
+                #pragma omp critical
+                {
+                    for (uint64_t i = bufferStart; i < bufferInd; ++i) {
+                        PhiNEWONEHE.data.set<0>(buffer.get<0>(i), buffer.get<1>(i));
+                        PhiNEWONEHE.data.set<1>(buffer.get<0>(i), buffer.get<2>(i));
+                    }
+                }
                 /*
-                std::cout << "suff " << suff << std::endl;
-                std::cout << "curr: " << curr.interval << ' ' << curr.offset << std::endl;
-                std::cout << "intLen: " << (*Psi.intLens)[curr.interval] << std::endl;
+                std::cout << "done while" << std::endl;
+                //condition in the following if statement is redundant, should never be false.
                 //1. 
-                //when curr at the bottom of a psi input interval, suff is the start of a phi output interval
-                //then suff-1 is the end of a phi output interval, then invPhi(suff-1) is the end of a phi input interval
+                //when at the bottom of a psi input interval, suff is the start of a phi output interval
                 //so, update the start of the previous input interval to phiPointAtPhiOutputIntervalStart
-                if (curr.offset == (*Psi.intLens)[curr.interval] - 1)
-                    std::cout << "starts output interval" << std::endl;
                 if (curr.offset == (*Psi.intLens)[curr.interval] - 1) {
-                    std::cout << "in if" << std::endl;
                     uint64_t runBelow = (curr.interval+1)%numRuns;
                     uint64_t phiInterval = intAtTop[runBelow];
-                    if (phiInterval == 25) {
-                        std::cout << "25: " << seq << " " << suff << std::endl;
-                    }
                     #pragma omp critical 
                     {
                         Phi.D_index[phiInterval] = phiPointAtPhiOutputIntervalStart.interval;
                         Phi.D_offset[phiInterval] = phiPointAtPhiOutputIntervalStart.offset;
                     }
-                    phiPointAtPhiOutputIntervalStart = phiPoint;
+                    //phiPointAtPhiOutputIntervalStart = phiPoint;
                 }
-
-                bool suffAtTop = (curr.offset == 0);
-                ++suff;
-                ++phiPoint.offset;
-
-                if (suff == 30) {
-                    std::cout << suffAtTop << std::endl;
-                }
-                //2.
-                //start new interval in phi if suff is at the top of a run
-                if (suffAtTop) {
-                    #pragma omp critical
-                    {
-                        ++phiPoint.interval;
-                        phiPoint.offset = 0;
-                    }
+                else {
+                    std::cerr << "ERROR: didn't set phi values of last interval of seq!" << std::endl;
+                    exit(1);
                 }
                 */
-            }
-            /*
-            std::cout << "done while" << std::endl;
-            //condition in the following if statement is redundant, should never be false.
-            //1. 
-            //when at the bottom of a psi input interval, suff is the start of a phi output interval
-            //so, update the start of the previous input interval to phiPointAtPhiOutputIntervalStart
-            if (curr.offset == (*Psi.intLens)[curr.interval] - 1) {
-                uint64_t runBelow = (curr.interval+1)%numRuns;
-                uint64_t phiInterval = intAtTop[runBelow];
-                #pragma omp critical 
-                {
-                    Phi.D_index[phiInterval] = phiPointAtPhiOutputIntervalStart.interval;
-                    Phi.D_offset[phiInterval] = phiPointAtPhiOutputIntervalStart.offset;
-                }
-                //phiPointAtPhiOutputIntervalStart = phiPoint;
-            }
-            else {
-                std::cerr << "ERROR: didn't set phi values of last interval of seq!" << std::endl;
-                exit(1);
-            }
-            */
 
-            if (suff != seqLens[seq+1]) {
-                std::cerr << "ERROR: suff didn't end up at the beginning of the next sequence!" << std::endl;
-                exit(1);
-            }
-            if (phiPoint.interval != numTopRuns[seq+1]) {
-                std::cerr << "ERROR: phiPoint didn't end up at the beginning of the next sequence!" << std::endl;
-                exit(1);
+                if (suff != seqLens[seq+1]) {
+                    std::cerr << "ERROR: suff didn't end up at the beginning of the next sequence!" << std::endl;
+                    exit(1);
+                }
+                if (phiPoint.interval != numTopRuns[seq+1]) {
+                    std::cerr << "ERROR: phiPoint didn't end up at the beginning of the next sequence!" << std::endl;
+                    exit(1);
+                }
             }
         }
         Timer.stop(); //Construct Phi and Samples
@@ -1143,6 +1243,7 @@ class LCPComputer {
     //All characters between (and including) 0 and max_char are assumed to have more than 0 occurrences
     //in the text. max_char is the maximum character in the text
     LCPComputer(rb3_fmi_t* rb3, const std::string& safeTempName, std::ofstream& lcpOut) {
+        std::cout << "Number of threads: " << omp_get_max_threads() << "\n";
         std::ofstream tempOutFile(safeTempName);
         if (!tempOutFile.is_open()) {
             std::cerr << "ERROR: File provided for temporary writing/reading, '" << safeTempName << "' failed to open for writing!" << std::endl;
@@ -1327,6 +1428,7 @@ class LCPComputer {
 
         /*
         Verifying Phi is VERY slow compared to verifying Psi ~300 seconds on mtb152 with 64 cores vs ~30 seconds for Psi on coombs c0-4. Why?
+        */
         Timer.start("Verifying Phi");
         if (!PhiNEWONEHE.permutationLengthN<EXPONENTIAL>(totalLen)) {
             std::cerr << "ERROR: Phi is not a permutation of length n!" << std::endl;
@@ -1334,7 +1436,6 @@ class LCPComputer {
         }
         std::cout << "Phi is a permutation of length n\n";
         Timer.stop(); //Verifying Phi
-        */
         sdsl::int_vector<> intAtEnd;
         {
             auto event = sdsl::memory_monitor::event("Recover intAtEnd from disk");
