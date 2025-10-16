@@ -3,6 +3,8 @@
 #include"fm-index.h"
 #include<queue>
 #include<omp.h>
+#include<atomic>
+#include<mutex>
 
 enum FFMethod { LINEAR, EXPONENTIAL };
 
@@ -1095,11 +1097,17 @@ class LCPComputer {
             suffStartingPhiInt[i] = suffStartingPhiInt[i-1] + PhiNEWONEHE.data.get<2>(i-1);
          */
 
+        std::atomic<uint64_t> updateWidthsWaiting(0), plcpWritesOccurring(0);
+        std::mutex updateWidthMutex;
+
+        uint64_t dangerousInts = 64/PLCPsamples.width() + (64 % PLCPsamples.width() != 0);
         #pragma omp parallel for schedule (dynamic, 1)
         for (uint64_t seq = 0; seq < numSequences; ++seq) {
             uint64_t suffMatchEnd = seqLens[seq], currIntStart = seqLens[seq];
             MoveStructureTable::IntervalPoint suffMatchEndIntPoint = Psi.map({static_cast<uint64_t>(-1), ((seq)? seq - 1 : numSequences - 1), 0});
-            for (uint64_t phiInt = numTopRuns[seq]; phiInt < numTopRuns[seq+1]; ++phiInt) { 
+            const uint64_t start = numTopRuns[seq];
+            const uint64_t end = numTopRuns[seq+1];
+            for (uint64_t phiInt = start; phiInt < end; ++phiInt) { 
                 //get suffix above phiInt
                 MoveStructureStartTable::IntervalPoint suffMatchingToPhiIntPoint = PhiNEWONEHE.map({static_cast<uint64_t>(-1), phiInt, 0});
                 uint64_t suffMatchingTo = PhiNEWONEHE.data.get<2>(suffMatchingToPhiIntPoint.interval) + suffMatchingToPhiIntPoint.offset;
@@ -1141,12 +1149,57 @@ class LCPComputer {
                     ++suffMatchEnd;
                 }
 
-                #pragma omp critical
-                {
-                    sdsl::util::expand_width(PLCPsamples, sdsl::bits::hi(suffMatchEnd - currIntStart) + 1);
-                    PLCPsamples[phiInt] = suffMatchEnd - currIntStart;
-                }
+                //we could also handle the parallelization very easily (and probably faster) with an r bit 
+                //buffer. But that increases peak memory by r bits (very minor of course, but an increase nonetheless
+                //Maybe implement it as a separate function?
 
+                //phiInt is the index in PLCPsamples to write lcpVal to
+                uint64_t lcpVal = suffMatchEnd - currIntStart;
+                uint64_t w = sdsl::bits::hi(lcpVal) + 1;
+                if (w > PLCPsamples.width()) {
+                    ++updateWidthsWaiting;
+                    {
+                        //(spinlock) busy wait for current writes to finish
+                        //this should be fast enough, since writes should be fast
+                        //and new ones don't start while updates are pending
+                        //I would use shared_lock for this but it's not clear whether
+                        //shared_lock or unique_lock gets preference. Is it fair? I suspect
+                        //shared_lock can starve unique_lock, but we want unique_lock to take 
+                        //precedence
+                        //
+                        //I can't think of a better way to do this other than spinlock right now.
+                        while (plcpWritesOccurring);
+
+                        std::lock_guard<std::mutex> lock(updateWidthMutex);
+                        //this function checks if w <= width and if so exits early, so the non atomic check in the above if statement is fine.
+                        sdsl::util::expand_width(PLCPsamples, w);
+                        dangerousInts = 64/PLCPsamples.width() + (64 % PLCPsamples.width() != 0);
+                    }
+                    --updateWidthsWaiting;
+                }
+                //write value
+                bool written = false;
+                while (!written) {
+                    //busy wait
+                    while (updateWidthsWaiting);
+                    ++plcpWritesOccurring;
+                    if (updateWidthsWaiting) {
+                        --plcpWritesOccurring;
+                        continue;
+                    }
+                    written = true;
+                    if (phiInt >= start + dangerousInts && phiInt < end - dangerousInts)
+                        PLCPsamples[phiInt] = lcpVal;
+                    else {
+                        //mixing omp and std concurrency handling should be fine
+                        //if my logic is right ... I think?
+                        #pragma omp critical
+                        {
+                            PLCPsamples[phiInt] = lcpVal;
+                        }
+                    }
+                    --plcpWritesOccurring;
+                }
 
                 currIntStart = PhiNEWONEHE.data.get<2>(phiInt+1);
                 if (suffMatchEnd < currIntStart) {
@@ -1428,7 +1481,6 @@ class LCPComputer {
 
         /*
         Verifying Phi is VERY slow compared to verifying Psi ~300 seconds on mtb152 with 64 cores vs ~30 seconds for Psi on coombs c0-4. Why?
-        */
         Timer.start("Verifying Phi");
         if (!PhiNEWONEHE.permutationLengthN<EXPONENTIAL>(totalLen)) {
             std::cerr << "ERROR: Phi is not a permutation of length n!" << std::endl;
@@ -1436,6 +1488,7 @@ class LCPComputer {
         }
         std::cout << "Phi is a permutation of length n\n";
         Timer.stop(); //Verifying Phi
+        */
         sdsl::int_vector<> intAtEnd;
         {
             auto event = sdsl::memory_monitor::event("Recover intAtEnd from disk");
@@ -1459,7 +1512,6 @@ class LCPComputer {
         }
 
         /*
-        */
         {
             Timer.start("Verifying Psi");
             {
@@ -1483,6 +1535,7 @@ class LCPComputer {
             }
             Timer.stop(); //Verifying Phi
         }
+        */
 
         //printPhiAndLCP(PLCPsamples);
         

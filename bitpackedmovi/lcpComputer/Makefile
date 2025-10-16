@@ -32,7 +32,7 @@ lcpHeads = $(optIncDir)/optbwtrl/util.h\
            $(optIncDir)/optbwtrl/lcpComputer.h\
            $(optIncDir)/optbwtrl/moveStructure.h\
 
-libs = -lsdsl -lpthread -lz -lm
+libs = -lsdsl -lpthread -lz -lm -latomic
 incs = -I$(optIncDir) -isystem$(incdir) -isystem$(ropebwt3dir)
 
 developmentflags+= -Wall -Wpedantic -Wextra -pedantic-errors -Wold-style-cast
