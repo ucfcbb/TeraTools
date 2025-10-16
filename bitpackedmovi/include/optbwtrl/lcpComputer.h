@@ -1313,6 +1313,7 @@ class LCPComputer {
             exit(1);
         }
 
+        sdsl::memory_monitor::granularity(std::chrono::milliseconds(1));
         sdsl::memory_monitor::start();
 
         //Psi.intLens = &Flens;
@@ -1381,6 +1382,10 @@ class LCPComputer {
             sdsl::serialize(F, tempOutFile);
             Timer.stop();
             F = sdsl::int_vector<>();
+            Timer.start("Storing intAtTop");
+            sdsl::serialize(intAtTop, tempOutFile);
+            tempOutFile.close();
+            Timer.stop();
         }
         /*
         {
@@ -1504,12 +1509,12 @@ class LCPComputer {
         Timer.stop(); //Verifying Phi
         */
         sdsl::int_vector<> intAtEnd;
+        std::ifstream tempInFile;
         {
             auto event = sdsl::memory_monitor::event("Recover intAtEnd and F from disk");
             Timer.start("Recover intAtEnd from disk");
             intAtTop = sdsl::int_vector<>();
-            tempOutFile.close();
-            std::ifstream tempInFile(safeTempName);
+            tempInFile.open(safeTempName);
             if (!tempInFile.is_open()) {
                 std::cerr << "ERROR: File provided for temporary writing/reading, '" << safeTempName << "' failed to open for reading!" << std::endl;
                 exit(1);
@@ -1518,7 +1523,6 @@ class LCPComputer {
             Timer.stop(); //Recover intAtEnd from disk
             Timer.start("Recover F from disk");
             sdsl::load(F, tempInFile);
-            tempInFile.close();
             Timer.stop(); //Recover F from disk
         }
 
@@ -1558,36 +1562,26 @@ class LCPComputer {
         */
         //printPhiAndLCP(PLCPsamples);
 
-        //reload intAtEnd again
+        //reload intAtEnd
         {
-            auto event = sdsl::memory_monitor::event("Recover intAtEnd from disk again");
-            Timer.start("Recover intAtEnd from disk again");
-            std::ifstream tempInFile(safeTempName);
+            auto event = sdsl::memory_monitor::event("Recover intAtTop from disk");
+            Timer.start("Recover intAtTop from disk");
             if (!tempInFile.is_open()) {
-                std::cerr << "ERROR: File provided for temporary writing/reading, '" << safeTempName << "' failed to open for reading!" << std::endl;
+                std::cerr << "ERROR: File provided for temporary writing/reading, '" << safeTempName << "' is no longer open for reading!" << std::endl;
                 exit(1);
             }
-            sdsl::load(intAtEnd, tempInFile);
+            sdsl::load(intAtTop, tempInFile);
             tempInFile.close();
-            Timer.stop(); //Recover intAtEnd from disk again
+            Timer.stop(); //Recover intAtTop from disk 
         }
-        
-        /*
+
         Timer.start("Computing minLCP per run");
         {
             auto event = sdsl::memory_monitor::event("Computing minLCP per run");
-            //Psi = MoveStructure();
-            
-
-            intAtTop = sdsl::int_vector<>(F.size(), 0, sdsl::bits::hi(F.size() - 1) + 1);
-            //reinvert intAtEnd
-            for (uint64_t i = 0; i < F.size(); ++i)
-                intAtTop[intAtEnd[i]] = i;
-            intAtEnd = sdsl::int_vector<>();
-            
             ComputeMinLCPRun(intAtTop, F, Psi, lcpOut);
         }
         Timer.stop(); //Computing minLCP per run"
+        /*
         */
 
         sdsl::memory_monitor::stop();
