@@ -497,10 +497,9 @@ class LCPComputer {
         }
         Timer.stop(); //Reading fmd for parameters
 
-        MoveStructure tempPsi;
+        Psi.data = packedTripleVector(sdsl::bits::hi(runs - 1) + 1, sdsl::bits::hi(lenRange.max - 1) + 1, lenbits, runs);
         Timer.start("Reading fmd to create Flens");
         {
-            tempPsi.intLens = new sdsl::int_vector<>(runs, 0, lenbits);
 
             std::vector<uint64_t> alphFRunStarts(alphRuns.size());
             for (uint64_t i = 1; i < alphRuns.size(); ++i) {
@@ -514,11 +513,11 @@ class LCPComputer {
 
             while ((l = rld_dec(rb3->e, &itr1, &c, 0)) > 0) {
                 if (c == 0) {
-                    for (uint64_t i = 0; i<static_cast<uint64_t>(l); ++i)
-                        (*tempPsi.intLens)[alphFRunStarts[c]++] = 1;
+                    for (uint64_t i = 0; i < static_cast<uint64_t>(l); ++i)
+                        Psi.data.set<2>(alphFRunStarts[c]++, 1);
                 }
                 else {
-                    (*tempPsi.intLens)[alphFRunStarts[c]++] = l;
+                    Psi.data.set<2>(alphFRunStarts[c]++, l);
                 }
             }
 
@@ -536,8 +535,6 @@ class LCPComputer {
         //NOTE: Psi of endmarker runs will be incorrect, will fix in a later step
         Timer.start("Reading fmd to create D_index and D_offset");
         {
-            tempPsi.D_index = sdsl::int_vector<>(runs, 0, sdsl::bits::hi(runs - 1) + 1);
-            tempPsi.D_offset = sdsl::int_vector<>(runs, 0, sdsl::bits::hi(lenRange.max - 1) + 1);
 
             std::vector<uint64_t> alphFRunStarts(alphRuns.size());
             for (uint64_t i = 1; i < alphRuns.size(); ++i) {
@@ -554,25 +551,25 @@ class LCPComputer {
             while ((l = rld_dec(rb3->e, &itr1, &c, 0)) > 0) {
                 if (c == 0) {
                     for (uint64_t i = 0; i<static_cast<uint64_t>(l); ++i) {
-                        tempPsi.D_index[alphFRunStarts[c]] = currentRun;
-                        tempPsi.D_offset[alphFRunStarts[c]] = currentOffset;
+                        Psi.data.set<0>(alphFRunStarts[c], currentRun);
+                        Psi.data.set<1>(alphFRunStarts[c], currentOffset);
 
                         ++alphFRunStarts[c];
 
                         ++currentOffset;
-                        currentOffset %= (*tempPsi.intLens)[currentRun];
+                        currentOffset %= Psi.data.get<2>(currentRun);
                         currentRun += (currentOffset == 0);
                     }
                 }
                 else {
-                    tempPsi.D_index[alphFRunStarts[c]] = currentRun;
-                    tempPsi.D_offset[alphFRunStarts[c]] = currentOffset;
+                    Psi.data.set<0>(alphFRunStarts[c], currentRun);
+                    Psi.data.set<1>(alphFRunStarts[c], currentOffset);
 
                     ++alphFRunStarts[c];
 
                     currentOffset += l;
-                    while (currentOffset && currentOffset >= (*tempPsi.intLens)[currentRun])
-                        currentOffset -= (*tempPsi.intLens)[currentRun++];
+                    while (currentOffset && currentOffset >= Psi.data.get<2>(currentRun))
+                        currentOffset -= Psi.data.get<2>(currentRun++);
                 }
             }
 
@@ -601,8 +598,6 @@ class LCPComputer {
         }
         Timer.stop(); //Constructing F
 
-        Psi = std::move(MoveStructureTable(tempPsi));
-        delete tempPsi.intLens;
         Timer.stop(); //Constructing Psi from FMD
     }
 
@@ -1570,7 +1565,6 @@ class LCPComputer {
             Timer.stop(); //Recover intAtEnd from disk again
         }
         
-        /*
         Timer.start("Computing minLCP per run");
         {
             auto event = sdsl::memory_monitor::event("Computing minLCP per run");
@@ -1586,10 +1580,12 @@ class LCPComputer {
             ComputeMinLCPRun(intAtTop, F, Psi, lcpOut);
         }
         Timer.stop(); //Computing minLCP per run"
+        /*
         */
 
         sdsl::memory_monitor::stop();
         std::cout << "peak usage = " << sdsl::memory_monitor::peak() << " bytes" << std::endl;
+        std::cout << "peak usage = " << (sdsl::memory_monitor::peak()+1023)/1024 << " kibibytes" << std::endl;
 
         std::ofstream cstofs("construction.html");
         std::cout << "writing memory usage visualization to construction.html\n";
