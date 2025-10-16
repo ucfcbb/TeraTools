@@ -740,7 +740,7 @@ class LCPComputer {
                         if (currentInt >= safeStart && currentInt < safeEnd)
                             PhiIntLen[currentInt] = currIntLen;
                         else {
-                            #pragma omp critical
+                            #pragma omp critical(philenwriting)
                             {
                                 PhiIntLen[currentInt] = currIntLen;
                             }
@@ -757,7 +757,7 @@ class LCPComputer {
 
                 assert(curr.offset == 0);
                 //if (curr.offset == 0) {
-                #pragma omp critical
+                #pragma omp critical(philenwriting)
                 {
                     PhiIntLen[currentInt] = currIntLen;
                 }
@@ -774,7 +774,7 @@ class LCPComputer {
                 }
                 */
                 //}
-                #pragma omp critical
+                #pragma omp critical(intattopwriting)
                 {
                     for (uint64_t i = 0; i < intAtTopIndex.size(); ++i) {
                         intAtTop[intAtTopIndex[i]] = intAtTopValue[i];
@@ -805,7 +805,7 @@ class LCPComputer {
         Timer.stop(); //Computing numTopRuns, seqLens, and repairing Psi of endmarkers in F
     }
 
-    void ConstructPhiAndSamples(const sdsl::int_vector<>& F, const MoveStructureTable& Psi, sdsl::int_vector<>& PhiIntLen, const uint64_t FlensBits,
+    void ConstructPhiAndSamples(const MoveStructureTable& Psi, sdsl::int_vector<>& PhiIntLen, const uint64_t FlensBits,
             const std::vector<uint64_t>& numTopRuns, const std::vector<uint64_t>& seqLens, const sdsl::int_vector<>& intAtTop, const uint64_t numSequences, const uint64_t maxPhiIntLen,
             uint64_t & sampleInterval, sdsl::int_vector<> &Psi_Index_Samples, sdsl::int_vector<> &Psi_Offset_Samples) {
         Timer.start("Construct Phi and Samples");
@@ -814,7 +814,7 @@ class LCPComputer {
         //computing, for each seq i, 
         // 1. whenever suffix j of i is at the bottom of a run, the input interval and offset of suffix j of i in Phi (D_index and D_offset of the top of the run below it)
         // 2. Psi_Index_Samples and Psi_Offset_Samples: ISA samples (in psi move data structure), for every suffix that is a multiple of n/r (of the original text)
-        uint64_t numRuns = F.size();
+        uint64_t numRuns = Psi.data.size();
         sampleInterval = totalLen/numRuns;
         uint64_t numSamples = (totalLen%sampleInterval != 0) + (totalLen/sampleInterval);
         //std::cout << "sampleInterval " << sampleInterval << std::endl;
@@ -1368,7 +1368,7 @@ class LCPComputer {
         }
 
         {
-            auto event = sdsl::memory_monitor::event("Computing and storing intAtEnd");
+            auto event = sdsl::memory_monitor::event("Computing and storing intAtEnd and F");
             Timer.start("Computing and storing intAtEnd");
             sdsl::int_vector<> intAtEnd(F.size(), 0, sdsl::bits::hi(F.size() - 1) + 1);
             //intAtEnd[j] is the input interval of Psi where the suffix at the end of input interval j of Phi occurs
@@ -1377,6 +1377,10 @@ class LCPComputer {
                 intAtEnd[intAtTop[i]] = i;
             sdsl::serialize(intAtEnd, tempOutFile);
             Timer.stop(); //Computing and storing intAtEnd
+            Timer.start("Storing F");
+            sdsl::serialize(F, tempOutFile);
+            Timer.stop();
+            F = sdsl::int_vector<>();
         }
         /*
         {
@@ -1432,7 +1436,7 @@ class LCPComputer {
         sdsl::int_vector<> Psi_Index_Samples, Psi_Offset_Samples;
         {
             auto event = sdsl::memory_monitor::event("Construct Phi and Equidistant ISA Samples");
-            ConstructPhiAndSamples(F, Psi, PhiIntLen, Psi.data.c, numTopRuns, seqLens, intAtTop, numSequences, maxPhiIntLen, sampleInterval, Psi_Index_Samples, Psi_Offset_Samples);
+            ConstructPhiAndSamples(Psi, PhiIntLen, Psi.data.c, numTopRuns, seqLens, intAtTop, numSequences, maxPhiIntLen, sampleInterval, Psi_Index_Samples, Psi_Offset_Samples);
         }
 
         /*
@@ -1501,7 +1505,7 @@ class LCPComputer {
         */
         sdsl::int_vector<> intAtEnd;
         {
-            auto event = sdsl::memory_monitor::event("Recover intAtEnd from disk");
+            auto event = sdsl::memory_monitor::event("Recover intAtEnd and F from disk");
             Timer.start("Recover intAtEnd from disk");
             intAtTop = sdsl::int_vector<>();
             tempOutFile.close();
@@ -1511,8 +1515,11 @@ class LCPComputer {
                 exit(1);
             }
             sdsl::load(intAtEnd, tempInFile);
-            tempInFile.close();
             Timer.stop(); //Recover intAtEnd from disk
+            Timer.start("Recover F from disk");
+            sdsl::load(F, tempInFile);
+            tempInFile.close();
+            Timer.stop(); //Recover F from disk
         }
 
 
@@ -1565,6 +1572,7 @@ class LCPComputer {
             Timer.stop(); //Recover intAtEnd from disk again
         }
         
+        /*
         Timer.start("Computing minLCP per run");
         {
             auto event = sdsl::memory_monitor::event("Computing minLCP per run");
@@ -1580,7 +1588,6 @@ class LCPComputer {
             ComputeMinLCPRun(intAtTop, F, Psi, lcpOut);
         }
         Timer.stop(); //Computing minLCP per run"
-        /*
         */
 
         sdsl::memory_monitor::stop();
