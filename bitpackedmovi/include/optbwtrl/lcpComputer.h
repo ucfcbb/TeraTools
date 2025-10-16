@@ -1085,11 +1085,11 @@ class LCPComputer {
         Timer.stop(); //Construct Phi and Samples
     }
 
-    void ComputePLCPSamples(const sdsl::int_vector<>& intAtEnd, const uint64_t numSequences, const sdsl::int_vector<>& F, 
+    void ComputePLCPSamples(sdsl::int_vector<>& intAtEnd, const uint64_t numSequences, const sdsl::int_vector<>& F, 
             const MoveStructureTable& Psi, const std::vector<uint64_t>& numTopRuns, const std::vector<uint64_t>& seqLens,
             const uint64_t sampleInterval, const sdsl::int_vector<>& Psi_Index_Samples, const sdsl::int_vector<>& Psi_Offset_Samples) {
         Timer.start("LCP Computation");
-        PLCPsamples = sdsl::int_vector<>(F.size(), 0, 1);
+        //PLCPsamples = sdsl::int_vector<>(F.size(), 0, 1);
 
         /*
         sdsl::int_vector<> suffStartingPhiInt(F.size(), 0, sdsl::bits::hi(seqLens.back() - 1) + 1);
@@ -1100,18 +1100,25 @@ class LCPComputer {
         std::atomic<uint64_t> updateWidthsWaiting(0), plcpWritesOccurring(0);
         std::mutex updateWidthMutex;
 
-        uint64_t dangerousInts = 64/PLCPsamples.width() + (64 % PLCPsamples.width() != 0);
+        uint64_t dangerousInts = 64/intAtEnd.width() + (64 % intAtEnd.width() != 0);
+
+        bool needCompress = true;
+        std::vector<uint64_t> prevPsiIntSeqStart(numSequences);
+        prevPsiIntSeqStart[0] = intAtEnd[F.size() - 1];
+        for (uint64_t i = 1; i < numSequences; ++i)
+            prevPsiIntSeqStart[i] = intAtEnd[numTopRuns[i] - 1];
         #pragma omp parallel for schedule (dynamic, 1)
         for (uint64_t seq = 0; seq < numSequences; ++seq) {
             uint64_t suffMatchEnd = seqLens[seq], currIntStart = seqLens[seq];
             MoveStructureTable::IntervalPoint suffMatchEndIntPoint = Psi.map({static_cast<uint64_t>(-1), ((seq)? seq - 1 : numSequences - 1), 0});
             const uint64_t start = numTopRuns[seq];
             const uint64_t end = numTopRuns[seq+1];
+            uint64_t prevIntAtEnd = prevPsiIntSeqStart[seq];
             for (uint64_t phiInt = start; phiInt < end; ++phiInt) { 
                 //get suffix above phiInt
                 MoveStructureStartTable::IntervalPoint suffMatchingToPhiIntPoint = PhiNEWONEHE.map({static_cast<uint64_t>(-1), phiInt, 0});
                 uint64_t suffMatchingTo = PhiNEWONEHE.data.get<2>(suffMatchingToPhiIntPoint.interval) + suffMatchingToPhiIntPoint.offset;
-                uint64_t psiIntAbove = intAtEnd[(phiInt)? phiInt - 1 : F.size() - 1];
+                uint64_t psiIntAbove = prevIntAtEnd;
                 MoveStructureTable::IntervalPoint coordAbove = Psi.map({static_cast<uint64_t>(-1), psiIntAbove, 0});
                 if (coordAbove.offset == 0) {
                     coordAbove.interval = (coordAbove.interval)? coordAbove.interval - 1 : F.size() - 1;
@@ -1156,7 +1163,17 @@ class LCPComputer {
                 //phiInt is the index in PLCPsamples to write lcpVal to
                 uint64_t lcpVal = suffMatchEnd - currIntStart;
                 uint64_t w = sdsl::bits::hi(lcpVal) + 1;
-                if (w > PLCPsamples.width()) {
+
+                //use intAtEnd before it's overwritten
+                prevIntAtEnd = intAtEnd[phiInt];
+                currIntStart = PhiNEWONEHE.data.get<2>(phiInt+1);
+                if (suffMatchEnd < currIntStart) {
+                    suffMatchEnd = currIntStart;
+                    suffMatchEndIntPoint = Psi.map({static_cast<uint64_t>(-1), intAtEnd[phiInt], 0});
+                }
+
+                //write lcpVal to intAtEnd[phiInt
+                if (w > intAtEnd.width()) {
                     ++updateWidthsWaiting;
                     {
                         //(spinlock) busy wait for current writes to finish
@@ -1172,8 +1189,9 @@ class LCPComputer {
 
                         std::lock_guard<std::mutex> lock(updateWidthMutex);
                         //this function checks if w <= width and if so exits early, so the non atomic check in the above if statement is fine.
-                        sdsl::util::expand_width(PLCPsamples, w);
-                        dangerousInts = 64/PLCPsamples.width() + (64 % PLCPsamples.width() != 0);
+                        sdsl::util::expand_width(intAtEnd, w);
+                        needCompress = false;
+                        dangerousInts = 64/intAtEnd.width() + (64 % intAtEnd.width() != 0);
                     }
                     --updateWidthsWaiting;
                 }
@@ -1189,27 +1207,24 @@ class LCPComputer {
                     }
                     written = true;
                     if (phiInt >= start + dangerousInts && phiInt < end - dangerousInts)
-                        PLCPsamples[phiInt] = lcpVal;
+                        intAtEnd[phiInt] = lcpVal;
                     else {
                         //mixing omp and std concurrency handling should be fine
                         //if my logic is right ... I think?
                         #pragma omp critical
                         {
-                            PLCPsamples[phiInt] = lcpVal;
+                            intAtEnd[phiInt] = lcpVal;
                         }
                     }
                     --plcpWritesOccurring;
                 }
-
-                currIntStart = PhiNEWONEHE.data.get<2>(phiInt+1);
-                if (suffMatchEnd < currIntStart) {
-                    suffMatchEnd = currIntStart;
-                    suffMatchEndIntPoint = Psi.map({static_cast<uint64_t>(-1), intAtEnd[phiInt], 0});
-                }
             }
         }
 
-        sdsl::util::bit_compress(PLCPsamples);
+        PLCPsamples = std::move(intAtEnd);
+
+        if (needCompress)
+            sdsl::util::bit_compress(PLCPsamples);
         std::cout << "PLCP width: " << static_cast<uint64_t>(PLCPsamples.width()) << std::endl;
         Timer.stop(); //LCP Computation
     }
@@ -1509,6 +1524,8 @@ class LCPComputer {
         {
             auto event = sdsl::memory_monitor::event("Compute PLCP Samples");
             ComputePLCPSamples(intAtEnd, numSequences, F, Psi, numTopRuns, seqLens, sampleInterval, Psi_Index_Samples, Psi_Offset_Samples);
+            Psi_Index_Samples = sdsl::int_vector<>();
+            Psi_Offset_Samples = sdsl::int_vector<>();
         }
 
         /*
@@ -1535,16 +1552,29 @@ class LCPComputer {
             }
             Timer.stop(); //Verifying Phi
         }
-        */
 
+        */
         //printPhiAndLCP(PLCPsamples);
+
+        //reload intAtEnd again
+        {
+            auto event = sdsl::memory_monitor::event("Recover intAtEnd from disk again");
+            Timer.start("Recover intAtEnd from disk again");
+            std::ifstream tempInFile(safeTempName);
+            if (!tempInFile.is_open()) {
+                std::cerr << "ERROR: File provided for temporary writing/reading, '" << safeTempName << "' failed to open for reading!" << std::endl;
+                exit(1);
+            }
+            sdsl::load(intAtEnd, tempInFile);
+            tempInFile.close();
+            Timer.stop(); //Recover intAtEnd from disk again
+        }
         
+        /*
         Timer.start("Computing minLCP per run");
         {
             auto event = sdsl::memory_monitor::event("Computing minLCP per run");
             //Psi = MoveStructure();
-            Psi_Index_Samples = sdsl::int_vector<>();
-            Psi_Offset_Samples = sdsl::int_vector<>();
             
 
             intAtTop = sdsl::int_vector<>(F.size(), 0, sdsl::bits::hi(F.size() - 1) + 1);
@@ -1556,6 +1586,7 @@ class LCPComputer {
             ComputeMinLCPRun(intAtTop, F, Psi, lcpOut);
         }
         Timer.stop(); //Computing minLCP per run"
+        */
 
         sdsl::memory_monitor::stop();
         std::cout << "peak usage = " << sdsl::memory_monitor::peak() << " bytes" << std::endl;
