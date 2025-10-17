@@ -103,6 +103,7 @@ void processOptions(const int argc, const char* argv[]) {
     s = getArg("-p", false, true);
     if (s != "")
         o.numThreads = std::stoul(s);
+    o.mmap = ("-mmap" == getArg("-mmap", false, false));
 #ifndef BENCHFASTONLY
     s = getArg("-v", false, true);
     if (s == "quiet")
