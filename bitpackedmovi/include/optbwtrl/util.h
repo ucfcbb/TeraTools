@@ -2,6 +2,10 @@
 #include<stack>
 #include<chrono>
 
+#ifndef BENCHFASTONLY
+enum verbosity { QUIET, TIME, VERB };
+#endif
+
 class timer {
     std::stack<std::pair<std::chrono::time_point<std::chrono::high_resolution_clock>, std::string>> processes; 
     const char scopeChar;

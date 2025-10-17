@@ -395,8 +395,14 @@ class LCPComputer {
 
     sdsl::int_vector<> PLCPsamples;
 
-    void ConstructPsi(const rb3_fmi_t* rb3, sdsl::int_vector<> & F, MoveStructureTable &Psi, uint64_t & numSequences) {
-        Timer.start("Constructing Psi from FMD");
+    void ConstructPsi(const rb3_fmi_t* rb3, sdsl::int_vector<> & F, MoveStructureTable &Psi, uint64_t & numSequences
+            #ifndef BENCHFASTONLY
+            , const verbosity v
+            #endif
+            ) {
+        #ifndef BENCHFASTONLY
+        if (v >= TIME) { Timer.start("Constructing Psi from FMD"); }
+        #endif
 
         uint64_t runs = 0, alphbits, lenbits;
         totalLen = 0;
@@ -404,10 +410,15 @@ class LCPComputer {
         std::vector<uint64_t> alphRuns;
 
         uRange RB3_lenRange;
-        Timer.start("Reading fmd for parameters");
+        #ifndef BENCHFASTONLY
+        if (v >= TIME) { Timer.start("Reading fmd for parameters"); }
+        #endif
         {
             //original ropebwt3 values
-            uint64_t RB3_runs = 0, RB3_lenbits;
+            uint64_t RB3_runs = 0; 
+            #ifndef BENCHFASTONLY
+            uint64_t RB3_lenbits;
+            #endif
 
             uRange alphRange;
 
@@ -472,33 +483,44 @@ class LCPComputer {
                 exit(1);
             }
 
-            std::cout << "INFO: The parameters for our constructed BWT (i.e. #runs, max length, etc.) may be "
-                << "different from those of the input (ropebwt3).\nINFO: This is because in our constructed BWT, "
-                << "each endmarker is contained in its own run.\n";
+            #ifndef BENCHFASTONLY
+            if (v >= VERB)
+                std::cout << "INFO: The parameters for our constructed BWT (i.e. #runs, max length, etc.) may be "
+                    << "different from those of the input (ropebwt3).\nINFO: This is because in our constructed BWT, "
+                    << "each endmarker is contained in its own run.\n";
+            #endif
 
             alphbits = sdsl::bits::hi(alphRange.max) + 1;
-            RB3_lenbits = sdsl::bits::hi(RB3_lenRange.max) + 1;
             lenbits = sdsl::bits::hi(lenRange.max) + 1;
             if (alphbits != static_cast<uint64_t>(rb3->e->abits)) 
                 std::cout << "WARNING: computed bits per symbol not equal to bits used in fmd. Computed: " 
                     << alphbits << ", ropebwt3: " << static_cast<uint64_t>(rb3->e->abits) << std::endl;
 
-            std::cout << "Input number of runs (i.e. before splitting endmarker runs): " << RB3_runs 
-                << "\nThis index number of runs (i.e. after splitting endmarker runs): " << runs 
-                << "\nNumber of bits per symbol in rlbwt: " << alphbits 
-                << "\nInput number of bits per run for encoding length (i.e. before splitting endmarker runs): " << RB3_lenbits
-                << "\nThis index number of bits per run for encoding length (i.e. after splitting endmarker runs): " << lenbits
-                << std::endl;
+            #ifndef BENCHFASTONLY
+            RB3_lenbits = sdsl::bits::hi(RB3_lenRange.max) + 1;
+            if (v >= VERB) {
+                std::cout << "Input number of runs (i.e. before splitting endmarker runs): " << RB3_runs 
+                    << "\nThis index number of runs (i.e. after splitting endmarker runs): " << runs 
+                    << "\nNumber of bits per symbol in rlbwt: " << alphbits 
+                    << "\nInput number of bits per run for encoding length (i.e. before splitting endmarker runs): " << RB3_lenbits
+                    << "\nThis index number of bits per run for encoding length (i.e. after splitting endmarker runs): " << lenbits
+                    << std::endl;
 
-            std::cout << "Alphabet range: " << alphRange 
-                << "\nInput run lengths range (i.e. before splitting endmarker runs): " << RB3_lenRange
-                << "\nThis index run lengths range (i.e. after splitting endmarker runs): " << lenRange << std::endl;
-            std::cout << "Total BWT length: " << totalLen << std::endl;
+                std::cout << "Alphabet range: " << alphRange 
+                    << "\nInput run lengths range (i.e. before splitting endmarker runs): " << RB3_lenRange
+                    << "\nThis index run lengths range (i.e. after splitting endmarker runs): " << lenRange << std::endl;
+                std::cout << "Total BWT length: " << totalLen << std::endl;
+            }
+            #endif
         }
-        Timer.stop(); //Reading fmd for parameters
+        #ifndef BENCHFASTONLY
+        if (v >= TIME) { Timer.stop(); } //Reading fmd for parameters
+        #endif
 
         Psi.data = packedTripleVector(sdsl::bits::hi(runs - 1) + 1, sdsl::bits::hi(lenRange.max - 1) + 1, lenbits, runs);
-        Timer.start("Reading fmd to create Flens");
+        #ifndef BENCHFASTONLY
+        if (v >= TIME) { Timer.start("Reading fmd to create Flens"); }
+        #endif
         {
 
             std::vector<uint64_t> alphFRunStarts(alphRuns.size());
@@ -530,10 +552,12 @@ class LCPComputer {
                 prevStart = alphFRunStarts[i];
             }
         }
-        Timer.stop(); //Reading fmd to create Flens
+        #ifndef BENCHFASTONLY
+        if (v >= TIME) { Timer.stop(); } //Reading fmd to create Flens
 
         //NOTE: Psi of endmarker runs will be incorrect, will fix in a later step
-        Timer.start("Reading fmd to create D_index and D_offset");
+        if (v >= TIME) { Timer.start("Reading fmd to create D_index and D_offset"); }
+        #endif
         {
 
             std::vector<uint64_t> alphFRunStarts(alphRuns.size());
@@ -582,13 +606,15 @@ class LCPComputer {
                 prevStart = alphFRunStarts[i];
             }
         }
-        Timer.stop(); //Reading fmd to create D_index and D_offset
+        #ifndef BENCHFASTONLY
+        if (v >= TIME) { Timer.stop(); } //Reading fmd to create D_index and D_offset
 
         //obviously, we could just replace F with a bit vector of length r with sigma set bits
         //and use rank on the bitvector
         //for the same time complexity but r bits instead of r log sigma
         //I'm not sure how much slower that is. I haven't tried it yet.
-        Timer.start("Constructing F");
+        if (v >= TIME) { Timer.start("Constructing F"); }
+        #endif
         {
             F = sdsl::int_vector<>(runs, 7, alphbits);
             uint64_t curr = 0;
@@ -596,9 +622,11 @@ class LCPComputer {
                 for (uint64_t i = 0; i < alphRuns[alph]; ++i)
                     F[curr++] = alph;
         }
-        Timer.stop(); //Constructing F
+        #ifndef BENCHFASTONLY
+        if (v >= TIME) { Timer.stop(); } //Constructing F
 
-        Timer.stop(); //Constructing Psi from FMD
+        if (v >= TIME) { Timer.stop(); } //Constructing Psi from FMD }
+        #endif
     }
 
     //O(n) time, not needed for LCP computation
@@ -622,8 +650,14 @@ class LCPComputer {
     //with suffix x-1 at the top of the input interval,
     //how many suffixes < x are at the top of a run in the BWT
     void ComputeAuxAndRepairPsi(uint64_t& maxPhiIntLen, std::vector<uint64_t> & numTopRuns, std::vector<uint64_t> & seqLens, sdsl::int_vector<> & intAtTop, 
-            const sdsl::int_vector<>& F, MoveStructureTable& Psi, sdsl::int_vector<>& PhiIntLen, const uint64_t numSequences) {
-        Timer.start("Computing numTopRuns, seqLens, and repairing Psi of endmarkers in F");
+            const sdsl::int_vector<>& F, MoveStructureTable& Psi, sdsl::int_vector<>& PhiIntLen, const uint64_t numSequences
+            #ifndef BENCHFASTONLY
+            , const verbosity v
+            #endif
+            ) {
+        #ifndef BENCHFASTONLY
+        if (v >= TIME) { Timer.start("Computing numTopRuns, seqLens, and repairing Psi of endmarkers in F"); } 
+        #endif
 
         numTopRuns.resize(numSequences + 1);
         seqLens = std::vector<uint64_t>(numSequences + 1);
@@ -631,7 +665,9 @@ class LCPComputer {
         intAtTop = sdsl::int_vector<>(F.size(), -1, sdsl::bits::hi(F.size() - 1) + 1);
 
         //computing seqLens, numTopRuns, correctSeqPsis, and maxPhiIntLen
-        Timer.start("Parallel seq traversal");
+        #ifndef BENCHFASTONLY
+        if (v >= TIME) { Timer.start("Parallel seq traversal"); }
+        #endif
         {
             std::vector<uint64_t> maxPhiIntLenPerSeq(numSequences);
             std::vector<MoveStructureTable::IntervalPoint> correctSeqPsis(numSequences);
@@ -687,10 +723,14 @@ class LCPComputer {
                 maxPhiIntLen = std::max(maxPhiIntLen, maxPhiIntLenPerSeq[seq]);
             }
         }
-        Timer.stop(); //Parallel seq traversal
+        #ifndef BENCHFASTONLY
+        if (v >= TIME) { Timer.stop(); } //Parallel seq traversal 
+        #endif
 
         //from here on, numTopRuns and seqLens are the exclusive prefix sums of their previous definition
-        Timer.start("Prefix summing auxiliary data");
+        #ifndef BENCHFASTONLY
+        if (v >= TIME) { Timer.start("Prefix summing auxiliary data"); }
+        #endif
         for (uint64_t i = 1; i < seqLens.size(); ++i) {
             seqLens[i] += seqLens[i-1];
             numTopRuns[i] += numTopRuns[i-1];
@@ -704,13 +744,19 @@ class LCPComputer {
             std::cerr << "ERROR: Lengths in seqLens doesn't sum to total length!" << std::endl;
             exit(1);
         }
-        Timer.stop(); //Prefix summing auxiliary data
+        #ifndef BENCHFASTONLY
+        if (v >= TIME) { Timer.stop(); } //Prefix summing auxiliary data
+        #endif
 
-        std::cout << "INFO: maximum interval length for phi data structure: " << maxPhiIntLen << std::endl;
+        #ifndef BENCHFASTONLY
+        if (v >= VERB) { std::cout << "INFO: maximum interval length for phi data structure: " << maxPhiIntLen << std::endl; } 
+        #endif
 
         PhiIntLen = sdsl::int_vector<>(F.size(), 0, sdsl::bits::hi(maxPhiIntLen) + 1);
         //computing intAtTop and PhiIntLen
-        Timer.start("Second Parallel seq traversal");
+        #ifndef BENCHFASTONLY
+        if (v >= TIME) { Timer.start("Second Parallel seq traversal"); }
+        #endif
         {
             uint64_t dangerousInts = 64/std::min(PhiIntLen.width(), intAtTop.width()) + (64 % std::min(PhiIntLen.width(), intAtTop.width()) != 0);
             #pragma omp parallel for schedule(dynamic, 1)
@@ -801,14 +847,24 @@ class LCPComputer {
         }
         std::cout << "total sum: " << sum << std::endl;
         */
-        Timer.stop(); //Second Parallel seq traversal
-        Timer.stop(); //Computing numTopRuns, seqLens, and repairing Psi of endmarkers in F
+        #ifndef BENCHFASTONLY
+        if (v >= TIME) { Timer.stop(); } //Second Parallel seq traversal }
+        #endif
+        #ifndef BENCHFASTONLY
+        if (v >= TIME) { Timer.stop(); } //Computing numTopRuns, seqLens, and repairing Psi of endmarkers in F
+        #endif
     }
 
     void ConstructPhiAndSamples(const MoveStructureTable& Psi, sdsl::int_vector<>& PhiIntLen, const uint64_t FlensBits,
             const std::vector<uint64_t>& numTopRuns, const std::vector<uint64_t>& seqLens, const sdsl::int_vector<>& intAtTop, const uint64_t numSequences, const uint64_t maxPhiIntLen,
-            uint64_t & sampleInterval, sdsl::int_vector<> &Psi_Index_Samples, sdsl::int_vector<> &Psi_Offset_Samples) {
-        Timer.start("Construct Phi and Samples");
+            uint64_t & sampleInterval, sdsl::int_vector<> &Psi_Index_Samples, sdsl::int_vector<> &Psi_Offset_Samples
+            #ifndef BENCHFASTONLY
+            , const verbosity v
+            #endif
+            ) {
+        #ifndef BENCHFASTONLY
+        if (v >= TIME) { Timer.start("Construct Phi and Samples"); }
+        #endif
         //MoveStructure tempPhi;
         //tempPhi.intLens = &PhiIntLen;
         //computing, for each seq i, 
@@ -839,8 +895,12 @@ class LCPComputer {
         }
         Psi_Index_Samples = sdsl::int_vector<>(numSamples, 0, sdsl::bits::hi(numRuns - 1) + 1);
         Psi_Offset_Samples = sdsl::int_vector<>(numSamples, 0, FlensBits);
-        std::cout << "FlensBits: " << FlensBits << std::endl;
-        std::cout << "Psi_Offset_Samples.width(): " << static_cast<uint64_t>(Psi_Offset_Samples.width()) << std::endl;
+        #ifndef BENCHFASTONLY
+        if (v >= VERB) {
+            std::cout << "FlensBits: " << FlensBits << std::endl;
+            std::cout << "Psi_Offset_Samples.width(): " << static_cast<uint64_t>(Psi_Offset_Samples.width()) << std::endl;
+        }
+        #endif
         {
             /*
                Fixing the thrashing of the Phi computation method without 
@@ -1077,13 +1137,21 @@ class LCPComputer {
                 }
             }
         }
-        Timer.stop(); //Construct Phi and Samples
+        #ifndef BENCHFASTONLY
+        if (v >= TIME) { Timer.stop(); } //Construct Phi and Samples
+        #endif
     }
 
     void ComputePLCPSamples(sdsl::int_vector<>& intAtEnd, const uint64_t numSequences, const sdsl::int_vector<>& F, 
             const MoveStructureTable& Psi, const std::vector<uint64_t>& numTopRuns, const std::vector<uint64_t>& seqLens,
-            const uint64_t sampleInterval, const sdsl::int_vector<>& Psi_Index_Samples, const sdsl::int_vector<>& Psi_Offset_Samples) {
-        Timer.start("LCP Computation");
+            const uint64_t sampleInterval, const sdsl::int_vector<>& Psi_Index_Samples, const sdsl::int_vector<>& Psi_Offset_Samples
+            #ifndef BENCHFASTONLY
+            , const verbosity v
+            #endif
+            ) {
+        #ifndef BENCHFASTONLY
+        if (v >= TIME) { Timer.start("LCP Computation"); }
+        #endif
         //PLCPsamples = sdsl::int_vector<>(F.size(), 0, 1);
 
         /*
@@ -1220,11 +1288,374 @@ class LCPComputer {
 
         if (needCompress)
             sdsl::util::bit_compress(PLCPsamples);
-        std::cout << "PLCP width: " << static_cast<uint64_t>(PLCPsamples.width()) << std::endl;
-        Timer.stop(); //LCP Computation
+        #ifndef BENCHFASTONLY
+        if (v >= VERB)
+            std::cout << "PLCP width: " << static_cast<uint64_t>(PLCPsamples.width()) << std::endl;
+        if (v >= TIME) { Timer.stop(); } //LCP Computation
+        #endif
     }
 
-    void ComputeMinLCPRun(const sdsl::int_vector<>& intAtTop, const sdsl::int_vector<>& F, const MoveStructureTable& Psi, std::ofstream& out) {
+    public:
+    typedef uint64_t size_type;
+
+    //input: a run length encoding of a multidollar BWT where all dollars are represented by 0
+    //All characters between (and including) 0 and max_char are assumed to have more than 0 occurrences
+    //in the text. max_char is ththe text
+    LCPComputer(rb3_fmi_t * rb3, const std::string& safeTempName
+            #ifndef BENCHFASTONLY
+            , verbosity v = QUIET
+            #endif
+            ) {
+        #ifndef BENCHFASTONLY
+        if (v >= VERB) { std::cout << "Number of threads: " << omp_get_max_threads() << "\n"; }
+        #endif
+        std::ofstream tempOutFile(safeTempName);
+        if (!tempOutFile.is_open()) {
+            std::cerr << "ERROR: File provided for temporary writing/reading, '" << safeTempName << "' failed to open for writing!" << std::endl;
+            exit(1);
+        }
+
+        #ifndef BENCHFASTONLY
+        sdsl::memory_monitor::granularity(std::chrono::milliseconds(1));
+        sdsl::memory_monitor::start();
+        #endif
+
+        //Psi.intLens = &Flens;
+        uint64_t numSequences;
+        {
+            #ifndef BENCHFASTONLY
+            auto event = sdsl::memory_monitor::event("Construct Psi");
+            #endif
+            ConstructPsi(rb3, F, Psi, numSequences
+                    #ifndef BENCHFASTONLY
+                    , v
+                    #endif
+                    );
+            rb3_fmi_free(rb3);
+        }
+
+        /*
+        for (uint64_t i = 0; i < Psi.D_index.size(); ++i) {
+            std::cout 
+                << F[i] << '\t'
+                << (*Psi.intLens)[i] << '\t'
+                << Psi.D_index[i] << '\t'
+                << Psi.D_offset[i] << '\n';
+        }
+        {
+            MoveStructure::IntervalPoint end{static_cast<uint64_t>(-1), numSequences-1, 0}, curr;
+            curr = end;
+            char con[] = "$ACGTN";
+            uint64_t count = 0;
+            do {
+                curr = Psi.map(curr);
+                std::cout << con[F[curr.interval]];
+                ++count;
+            } while (curr != end);
+            std::cout << std::endl;
+            std::cout << count << " characters" << std::endl;
+        }
+        */
+
+        //numTopRuns and seqLens are vectors of length equal to the number of sequences+1
+        //the i+1-th value of numTopRuns is the number of times suffixes of sequence i
+        //are at the (SA position corresponding to the) top of a run in the BWT. 
+        //(includes the termination symbol at the end of sequence i, $_i)
+        //the i+1-th value of seqLens is the length of seq i,
+        //(includes the termination symbol) 
+        std::vector<uint64_t> numTopRuns, seqLens;
+        //for every suffix x at the top of a run in the BWT, 
+        //there is an input interval of psi, j, where 
+        //suffix x-1 is at the top of the input interval
+        //intAtTop stores, for every input interval of psi
+        //with suffix x-1 at the top of the input interval,
+        //how many suffixes < x - 1 are at the top of a run in the BWT
+        uint64_t maxPhiIntLen;
+        sdsl::int_vector<> PhiIntLen;
+        {
+            #ifndef BENCHFASTONLY
+            auto event = sdsl::memory_monitor::event("Compute Auxiliary Data and Repair Endmarker Psis");
+            #endif
+            ComputeAuxAndRepairPsi(maxPhiIntLen, numTopRuns, seqLens, intAtTop, F, Psi, PhiIntLen, numSequences
+                    #ifndef BENCHFASTONLY
+                    , v
+                    #endif
+                    );
+        }
+
+        {
+            #ifndef BENCHFASTONLY
+            auto event = sdsl::memory_monitor::event("Computing and storing intAtEnd and F");
+            if (v >= TIME) { Timer.start("Computing and storing intAtEnd"); }
+            #endif
+            sdsl::int_vector<> intAtEnd(F.size(), 0, sdsl::bits::hi(F.size() - 1) + 1);
+            //intAtEnd[j] is the input interval of Psi where the suffix at the end of input interval j of Phi occurs
+            //(at the top of, necessarily)
+            for (uint64_t i = 0; i < F.size(); ++i)
+                intAtEnd[intAtTop[i]] = i;
+            sdsl::serialize(intAtEnd, tempOutFile);
+            #ifndef BENCHFASTONLY
+            if (v >= TIME) { Timer.stop(); } //Computing and storing intAtEnd
+            if (v >= TIME) { Timer.start("Storing F"); }
+            #endif
+            sdsl::serialize(F, tempOutFile);
+            #ifndef BENCHFASTONLY
+            if (v >= TIME) { Timer.stop(); }
+            #endif
+            F = sdsl::int_vector<>();
+            #ifndef BENCHFASTONLY
+            if (v >= TIME) { Timer.start("Storing intAtTop"); }
+            #endif
+            sdsl::serialize(intAtTop, tempOutFile);
+            tempOutFile.close();
+            #ifndef BENCHFASTONLY
+            if (v >= TIME) { Timer.stop(); }
+            #endif
+        }
+        /*
+        {
+            std::cout << "Checking if intAtTop is a permutation of [0,r-1]" << std::endl;
+            std::vector<bool> a(F.size());
+            for (uint64_t i = 0; i < a.size(); ++i) {
+                if (intAtTop[i] >= F.size() || a[intAtTop[i]]) {
+                    std::cerr << "ERROR: intAtTop is not a permutation of [0,r-1]" << std::endl;
+                    exit(1);
+                }
+                a[intAtTop[i]] = true;
+            }
+        }
+
+        {
+            std::cout << "Psi SA order\ni\trunInd\tF\tintLen\tD_index\tD_offset\n";
+            uint64_t k = 0;
+            for (uint64_t i = 0; i < Psi.D_index.size(); ++i) {
+                for (uint64_t j = 0; j < Flens[i]; ++j)
+                    std::cout 
+                        << k++ << '\t'
+                        << i << '\t'
+                        << F[i] << '\t'
+                        << (*Psi.intLens)[i] << '\t'
+                        << Psi.D_index[i] << '\t'
+                        << Psi.D_offset[i] << '\n';
+            }
+        }
+        {
+            MoveStructure::IntervalPoint end{static_cast<uint64_t>(-1), numSequences-1, 0}, curr;
+            curr = end;
+            char con[] = "$ACGTN";
+            uint64_t count = 0;
+            do {
+                curr = Psi.map(curr);
+                std::cout << con[F[curr.interval]];
+                ++count;
+            } while (curr != end);
+            std::cout << std::endl;
+            std::cout << count << " characters" << std::endl;
+        }
+
+        Timer.start("Verifying Psi");
+        if (!Psi.permutationLengthN(totalLen)) {
+            std::cerr << "ERROR: Psi is not a permutation of length n!" << std::endl;
+            exit(1);
+        }
+        std::cout << "Psi is a permutation of length n\n";
+        Timer.stop(); //Verifying Psi
+        */
+
+        uint64_t sampleInterval;
+        sdsl::int_vector<> Psi_Index_Samples, Psi_Offset_Samples;
+        {
+            #ifndef BENCHFASTONLY
+            auto event = sdsl::memory_monitor::event("Construct Phi and Equidistant ISA Samples");
+            #endif
+            ConstructPhiAndSamples(Psi, PhiIntLen, Psi.data.c, numTopRuns, seqLens, intAtTop, numSequences, maxPhiIntLen, sampleInterval, Psi_Index_Samples, Psi_Offset_Samples
+                    #ifndef BENCHFASTONLY
+                    , v
+                    #endif
+                    );
+        }
+
+        /*
+        {
+            uint64_t count = 0, inInt = static_cast<uint64_t>(-1), outInt = static_cast<uint64_t>(-1);
+            MoveStructure::IntervalPoint end = {static_cast<uint64_t>(-1), numSequences-1, 0}, curr;
+            std::cout << "Phi text order\ni\tinInt\toutInt\tPsiInt\tPsiOff\tPhiInt\tPhiOff\tPhiLen\tPhiDind\tPhiDoff\n";
+            std::cout << std::endl;
+            curr = end;
+            MoveStructure::IntervalPoint pPoint = {static_cast<uint64_t>(-1),0,0}, temp;
+            do {
+                inInt += (curr.offset == 0);
+                outInt += (curr.offset == (*Psi.intLens)[curr.interval] - 1);
+                curr = Psi.map(curr);
+                temp = Phi.map(pPoint);
+                std::cout << count++ << '\t'
+                    << inInt << '\t'
+                    << outInt << '\t'
+                    << curr.interval << '\t'
+                    << curr.offset << '\t'
+                    << pPoint.interval << '\t'
+                    << pPoint.offset << '\t'
+                    << (*Phi.intLens)[pPoint.interval] << '\t' 
+                    << Phi.D_index[pPoint.interval] << '\t'
+                    << Phi.D_offset[pPoint.interval]+pPoint.offset << '\t'
+                    << temp.interval << '\t'
+                    << temp.offset << std::endl;
+                ++pPoint.offset;
+                if (pPoint.offset == (*Phi.intLens)[pPoint.interval]){
+                    pPoint.offset = 0;
+                    ++pPoint.interval;
+                }
+            } while (curr != end);
+            std::cout << std::endl;
+            std::cout << count << " characters" << std::endl;
+        }
+
+        for (uint64_t i = 0; i < Phi.D_index.size(); ++i) {
+            std::cout << Phi.D_index[i] << '\t'
+                << Phi.D_offset[i] << '\t'
+                << (*Phi.intLens)[i] << '\n';
+        }
+
+        {
+            MoveStructure::IntervalPoint end = {static_cast<uint64_t>(-1), intAtTop[0], 0}, curr;
+            curr = end;
+            std::cout << "intAtTop\n";
+            std::cout << curr.interval << ' ' << curr.offset << '\n';
+            std::cout << "etc\n";
+            do {
+                curr = Phi.map(curr);
+                std::cout << curr.interval << ' ' << curr.offset << '\n';
+            } while (curr != end);
+        }
+        */
+
+        /*
+        Verifying Phi is VERY slow compared to verifying Psi ~300 seconds on mtb152 with 64 cores vs ~30 seconds for Psi on coombs c0-4. Why?
+        Timer.start("Verifying Phi");
+        if (!PhiNEWONEHE.permutationLengthN<EXPONENTIAL>(totalLen)) {
+            std::cerr << "ERROR: Phi is not a permutation of length n!" << std::endl;
+            exit(1);
+        }
+        std::cout << "Phi is a permutation of length n\n";
+        Timer.stop(); //Verifying Phi
+        */
+        sdsl::int_vector<> intAtEnd;
+        std::ifstream tempInFile;
+        {
+            #ifndef BENCHFASTONLY
+            auto event = sdsl::memory_monitor::event("Recover intAtEnd and F from disk");
+            if (v >= TIME) { Timer.start("Recover intAtEnd from disk"); }
+            #endif
+            intAtTop = sdsl::int_vector<>();
+            tempInFile.open(safeTempName);
+            if (!tempInFile.is_open()) {
+                std::cerr << "ERROR: File provided for temporary writing/reading, '" << safeTempName << "' failed to open for reading!" << std::endl;
+                exit(1);
+            }
+            sdsl::load(intAtEnd, tempInFile);
+            #ifndef BENCHFASTONLY
+            if (v >= TIME) { Timer.stop(); } //Recover intAtEnd from disk
+            if (v >= TIME) { Timer.start("Recover F from disk"); } 
+            #endif
+            sdsl::load(F, tempInFile);
+            #ifndef BENCHFASTONLY
+            if (v >= TIME) { Timer.stop(); } //Recover F from disk
+            #endif
+        }
+
+
+        {
+            #ifndef BENCHFASTONLY
+            auto event = sdsl::memory_monitor::event("Compute PLCP Samples");
+            #endif
+            ComputePLCPSamples(intAtEnd, numSequences, F, Psi, numTopRuns, seqLens, sampleInterval, Psi_Index_Samples, Psi_Offset_Samples
+                    #ifndef BENCHFASTONLY
+                    , v
+                    #endif
+                    );
+            Psi_Index_Samples = sdsl::int_vector<>();
+            Psi_Offset_Samples = sdsl::int_vector<>();
+        }
+
+        /*
+        {
+            Timer.start("Verifying Psi");
+            {
+                auto event = sdsl::memory_monitor::event("Verifying Psi");
+                if (!Psi.permutationLengthN(totalLen)) {
+                    std::cerr << "ERROR: Psi is not a permutation of length n!" << std::endl;
+                    exit(1);
+                }
+                std::cout << "Psi is a permutation of length n\n";
+            }
+            Timer.stop(); //Verifying Psi
+            //Verifying Phi is VERY slow compared to verifying Psi ~300 seconds on mtb152 with 64 cores vs ~30 seconds for Psi on coombs c0-4. Why?
+            Timer.start("Verifying Phi");
+            {
+                auto event = sdsl::memory_monitor::event("Verifying Phi");
+                if (!PhiNEWONEHE.permutationLengthN<EXPONENTIAL>(totalLen)) {
+                    std::cerr << "ERROR: Phi is not a permutation of length n!" << std::endl;
+                    exit(1);
+                }
+                std::cout << "Phi is a permutation of length n\n";
+            }
+            Timer.stop(); //Verifying Phi
+        }
+
+        */
+        //printPhiAndLCP(PLCPsamples);
+
+        //reload intAtEnd
+        {
+            #ifndef BENCHFASTONLY
+            auto event = sdsl::memory_monitor::event("Recover intAtTop from disk");
+            if (v >= TIME) { Timer.start("Recover intAtTop from disk"); } 
+            #endif
+            if (!tempInFile.is_open()) {
+                std::cerr << "ERROR: File provided for temporary writing/reading, '" << safeTempName << "' is no longer open for reading!" << std::endl;
+                exit(1);
+            }
+            sdsl::load(intAtTop, tempInFile);
+            tempInFile.close();
+            #ifndef BENCHFASTONLY
+            if (v >= TIME) { Timer.stop(); } //Recover intAtTop from disk 
+            #endif
+        }
+
+        /*
+        Timer.start("Computing minLCP per run");
+        {
+            auto event = sdsl::memory_monitor::event("Computing minLCP per run");
+            ComputeMinLCPRun(intAtTop, F, Psi, lcpOut);
+        }
+        Timer.stop(); //Computing minLCP per run"
+        */
+
+        #ifndef BENCHFASTONLY
+        sdsl::memory_monitor::stop();
+        if (v >= TIME) {
+            std::cout << "peak usage = " << sdsl::memory_monitor::peak() << " bytes" << std::endl;
+            std::cout << "peak usage = " << static_cast<double>(sdsl::memory_monitor::peak())/1024 << " kibibytes" << std::endl;
+        }
+
+        std::ofstream cstofs("construction.html");
+        if (v >= VERB) { std::cout << "writing memory usage visualization to construction.html\n"; }
+        sdsl::memory_monitor::write_memory_log<sdsl::HTML_FORMAT>(cstofs);
+        cstofs.close();
+        #endif
+
+        /*
+        needs to be rewritten, affects bench
+        std::ofstream outpsi("lcpcomputer.psi");
+        //Flens.serialize(outpsi);
+        Psi.serialize(outpsi);
+        std::ofstream outphi("lcpcomputer.phi");
+        (*Phi.intLens).serialize(outphi);
+        Phi.serialize(outphi);
+        */
+    }
+
+    void ComputeMinLCPRun(std::ofstream& out) const {
         //O(r log sigma) time, can be skipped if RLBWT is maintained or re-read
         Timer.start("Computing Min LCP per Run");
         struct MappedPositionRunPair {
@@ -1297,311 +1728,6 @@ class LCPComputer {
             exit(1);
         }
         Timer.stop(); //Computing Min LCP per Run
-    }
-
-    public:
-    typedef uint64_t size_type;
-
-    //input: a run length encoding of a multidollar BWT where all dollars are represented by 0
-    //All characters between (and including) 0 and max_char are assumed to have more than 0 occurrences
-    //in the text. max_char is the maximum character in the text
-    LCPComputer(rb3_fmi_t* rb3, const std::string& safeTempName, std::ofstream& lcpOut) {
-        std::cout << "Number of threads: " << omp_get_max_threads() << "\n";
-        std::ofstream tempOutFile(safeTempName);
-        if (!tempOutFile.is_open()) {
-            std::cerr << "ERROR: File provided for temporary writing/reading, '" << safeTempName << "' failed to open for writing!" << std::endl;
-            exit(1);
-        }
-
-        sdsl::memory_monitor::granularity(std::chrono::milliseconds(1));
-        sdsl::memory_monitor::start();
-
-        //Psi.intLens = &Flens;
-        uint64_t numSequences;
-        {
-            auto event = sdsl::memory_monitor::event("Construct Psi");
-            ConstructPsi(rb3, F, Psi, numSequences);
-
-            rb3_fmi_free(rb3);
-        }
-
-        /*
-        for (uint64_t i = 0; i < Psi.D_index.size(); ++i) {
-            std::cout 
-                << F[i] << '\t'
-                << (*Psi.intLens)[i] << '\t'
-                << Psi.D_index[i] << '\t'
-                << Psi.D_offset[i] << '\n';
-        }
-        {
-            MoveStructure::IntervalPoint end{static_cast<uint64_t>(-1), numSequences-1, 0}, curr;
-            curr = end;
-            char con[] = "$ACGTN";
-            uint64_t count = 0;
-            do {
-                curr = Psi.map(curr);
-                std::cout << con[F[curr.interval]];
-                ++count;
-            } while (curr != end);
-            std::cout << std::endl;
-            std::cout << count << " characters" << std::endl;
-        }
-        */
-
-        //numTopRuns and seqLens are vectors of length equal to the number of sequences+1
-        //the i+1-th value of numTopRuns is the number of times suffixes of sequence i
-        //are at the (SA position corresponding to the) top of a run in the BWT. 
-        //(includes the termination symbol at the end of sequence i, $_i)
-        //the i+1-th value of seqLens is the length of seq i,
-        //(includes the termination symbol) 
-        std::vector<uint64_t> numTopRuns, seqLens;
-        //for every suffix x at the top of a run in the BWT, 
-        //there is an input interval of psi, j, where 
-        //suffix x-1 is at the top of the input interval
-        //intAtTop stores, for every input interval of psi
-        //with suffix x-1 at the top of the input interval,
-        //how many suffixes < x - 1 are at the top of a run in the BWT
-        uint64_t maxPhiIntLen;
-        sdsl::int_vector<> PhiIntLen;
-        {
-            auto event = sdsl::memory_monitor::event("Compute Auxiliary Data and Repair Endmarker Psis");
-            ComputeAuxAndRepairPsi(maxPhiIntLen, numTopRuns, seqLens, intAtTop, F, Psi, PhiIntLen, numSequences);
-        }
-
-        {
-            auto event = sdsl::memory_monitor::event("Computing and storing intAtEnd and F");
-            Timer.start("Computing and storing intAtEnd");
-            sdsl::int_vector<> intAtEnd(F.size(), 0, sdsl::bits::hi(F.size() - 1) + 1);
-            //intAtEnd[j] is the input interval of Psi where the suffix at the end of input interval j of Phi occurs
-            //(at the top of, necessarily)
-            for (uint64_t i = 0; i < F.size(); ++i)
-                intAtEnd[intAtTop[i]] = i;
-            sdsl::serialize(intAtEnd, tempOutFile);
-            Timer.stop(); //Computing and storing intAtEnd
-            Timer.start("Storing F");
-            sdsl::serialize(F, tempOutFile);
-            Timer.stop();
-            F = sdsl::int_vector<>();
-            Timer.start("Storing intAtTop");
-            sdsl::serialize(intAtTop, tempOutFile);
-            tempOutFile.close();
-            Timer.stop();
-        }
-        /*
-        {
-            std::cout << "Checking if intAtTop is a permutation of [0,r-1]" << std::endl;
-            std::vector<bool> a(F.size());
-            for (uint64_t i = 0; i < a.size(); ++i) {
-                if (intAtTop[i] >= F.size() || a[intAtTop[i]]) {
-                    std::cerr << "ERROR: intAtTop is not a permutation of [0,r-1]" << std::endl;
-                    exit(1);
-                }
-                a[intAtTop[i]] = true;
-            }
-        }
-
-        {
-            std::cout << "Psi SA order\ni\trunInd\tF\tintLen\tD_index\tD_offset\n";
-            uint64_t k = 0;
-            for (uint64_t i = 0; i < Psi.D_index.size(); ++i) {
-                for (uint64_t j = 0; j < Flens[i]; ++j)
-                    std::cout 
-                        << k++ << '\t'
-                        << i << '\t'
-                        << F[i] << '\t'
-                        << (*Psi.intLens)[i] << '\t'
-                        << Psi.D_index[i] << '\t'
-                        << Psi.D_offset[i] << '\n';
-            }
-        }
-        {
-            MoveStructure::IntervalPoint end{static_cast<uint64_t>(-1), numSequences-1, 0}, curr;
-            curr = end;
-            char con[] = "$ACGTN";
-            uint64_t count = 0;
-            do {
-                curr = Psi.map(curr);
-                std::cout << con[F[curr.interval]];
-                ++count;
-            } while (curr != end);
-            std::cout << std::endl;
-            std::cout << count << " characters" << std::endl;
-        }
-
-        Timer.start("Verifying Psi");
-        if (!Psi.permutationLengthN(totalLen)) {
-            std::cerr << "ERROR: Psi is not a permutation of length n!" << std::endl;
-            exit(1);
-        }
-        std::cout << "Psi is a permutation of length n\n";
-        Timer.stop(); //Verifying Psi
-        */
-
-        uint64_t sampleInterval;
-        sdsl::int_vector<> Psi_Index_Samples, Psi_Offset_Samples;
-        {
-            auto event = sdsl::memory_monitor::event("Construct Phi and Equidistant ISA Samples");
-            ConstructPhiAndSamples(Psi, PhiIntLen, Psi.data.c, numTopRuns, seqLens, intAtTop, numSequences, maxPhiIntLen, sampleInterval, Psi_Index_Samples, Psi_Offset_Samples);
-        }
-
-        /*
-        {
-            uint64_t count = 0, inInt = static_cast<uint64_t>(-1), outInt = static_cast<uint64_t>(-1);
-            MoveStructure::IntervalPoint end = {static_cast<uint64_t>(-1), numSequences-1, 0}, curr;
-            std::cout << "Phi text order\ni\tinInt\toutInt\tPsiInt\tPsiOff\tPhiInt\tPhiOff\tPhiLen\tPhiDind\tPhiDoff\n";
-            std::cout << std::endl;
-            curr = end;
-            MoveStructure::IntervalPoint pPoint = {static_cast<uint64_t>(-1),0,0}, temp;
-            do {
-                inInt += (curr.offset == 0);
-                outInt += (curr.offset == (*Psi.intLens)[curr.interval] - 1);
-                curr = Psi.map(curr);
-                temp = Phi.map(pPoint);
-                std::cout << count++ << '\t'
-                    << inInt << '\t'
-                    << outInt << '\t'
-                    << curr.interval << '\t'
-                    << curr.offset << '\t'
-                    << pPoint.interval << '\t'
-                    << pPoint.offset << '\t'
-                    << (*Phi.intLens)[pPoint.interval] << '\t' 
-                    << Phi.D_index[pPoint.interval] << '\t'
-                    << Phi.D_offset[pPoint.interval]+pPoint.offset << '\t'
-                    << temp.interval << '\t'
-                    << temp.offset << std::endl;
-                ++pPoint.offset;
-                if (pPoint.offset == (*Phi.intLens)[pPoint.interval]){
-                    pPoint.offset = 0;
-                    ++pPoint.interval;
-                }
-            } while (curr != end);
-            std::cout << std::endl;
-            std::cout << count << " characters" << std::endl;
-        }
-
-        for (uint64_t i = 0; i < Phi.D_index.size(); ++i) {
-            std::cout << Phi.D_index[i] << '\t'
-                << Phi.D_offset[i] << '\t'
-                << (*Phi.intLens)[i] << '\n';
-        }
-
-        {
-            MoveStructure::IntervalPoint end = {static_cast<uint64_t>(-1), intAtTop[0], 0}, curr;
-            curr = end;
-            std::cout << "intAtTop\n";
-            std::cout << curr.interval << ' ' << curr.offset << '\n';
-            std::cout << "etc\n";
-            do {
-                curr = Phi.map(curr);
-                std::cout << curr.interval << ' ' << curr.offset << '\n';
-            } while (curr != end);
-        }
-        */
-
-        /*
-        Verifying Phi is VERY slow compared to verifying Psi ~300 seconds on mtb152 with 64 cores vs ~30 seconds for Psi on coombs c0-4. Why?
-        Timer.start("Verifying Phi");
-        if (!PhiNEWONEHE.permutationLengthN<EXPONENTIAL>(totalLen)) {
-            std::cerr << "ERROR: Phi is not a permutation of length n!" << std::endl;
-            exit(1);
-        }
-        std::cout << "Phi is a permutation of length n\n";
-        Timer.stop(); //Verifying Phi
-        */
-        sdsl::int_vector<> intAtEnd;
-        std::ifstream tempInFile;
-        {
-            auto event = sdsl::memory_monitor::event("Recover intAtEnd and F from disk");
-            Timer.start("Recover intAtEnd from disk");
-            intAtTop = sdsl::int_vector<>();
-            tempInFile.open(safeTempName);
-            if (!tempInFile.is_open()) {
-                std::cerr << "ERROR: File provided for temporary writing/reading, '" << safeTempName << "' failed to open for reading!" << std::endl;
-                exit(1);
-            }
-            sdsl::load(intAtEnd, tempInFile);
-            Timer.stop(); //Recover intAtEnd from disk
-            Timer.start("Recover F from disk");
-            sdsl::load(F, tempInFile);
-            Timer.stop(); //Recover F from disk
-        }
-
-
-        {
-            auto event = sdsl::memory_monitor::event("Compute PLCP Samples");
-            ComputePLCPSamples(intAtEnd, numSequences, F, Psi, numTopRuns, seqLens, sampleInterval, Psi_Index_Samples, Psi_Offset_Samples);
-            Psi_Index_Samples = sdsl::int_vector<>();
-            Psi_Offset_Samples = sdsl::int_vector<>();
-        }
-
-        /*
-        {
-            Timer.start("Verifying Psi");
-            {
-                auto event = sdsl::memory_monitor::event("Verifying Psi");
-                if (!Psi.permutationLengthN(totalLen)) {
-                    std::cerr << "ERROR: Psi is not a permutation of length n!" << std::endl;
-                    exit(1);
-                }
-                std::cout << "Psi is a permutation of length n\n";
-            }
-            Timer.stop(); //Verifying Psi
-            //Verifying Phi is VERY slow compared to verifying Psi ~300 seconds on mtb152 with 64 cores vs ~30 seconds for Psi on coombs c0-4. Why?
-            Timer.start("Verifying Phi");
-            {
-                auto event = sdsl::memory_monitor::event("Verifying Phi");
-                if (!PhiNEWONEHE.permutationLengthN<EXPONENTIAL>(totalLen)) {
-                    std::cerr << "ERROR: Phi is not a permutation of length n!" << std::endl;
-                    exit(1);
-                }
-                std::cout << "Phi is a permutation of length n\n";
-            }
-            Timer.stop(); //Verifying Phi
-        }
-
-        */
-        //printPhiAndLCP(PLCPsamples);
-
-        //reload intAtEnd
-        {
-            auto event = sdsl::memory_monitor::event("Recover intAtTop from disk");
-            Timer.start("Recover intAtTop from disk");
-            if (!tempInFile.is_open()) {
-                std::cerr << "ERROR: File provided for temporary writing/reading, '" << safeTempName << "' is no longer open for reading!" << std::endl;
-                exit(1);
-            }
-            sdsl::load(intAtTop, tempInFile);
-            tempInFile.close();
-            Timer.stop(); //Recover intAtTop from disk 
-        }
-
-        Timer.start("Computing minLCP per run");
-        {
-            auto event = sdsl::memory_monitor::event("Computing minLCP per run");
-            ComputeMinLCPRun(intAtTop, F, Psi, lcpOut);
-        }
-        Timer.stop(); //Computing minLCP per run"
-        /*
-        */
-
-        sdsl::memory_monitor::stop();
-        std::cout << "peak usage = " << sdsl::memory_monitor::peak() << " bytes" << std::endl;
-        std::cout << "peak usage = " << (sdsl::memory_monitor::peak()+1023)/1024 << " kibibytes" << std::endl;
-
-        std::ofstream cstofs("construction.html");
-        std::cout << "writing memory usage visualization to construction.html\n";
-        sdsl::memory_monitor::write_memory_log<sdsl::HTML_FORMAT>(cstofs);
-        cstofs.close();
-
-        /*
-        needs to be rewritten, affects bench
-        std::ofstream outpsi("lcpcomputer.psi");
-        //Flens.serialize(outpsi);
-        Psi.serialize(outpsi);
-        std::ofstream outphi("lcpcomputer.phi");
-        (*Phi.intLens).serialize(outphi);
-        Phi.serialize(outphi);
-        */
     }
 
     void printRaw(const sdsl::int_vector<>& intAtTop) const {

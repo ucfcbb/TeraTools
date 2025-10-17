@@ -33,7 +33,8 @@ $1 build -L -d -o temp/a generated/strings > consoleOutputs/ropebwt3
 
 echo "Generating (offset, minLCP) pairs for every run by each method"
 #$7 MINLCP temp/a.optbwtrl > computedOutputs/minlcpBuilder
-$4 temp/a computedOutputs/minlcpLCPcomputer > consoleOutputs/lcpComputer
+#$4 temp/a computedOutputs/minlcpLCPcomputer > consoleOutputs/lcpComputer
+$4 -f fmd -i temp/a -orlcp computedOutputs/minlcpLCPcomputer.rlcp -t temp/tempFile -v quiet
 $5 < generated/stringsAndReverse > computedOutputs/minlcpKactl
 
 echo "Checking if minLCP pairs match" 
@@ -44,6 +45,6 @@ echo "Cleaning up files"
 rm generated/stringsAndReverseRaw generated/stringsAndReverse generated/strings
 rm temp/a consoleOutputs/ropebwt3 #temp/a.optbwtrl temp/a_StructTree.html
 #rm computedOutputs/rawBWT1 computedOutputs/rawBWT2
-rm computedOutputs/minlcpLCPcomputer.optbwtrl computedOutputs/minlcpLCPcomputer_StructTree.html 
+#rm computedOutputs/minlcpLCPcomputer.optbwtrl computedOutputs/minlcpLCPcomputer_StructTree.html 
 rm computedOutputs/minlcpLCPcomputer.rlcp computedOutputs/minlcpKactl #computedOutputs/minlcpBuilder 
-rm consoleOutputs/lcpComputer construction.html #consoleOutputs/builder 
+rm construction.html #consoleOutputs/builder consoleOutputs/lcpComputer 
