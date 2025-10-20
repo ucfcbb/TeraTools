@@ -125,7 +125,7 @@ void processOptions(const int argc, const char* argv[]) {
 #endif
     for (int i = 0; i < argc; ++i)
         if (!used[i]) {
-            std::cout << "Argument " << i << ", '" << argv[i] << "' not recognized or used as an argument for another option.\n";
+            std::cout << "Argument " << i << ", '" << argv[i] << "' not recognized or used as an argument for another option. It might have been passed more than once (invalid).\n";
             exit(1);
         }
     testInFile(o.inputFile);
@@ -143,7 +143,6 @@ int main(const int argc, const char*argv[]) {
     if (o.v >= TIME) { Timer.start("Program Initialization"); }
     #endif
     rb3_fmi_t fmi;
-    std::string outputPref;
     {
         #ifndef BENCHFASTONLY
         if (o.v >= TIME) { Timer.start("Reading Arguments"); }
