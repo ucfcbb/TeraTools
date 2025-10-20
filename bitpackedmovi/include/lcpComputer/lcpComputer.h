@@ -1,3 +1,6 @@
+#ifndef R_SA_LCP_LCPCOMPUTER_H
+#define R_SA_LCP_LCPCOMPUTER_H
+
 #include"util/util.h"
 #include"moveStructure/moveStructure.h"
 #include"fm-index.h"
@@ -5,6 +8,8 @@
 #include<omp.h>
 #include<atomic>
 #include<mutex>
+
+static constexpr const char* lcp_index_extension = ".lcp_index";
 
 class LCPComputer {
     uint64_t totalLen;
@@ -1441,3 +1446,5 @@ bool LCPComputer::validateRB3(const rb3_fmi_t* rb3){
     }
     return true;
 }
+
+#endif //#ifndef R_SA_LCP_LCPCOMPUTER_H

@@ -1,3 +1,5 @@
+#ifndef R_SA_LCP_PACKEDTRIPLEVECTOR_H
+#define R_SA_LCP_PACKEDTRIPLEVECTOR_H
 #include<sdsl/int_vector.hpp>
 
 struct packedTripleVector {
@@ -76,3 +78,5 @@ template<>
 inline std::pair<uint8_t, uint8_t> packedTripleVector::offW<2>()  const {
     return {a + b, c};
 }
+
+#endif //#ifndef R_SA_LCP_PACKEDTRIPLEVECTOR_H

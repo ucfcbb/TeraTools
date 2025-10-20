@@ -1,3 +1,5 @@
+#ifndef R_SA_LCP_MOVESTRUCTURE_H
+#define R_SA_LCP_MOVESTRUCTURE_H
 #include "util/packedTripleVector.h"
 
 enum FFMethod { LINEAR, EXPONENTIAL };
@@ -298,3 +300,5 @@ MoveStructureStartTable::IntervalPoint MoveStructureStartTable::map<EXPONENTIAL>
     //std::cout << "exit map" << std::endl;
     return res;
 }
+
+#endif //#ifndef R_SA_LCP_MOVESTRUCTURE_H

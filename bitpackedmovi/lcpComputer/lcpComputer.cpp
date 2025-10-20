@@ -1,28 +1,34 @@
+#include"util/util.h"
 #include"lcpComputer/lcpComputer.h"
+
+static constexpr const char* rlcp_extension = ".rlcp";
 
 void printUsage() {
     std::cout << 
         "lcpComputer computes the minimum LCP values in each run of the BWT of a text.\n"
         "It does so by computing the Psi and Phi move data structures in compressed space.\n"
-        "It can optionally output the computed index to avoid later recomputation or for downstream analysis.\n\n"
+        "It can optionally output the computed index to avoid later recomputation or for downstream analysis.\n"
+        "\n"
         "Usage: lcpComputer <arguments>\n"
         "Options:\n"
         "  Input:\n"
-        "    -f       [text,bwt,rlbwt,fmd]       REQUIRED       Format of input. 'text' is the original text, 'bwt' is the bwt of the text, 'rlbwt' is the rlbwt of the text, and 'fmd' is the rlbwt in the ropebwt3 fmd format of the text\n"
-        "    -i       FILE                       REQUIRED       File name of input file\n"
-        "    -t       FILE                       REQUIRED       Name of a file this program can read and write to temporarily\n\n"
+        "    -f          [text,bwt,rlbwt,fmd]       REQUIRED       Format of input. 'text' is the original text, 'bwt' is the bwt of the text, 'rlbwt' is the rlbwt of the text, and 'fmd' is the rlbwt in the ropebwt3 fmd format of the text\n"
+        "    -i          FILE                       REQUIRED       File name of input file\n"
+        "    -t          FILE                       REQUIRED       Name of a file this program can read and write to temporarily\n"
+        "\n"
         "  Output:\n"
-        "    -oindex  FILE                       optional       Output constructed index to FILE\n"
-        "    -orlcp   FILE                       optional       Output (position, minLCP) pairs per run to FILE\n\n"
+        "    -oindex     FILE                       optional       Output constructed index to FILE" << lcp_index_extension << "\n"
+        "    -orlcp      FILE                       optional       Output (position, minLCP) pairs per run to FILE" << rlcp_extension << "\n"
+        "\n"
         "  Behavior:\n"
-        "    -p       INT                        optional       Limit the program to (nonnegative) INT threads. By default uses maximum available. Maximum on this hardware is " << omp_get_max_threads() << "\n"
-        "    -mmap                               optional       read input using memory mapping (only avaiable for fmd) default: no memory mapping\n"
+        "    -p          INT                        optional       Limit the program to (nonnegative) INT threads. By default uses maximum available. Maximum on this hardware is " << omp_get_max_threads() << "\n"
+        "    -mmap                                  optional       read input using memory mapping (only avaiable for fmd) default: no memory mapping\n"
         #ifndef BENCHFASTONLY
-        "    -v       [quiet,time,verb]          optional       Verbosity, verb for most verbose output, time for timer info, and quiet for no output. time is default.\n"
+        "    -v          [quiet,time,verb]          optional       Verbosity, verb for most verbose output, time for timer info, and quiet for no output. time is default.\n"
         #else
-        "    -bench                              optional       Has no effect. required if no outputs specified.\n"
+        "    -bench                                 optional       Has no effect. required if no outputs specified.\n"
         #endif
-        "    -h, --help                          optional       Print this help message.\n"
+        "    -h, --help                             optional       Print this help message.\n"
         ;
     //add verification of psi and phi options
     //add sdsl::memory_monitor output option
@@ -39,7 +45,7 @@ struct options{
     unsigned numThreads = omp_get_max_threads();
     bool mmap;
     #ifndef BENCHFASTONLY
-    verbosity v = QUIET;
+    verbosity v = TIME;
     #endif
 }o;
 
@@ -47,43 +53,8 @@ void processOptions(const int argc, const char* argv[]) {
     std::vector<bool> used(argc);
     used[0] = true;
     auto getArg = [&] (std::string arg, bool required, bool argument) -> std::string {
-        auto pos = std::find(argv, argv+argc, arg);
-        if (!required && pos == argv+argc)
-            return "";
-        if (required && pos == argv+argc) {
-            std::cout << arg << " was not passed as an argument, but it is required.\n";
-            exit(1);
-        }
-        if (argument) {
-            if(pos != argv+argc-1) {
-                used[pos - argv] = true;
-                used[pos - argv + 1] = true;
-                return *(pos+1);
-            }
-            std::cout << arg << " was not passed an argument, but it requires one.\n";
-            exit(1);
-        }
-        used[pos - argv] = true;
-        return *pos;
+        return getArgument(argc, argv, used, arg, required, argument);
     };
-
-    auto testOutFile = [] (std::string name) {
-        if (name == "") return;
-        std::ofstream out(name, std::ios::app);
-        if (!out.is_open()) {
-            std::cout << "File '" << name << "' failed to open for writing.\n";
-            exit(1);
-        }
-    };
-    auto testInFile = [] (std::string name) {
-        if (name == "") return;
-        std::ofstream in(name, std::ios::app);
-        if (!in.is_open()) {
-            std::cout << "File '" << name << "' failed to open for writing.\n";
-            exit(1);
-        }
-    };
-
 
     if (argc == 1 || getArg("-h", false, false) != "" || getArg("--help", false, false) != "") {
         printUsage();
@@ -101,8 +72,8 @@ void processOptions(const int argc, const char* argv[]) {
     }
     o.inputFile = getArg("-i", true, true);
     o.tempFile = getArg("-t", true, true);
-    o.oindex = getArg("-oindex", false, true);
-    o.orlcp = getArg("-orlcp", false, true);
+    o.oindex = getArg("-oindex", false, true) + lcp_index_extension;
+    o.orlcp = getArg("-orlcp", false, true) + rlcp_extension;
     s = getArg("-p", false, true);
     if (s != "")
         o.numThreads = std::stoul(s);
