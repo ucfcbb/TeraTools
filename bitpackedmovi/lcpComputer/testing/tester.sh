@@ -30,7 +30,7 @@ echo "Generating supporting index (ropebwt3)"
 $ropebwt3 build -L -d -o temp/a generated/strings > consoleOutputs/ropebwt3
 
 echo "Generating (offset, minLCP) pairs for every run by each method"
-$lcpComputer1 -f fmd -i temp/a -orlcp computedOutputs/minlcpLCPcomputer.rlcp -t temp/tempFile -v quiet
+$lcpComputer1 -f fmd -i temp/a -orlcp computedOutputs/minlcpLCPcomputer -t temp/tempFile -v quiet
 $lcpComputer2_kactl < generated/stringsAndReverse > computedOutputs/minlcpKactl
 
 echo "Checking if minLCP pairs match" 
