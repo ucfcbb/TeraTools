@@ -23,7 +23,7 @@ class LCPComputer {
     sdsl::int_vector<> intAtTop;
 
     //sdsl::int_vector<> PhiIntLen;
-    MoveStructureStartTable PhiNEWONEHE;
+    MoveStructureStartTable Phi;
 
     sdsl::int_vector<> PLCPsamples;
 
@@ -513,15 +513,15 @@ class LCPComputer {
             uint64_t sum = 0;
             for (uint64_t i = 0; i < PhiIntLen.size(); ++i)
                 sum += PhiIntLen[i];
-            PhiNEWONEHE.data = packedTripleVector(sdsl::bits::hi(numRuns - 1) + 1, sdsl::bits::hi(maxPhiIntLen - 1) + 1, sdsl::bits::hi(sum) + 1, PhiIntLen.size() + 1);
+            Phi.data = packedTripleVector(sdsl::bits::hi(numRuns - 1) + 1, sdsl::bits::hi(maxPhiIntLen - 1) + 1, sdsl::bits::hi(sum) + 1, PhiIntLen.size() + 1);
             //std::cout << "Total sum: "  << sum << std::endl;
             sum = 0;
             for (uint64_t i = 0; i < PhiIntLen.size(); ++i){
-                PhiNEWONEHE.data.set<2>(i, sum);
+                Phi.data.set<2>(i, sum);
                 //std::cout << "current sum: " << sum << std::endl;
                 sum += PhiIntLen[i];
             }
-            PhiNEWONEHE.data.set<2>(PhiIntLen.size(), sum);
+            Phi.data.set<2>(PhiIntLen.size(), sum);
             PhiIntLen = sdsl::int_vector<>();
             //std::cout << "Total sum: "  << sum << std::endl;
         }
@@ -578,7 +578,7 @@ class LCPComputer {
             {
                 //uses 64 bytes at least
                 const uint64_t bufferMaxBits = std::max(numRuns, static_cast<uint64_t>(512));
-                const uint64_t bitsPerElement = (2*PhiNEWONEHE.data.a + PhiNEWONEHE.data.b);
+                const uint64_t bitsPerElement = (2*Phi.data.a + Phi.data.b);
                 uint64_t bufferElements = (bufferMaxBits + bitsPerElement - 1)/bitsPerElement;
                 //each thread should use at least 64 bytes:
                 if (bufferElements*bitsPerElement < threads*512) {
@@ -592,7 +592,7 @@ class LCPComputer {
                 }
                 bufferElementsPerThread = bufferElements/threads;
                 bufferElements = bufferElementsPerThread*threads;
-                buffer = packedTripleVector(PhiNEWONEHE.data.a, PhiNEWONEHE.data.a, PhiNEWONEHE.data.b, bufferElements);
+                buffer = packedTripleVector(Phi.data.a, Phi.data.a, Phi.data.b, bufferElements);
             }
             uint64_t dangerousInts = 64/std::min(Psi_Index_Samples.width(), Psi_Offset_Samples.width()) + (64 % std::min(Psi_Index_Samples.width(), Psi_Offset_Samples.width()) != 0);
             uint64_t dangerousBufferInts;
@@ -609,7 +609,7 @@ class LCPComputer {
                 curr = Psi.map(curr);
                 uint64_t suff = seqLens[seq];
                 //phiPoint is the interval point in the move structure of suff
-                MoveStructureStartTable::IntervalPoint phiPoint = {PhiNEWONEHE.data.get<2>(numTopRuns[seq]), numTopRuns[seq], 0};
+                MoveStructureStartTable::IntervalPoint phiPoint = {Phi.data.get<2>(numTopRuns[seq]), numTopRuns[seq], 0};
                 MoveStructureStartTable::IntervalPoint phiPointAtPhiOutputIntervalStart = phiPoint;
 
                 const uint64_t suffSampleSafeStart = (seqLens[seq]/sampleInterval) + (seqLens[seq] % sampleInterval != 0) + dangerousInts;
@@ -643,11 +643,11 @@ class LCPComputer {
                     ++phiPoint.offset;
                     ++phiPoint.position;
                     //phiPoint.offset == (*Phi.intLens)[phiPoint.interval] iff curr.offset == 0)
-                    assert((phiPoint.position == PhiNEWONEHE.data.get<2>(phiPoint.interval + 1)) ==
+                    assert((phiPoint.position == Phi.data.get<2>(phiPoint.interval + 1)) ==
                             (curr.offset == 0));
                     //suff + 1 starts an input interval iff suff ends an input interval
                     if (curr.offset == 0) {
-                        if (phiPoint.position != PhiNEWONEHE.data.get<2>(phiPoint.interval + 1)) {
+                        if (phiPoint.position != Phi.data.get<2>(phiPoint.interval + 1)) {
                             std::cerr << "Offset != length at the end of phi interval!" << std::endl;
                             exit(1);
                         }
@@ -676,8 +676,8 @@ class LCPComputer {
                             #pragma omp critical
                             {
                                 for (uint64_t i = bufferStart; i < bufferEnd; ++i) {
-                                    PhiNEWONEHE.data.set<0>(buffer.get<0>(i), buffer.get<1>(i));
-                                    PhiNEWONEHE.data.set<1>(buffer.get<0>(i), buffer.get<2>(i));
+                                    Phi.data.set<0>(buffer.get<0>(i), buffer.get<1>(i));
+                                    Phi.data.set<1>(buffer.get<0>(i), buffer.get<2>(i));
                                 }
                             }
                             bufferInd = bufferStart;
@@ -735,8 +735,8 @@ class LCPComputer {
                 #pragma omp critical
                 {
                     for (uint64_t i = bufferStart; i < bufferInd; ++i) {
-                        PhiNEWONEHE.data.set<0>(buffer.get<0>(i), buffer.get<1>(i));
-                        PhiNEWONEHE.data.set<1>(buffer.get<0>(i), buffer.get<2>(i));
+                        Phi.data.set<0>(buffer.get<0>(i), buffer.get<1>(i));
+                        Phi.data.set<1>(buffer.get<0>(i), buffer.get<2>(i));
                     }
                 }
                 /*
@@ -791,7 +791,7 @@ class LCPComputer {
         /*
         sdsl::int_vector<> suffStartingPhiInt(F.size(), 0, sdsl::bits::hi(seqLens.back() - 1) + 1);
         for (uint64_t i = 1; i < F.size(); ++i)
-            suffStartingPhiInt[i] = suffStartingPhiInt[i-1] + PhiNEWONEHE.data.get<2>(i-1);
+            suffStartingPhiInt[i] = suffStartingPhiInt[i-1] + Phi.data.get<2>(i-1);
          */
 
         std::atomic<uint64_t> updateWidthsWaiting(0), plcpWritesOccurring(0);
@@ -813,8 +813,8 @@ class LCPComputer {
             uint64_t prevIntAtEnd = prevPsiIntSeqStart[seq];
             for (uint64_t phiInt = start; phiInt < end; ++phiInt) { 
                 //get suffix above phiInt
-                MoveStructureStartTable::IntervalPoint suffMatchingToPhiIntPoint = PhiNEWONEHE.map({static_cast<uint64_t>(-1), phiInt, 0});
-                uint64_t suffMatchingTo = PhiNEWONEHE.data.get<2>(suffMatchingToPhiIntPoint.interval) + suffMatchingToPhiIntPoint.offset;
+                MoveStructureStartTable::IntervalPoint suffMatchingToPhiIntPoint = Phi.map({static_cast<uint64_t>(-1), phiInt, 0});
+                uint64_t suffMatchingTo = Phi.data.get<2>(suffMatchingToPhiIntPoint.interval) + suffMatchingToPhiIntPoint.offset;
                 uint64_t psiIntAbove = prevIntAtEnd;
                 MoveStructureTable::IntervalPoint coordAbove = Psi.map({static_cast<uint64_t>(-1), psiIntAbove, 0});
                 if (coordAbove.offset == 0) {
@@ -863,7 +863,7 @@ class LCPComputer {
 
                 //use intAtEnd before it's overwritten
                 prevIntAtEnd = intAtEnd[phiInt];
-                currIntStart = PhiNEWONEHE.data.get<2>(phiInt+1);
+                currIntStart = Phi.data.get<2>(phiInt+1);
                 if (suffMatchEnd < currIntStart) {
                     suffMatchEnd = currIntStart;
                     suffMatchEndIntPoint = Psi.map({static_cast<uint64_t>(-1), intAtEnd[phiInt], 0});
@@ -1166,7 +1166,7 @@ class LCPComputer {
         /*
         Verifying Phi is VERY slow compared to verifying Psi ~300 seconds on mtb152 with 64 cores vs ~30 seconds for Psi on coombs c0-4. Why?
         Timer.start("Verifying Phi");
-        if (!PhiNEWONEHE.permutationLengthN<EXPONENTIAL>(totalLen)) {
+        if (!Phi.permutationLengthN<EXPONENTIAL>(totalLen)) {
             std::cerr << "ERROR: Phi is not a permutation of length n!" << std::endl;
             exit(1);
         }
@@ -1227,7 +1227,7 @@ class LCPComputer {
             Timer.start("Verifying Phi");
             {
                 auto event = sdsl::memory_monitor::event("Verifying Phi");
-                if (!PhiNEWONEHE.permutationLengthN<EXPONENTIAL>(totalLen)) {
+                if (!Phi.permutationLengthN<EXPONENTIAL>(totalLen)) {
                     std::cerr << "ERROR: Phi is not a permutation of length n!" << std::endl;
                     exit(1);
                 }
@@ -1350,7 +1350,7 @@ class LCPComputer {
             MoveStructureStartTable::IntervalPoint pPoint = {static_cast<uint64_t>(-1), phiInt, 0};
             uint64_t minL = static_cast<uint64_t>(-1), minLloc = static_cast<uint64_t>(-1);
             for (uint64_t i = 0; i < runLen; ++i) {
-                pPoint = PhiNEWONEHE.map(pPoint);
+                pPoint = Phi.map(pPoint);
                 uint64_t l = PLCPsamples[pPoint.interval] - pPoint.offset;
                 //use <= for first index
                 if (l < minL) {
@@ -1372,11 +1372,11 @@ class LCPComputer {
         std::cout << "LCP\n";
         std::vector<uint64_t> lcp(totalLen);
         MoveStructureStartTable::IntervalPoint phiPoint{static_cast<uint64_t>(-1), intAtTop[0], 0};
-        phiPoint.offset = PhiNEWONEHE.data.get<2>(phiPoint.interval) - 1;
-        phiPoint = PhiNEWONEHE.map(phiPoint);
+        phiPoint.offset = Phi.data.get<2>(phiPoint.interval) - 1;
+        phiPoint = Phi.map(phiPoint);
         for (uint64_t i = 0; i < totalLen; ++i) {
             lcp[totalLen - 1 - i] = PLCPsamples[phiPoint.interval] - phiPoint.offset;
-            phiPoint = PhiNEWONEHE.map(phiPoint);
+            phiPoint = Phi.map(phiPoint);
         }
         for (uint64_t i = 0; i < totalLen; ++i) {
             std::cout << lcp[i] << '\n';
@@ -1388,7 +1388,7 @@ class LCPComputer {
         for (uint64_t i = 0; i < totalLen; ++i) {
             std::cout << '\t' << PLCPsamples[phiPoint.interval] - phiPoint.offset;
             ++phiPoint.offset;
-            phiPoint.offset %= PhiNEWONEHE.data.get<2>(phiPoint.interval);
+            phiPoint.offset %= Phi.data.get<2>(phiPoint.interval);
             phiPoint.interval += (phiPoint.offset == 0);
         }
         std::cout << "\n";
@@ -1399,9 +1399,9 @@ class LCPComputer {
         uint64_t numRuns = PLCPsamples.size();
         for (uint64_t i = 0; i < numRuns; ++i) {
             std::cout << i << '\t'
-                << PhiNEWONEHE.data.get<0>(i) << '\t'
-                << PhiNEWONEHE.data.get<1>(i) << '\t'
-                << PhiNEWONEHE.data.get<2>(i+1) - PhiNEWONEHE.data.get<2>(i) << '\t'
+                << Phi.data.get<0>(i) << '\t'
+                << Phi.data.get<1>(i) << '\t'
+                << Phi.data.get<2>(i+1) - Phi.data.get<2>(i) << '\t'
                 << PLCPsamples[i] << '\n';
         }
     }
@@ -1418,7 +1418,7 @@ class LCPComputer {
         bytes += sdsl::serialize(Psi, out, child, "Psi");
         bytes += sdsl::serialize(intAtTop, out, child, "intAtTop");
         //bytes += sdsl::serialize(PhiIntLen, out, child, "PhiIntLen");
-        bytes += sdsl::serialize(PhiNEWONEHE, out, child, "Phi");
+        bytes += sdsl::serialize(Phi, out, child, "Phi");
         bytes += sdsl::serialize(PLCPsamples, out, child, "PLCPsamples");
 
         sdsl::structure_tree::add_size(child, bytes);
@@ -1432,7 +1432,7 @@ class LCPComputer {
         sdsl::load(Psi, in);
         sdsl::load(intAtTop, in);
         //sdsl::load(PhiIntLen, in);
-        sdsl::load(PhiNEWONEHE, in);
+        sdsl::load(Phi, in);
         sdsl::load(PLCPsamples, in);
         //Phi.intLens = &PhiIntLen;
         //Psi.intLens = &Flens;
