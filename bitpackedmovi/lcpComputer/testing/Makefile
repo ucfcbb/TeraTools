@@ -5,12 +5,9 @@ all: test
 syngenparam = "10 10 10 10"
 
 ropebwt3 = ../../../ropebwt3/
-builder = ../../builder/
-kactl_impl = ../../../less_efficient_but_accurate_algos/kactl-sa-implementation/
 lcpComputer = ../
 minLCP = ../../../less_efficient_but_accurate_algos/kactl-sa-implementation/
 syntheticgen = ../../../data/generation/
-loader = ../../loader/
 
 numIter=10
 
@@ -19,7 +16,7 @@ numIter=10
 ropebwt3 builder kactl_impl lcpComputer minLCP syntheticgen loader:
 	make -C $($@) $@
 
-test: ropebwt3 builder kactl_impl lcpComputer minLCP syntheticgen loader
+test: ropebwt3 lcpComputer minLCP syntheticgen
 	test=0;\
 	while ./tester.sh $(foreach prog, $^, $($(prog))$(prog)) $(syngenparam) ; do \
 		echo passed test $$((++test)); \

@@ -1,383 +1,10 @@
-#include"util.h"
-#include"moveStructure.h"
+#include"util/util.h"
+#include"moveStructure/moveStructure.h"
 #include"fm-index.h"
 #include<queue>
 #include<omp.h>
 #include<atomic>
 #include<mutex>
-
-enum FFMethod { LINEAR, EXPONENTIAL };
-
-struct packedTripleVector {
-    typedef uint64_t size_type;
-    uint8_t a,b,c,width;
-    sdsl::bit_vector data;
-
-    packedTripleVector() = default;
-
-    packedTripleVector(const uint64_t a, const uint64_t b, const uint64_t c, const uint64_t elements): a(a), b(b), c(c), width(a+b+c), data(width*elements,0) {
-        if (a > 64 || b > 64 || c > 64) {
-            std::cerr << "ELEMENTS MUST BE <= 64 BITS!" << std::endl;
-            exit(1);
-        }
-    }
-
-    //packedTripleVector(packedTripleVector&& m): a(m.a), b(m.b), c(m.c), width(m.width), data(std::move(m.data)) {}
-
-    template<unsigned el>
-    inline std::pair<uint8_t, uint8_t> offW() const ;
-
-    template<unsigned el>
-    uint64_t get(const uint64_t ind) const {
-        static_assert(el < 3, "The element accessed in a packed triple must be between 0 and 2 inclusive");
-        auto [off, w] = offW<el>();
-        return data.get_int(ind*width + off, w);
-    }
-
-    template<unsigned el>
-    void set(const uint64_t ind, const uint64_t val) {
-        static_assert(el < 3, "The element accessed in a packed triple must be between 0 and 2 inclusive");
-        auto [off, w] = offW<el>();
-        //std::cout << "off " << static_cast<unsigned>(off) << " w " << static_cast<unsigned>(w) << " ind " << ind << " ind*width " << ind*width
-            //<< " ind*width + off " << ind*width + off << " val " << val << std::endl;
-        data.set_int(ind*width + off, val, w);
-        //std::cout << "leaving set" << std::endl;
-    }
-
-    size_type serialize(std::ostream &out, sdsl::structure_tree_node *v=NULL, std::string name="") const {
-        sdsl::structure_tree_node* child = sdsl::structure_tree::add_child(v, name, sdsl::util::class_name(*this));
-
-        size_type bytes = 0;
-
-        bytes += sdsl::serialize(a, out, child, "a");
-        bytes += sdsl::serialize(b, out, child, "b");
-        bytes += sdsl::serialize(c, out, child, "c");
-        bytes += sdsl::serialize(width, out, child, "width");
-        bytes += sdsl::serialize(data, out, child, "data");
-
-        sdsl::structure_tree::add_size(child, bytes);
-
-        return bytes;
-    }
-
-    void load(std::istream& in) {
-        sdsl::load(a, in);
-        sdsl::load(b, in);
-        sdsl::load(c, in);
-        sdsl::load(width, in);
-        sdsl::load(data, in);
-    }
-
-    uint64_t size() const {
-        return data.size()/width;
-    }
-};
-            
-template<>
-inline std::pair<uint8_t, uint8_t> packedTripleVector::offW<0>()  const {
-    return {0, a};
-}
-
-template<>
-inline std::pair<uint8_t, uint8_t> packedTripleVector::offW<1>()  const {
-    return {a, b};
-}
-
-template<>
-inline std::pair<uint8_t, uint8_t> packedTripleVector::offW<2>()  const {
-    return {a + b, c};
-}
-
-//copied from bench.cpp, clean up structure of code later
-struct MoveStructureTable {
-    typedef uint64_t size_type;
-    //D_index, D_offset, intlens
-    packedTripleVector data;
-
-    MoveStructureTable() = default;
-
-    MoveStructureTable(MoveStructure& mv): data(mv.D_index.width(), mv.D_offset.width(), mv.intLens->width(), mv.D_index.size()) {
-        //std::cout << "calc: " << ((mv.D_index.width()+mv.D_offset.width() + mv.intLens->width())*mv.D_index.size()+7)/8 << std::endl;
-        //std::cout << "Input index size: " << sdsl::size_in_bytes(mv) << std::endl;
-        //std::cout << "This index size: " << sdsl::size_in_bytes(*this) << std::endl;
-        //std::cout << "In constructor" << std::endl;
-        //std::cout << data.data.size() << std::endl;
-        for (uint64_t i = 0; i < mv.D_index.size(); ++i) {
-            //std::cout << "i " << i << std::endl;
-            data.set<0>(i, mv.D_index[i]);
-            data.set<1>(i, mv.D_offset[i]);
-            data.set<2>(i, (*mv.intLens)[i]);
-        }
-        //std::cout << "Out constructor" << std::endl;
-    }
-
-    //MoveStructureTable(MoveStructureTable&& mv): data(std::move(mv.data)) {}
-
-    struct IntervalPoint {
-        /*
-        //represents a position in a range [0,n-1] that is composed of x intervals
-        //[i_0,i_1-1],[i_1,i_2-1],[i_2,i_3-1],...,[i_{x-1},n-1]
-        //a position p in [0,n-1] in this range is represented by 
-        //position, interval, offset s.t.
-        // - position = p
-        // - interval = j s.t. i_j <= p and i_{j+1} > p
-        // - offset   = k s.t. i_j + k = p (therefore, k in [0,i_{j+1}-i_j-1]
-         */
-        uint64_t position, interval, offset;
-
-        bool operator!=(const IntervalPoint& rhs) const {
-            return position != rhs.position || interval != rhs.interval || offset != rhs.offset;
-        }
-    };
-
-    IntervalPoint map(const IntervalPoint& intPoint) const {
-        IntervalPoint res;
-        res.position = static_cast<uint64_t>(-1);
-        res.interval = data.get<0>(intPoint.interval);
-        res.offset = data.get<1>(intPoint.interval) + intPoint.offset;
-        while (data.get<2>(res.interval) <= res.offset)
-            res.offset -= data.get<2>(res.interval++);
-        return res;
-    }
-
-    size_type serialize(std::ostream &out, sdsl::structure_tree_node *v=NULL, std::string name="") const {
-        sdsl::structure_tree_node* child = sdsl::structure_tree::add_child(v, name, sdsl::util::class_name(*this));
-
-        size_type bytes = 0;
-
-        bytes += sdsl::serialize(data, out, child, "data");
-
-        sdsl::structure_tree::add_size(child, bytes);
-
-        return bytes;
-    }
-
-    void load(std::istream& in) {
-        sdsl::load(data,in);
-    }
-
-    bool permutationLengthNOneCycleSequential(size_type N) const {
-        size_type totalOps = 0;
-
-        IntervalPoint curr{static_cast<uint64_t>(-1), 0, 0};
-
-        do {
-            curr = map(curr);
-            ++totalOps;
-        } while ((curr.interval || curr.offset) && totalOps < N + 1);
-
-        return totalOps == N;
-    }
-
-    //returns whether the move structure is a permutation of length N
-    //uses numIntervals log numIntervals auxiliary bits
-    bool permutationLengthN(size_type N) const {
-        size_type runs = data.size();
-        sdsl::int_vector<> nextInt(runs, runs, sdsl::bits::hi(runs) + 1);
-        size_type totalOps = 0;
-
-        #pragma omp parallel for schedule(dynamic, 1024)
-        for (uint64_t i = 0; i < runs; ++i) {
-            IntervalPoint curr{static_cast<uint64_t>(-1), i, 0};
-            uint64_t ops = 0;
-            do {
-                curr = map(curr);
-                ++ops;
-            } while (curr.offset);
-
-            #pragma omp critical 
-            {
-                nextInt[i] = curr.interval;
-                totalOps += ops;
-            }
-        }
-
-        if (totalOps != N)
-            return false;
-
-        uint64_t traversed = 1, curr = 0;
-        while (nextInt[curr] && nextInt[curr] != runs && traversed < runs) {
-            curr = nextInt[curr];
-            ++traversed;
-        }
-
-        return traversed == runs && nextInt[curr] == 0;
-    }
-};
-
-//copied from bench.cpp, clean up structure of code later
-struct MoveStructureStartTable {
-    typedef uint64_t size_type;
-    //D_index, D_offset, startPos
-    packedTripleVector data;
-    
-    MoveStructureStartTable() = default;
-
-    MoveStructureStartTable(const MoveStructure& mv) {
-        uint64_t largestStartPos = 0;
-        for (uint64_t i = 1; i < mv.D_index.size(); ++i)
-            largestStartPos += (*mv.intLens)[i - 1];
-
-        data = packedTripleVector(mv.D_index.width(), mv.D_offset.width(), sdsl::bits::hi(largestStartPos) + 1, mv.D_index.size() + 1);
-        //std::cout << "In constructor" << std::endl;
-        //std::cout << data.data.size() << std::endl;
-        largestStartPos = 0;
-        for (uint64_t i = 0; i < mv.D_index.size(); ++i) {
-            //std::cout << "i " << i << std::endl;
-            data.set<0>(i, mv.D_index[i]);
-            data.set<1>(i, mv.D_offset[i]);
-            data.set<2>(i, largestStartPos);
-            largestStartPos += (*mv.intLens)[i];
-        }
-        data.set<2>(mv.D_index.size(), largestStartPos);
-        //std::cout << "Out constructor" << std::endl;
-    }
-
-    struct IntervalPoint {
-        /*
-        //represents a position in a range [0,n-1] that is composed of x intervals
-        //[i_0,i_1-1],[i_1,i_2-1],[i_2,i_3-1],...,[i_{x-1},n-1]
-        //a position p in [0,n-1] in this range is represented by 
-        //position, interval, offset s.t.
-        // - position = p
-        // - interval = j s.t. i_j <= p and i_{j+1} > p
-        // - offset   = k s.t. i_j + k = p (therefore, k in [0,i_{j+1}-i_j-1]
-         */
-        uint64_t position, interval, offset;
-
-        bool operator!=(const IntervalPoint& rhs) const {
-            return position != rhs.position || interval != rhs.interval || offset != rhs.offset;
-        }
-    };
-    
-    template <FFMethod M = EXPONENTIAL>
-    IntervalPoint map(const IntervalPoint& intPoint) const;
-
-    size_type serialize(std::ostream &out, sdsl::structure_tree_node *v=NULL, std::string name="") const {
-        sdsl::structure_tree_node* child = sdsl::structure_tree::add_child(v, name, sdsl::util::class_name(*this));
-
-        size_type bytes = 0;
-
-        bytes += sdsl::serialize(data, out, child, "data");
-
-        sdsl::structure_tree::add_size(child, bytes);
-
-        return bytes;
-    }
-
-    void load(std::istream& in) {
-        sdsl::load(data, in);
-    }
-
-    template<FFMethod M>
-    //returns whether the move structure is a permutation of length N with exactly one cycle
-    //uses numIntervals log numIntervals auxiliary bits
-    bool permutationLengthNOneCycleSequential(size_type N) const {
-        size_type totalOps = 0;
-
-        IntervalPoint curr{0, 0, 0};
-
-        do {
-            curr = map<M>(curr);
-            ++totalOps;
-        } while (curr.position && totalOps < N + 1);
-
-        return totalOps == N;
-
-    }
-    
-    template<FFMethod M>
-    //returns whether the move structure is a permutation of length N with exactly one cycle
-    //uses numIntervals log numIntervals auxiliary bits
-    bool permutationLengthN(size_type N) const {
-        size_type runs = data.size() - 1;
-        sdsl::int_vector<> nextInt(runs, runs, sdsl::bits::hi(runs) + 1);
-        size_type totalOps = 0;
-
-        #pragma omp parallel for schedule(dynamic, 1024)
-        for (uint64_t i = 0; i < runs; ++i) {
-            IntervalPoint curr{static_cast<uint64_t>(-1), i, 0};
-            uint64_t ops = 0;
-            do {
-                curr = map<M>(curr);
-                ++ops;
-            } while (curr.offset);
-
-            #pragma omp critical 
-            {
-                nextInt[i] = curr.interval;
-                totalOps += ops;
-            }
-        }
-
-        if (totalOps != N)
-            return false;
-
-        uint64_t traversed = 1, curr = 0;
-        while (nextInt[curr] && nextInt[curr] != runs && traversed < runs) {
-            curr = nextInt[curr];
-            ++traversed;
-        }
-
-        return traversed == runs && nextInt[curr] == 0;
-    }
-};
-
-template<> 
-MoveStructureStartTable::IntervalPoint MoveStructureStartTable::map<LINEAR>(const IntervalPoint& intPoint) const {
-    //std::cout << "enter map" << std::endl;
-    IntervalPoint res;
-    res.interval = data.get<0>(intPoint.interval);
-    res.offset = data.get<1>(intPoint.interval) + intPoint.offset;
-    res.position = data.get<2>(res.interval) + res.offset;
-    if (data.get<2>(res.interval + 1) > res.position)
-        return res;
-    //std::cout << res.position << ' ' << res.interval << ' ' << res.offset << std::endl;
-    //res.interval should never be > data.get<2>.size()
-    while (data.get<2>(res.interval + 1) <= res.position)
-        ++res.interval;
-    res.offset = res.position - data.get<2>(res.interval);
-    //std::cout << "exit map" << std::endl;
-    return res;
-}
-
-template<> 
-MoveStructureStartTable::IntervalPoint MoveStructureStartTable::map<EXPONENTIAL>(const IntervalPoint& intPoint) const {
-    //std::cout << "enter map" << std::endl;
-    IntervalPoint res;
-    res.interval = data.get<0>(intPoint.interval);
-    res.offset = data.get<1>(intPoint.interval) + intPoint.offset;
-    res.position = data.get<2>(res.interval) + res.offset;
-    if (data.get<2>(res.interval + 1) > res.position)
-        return res;
-    uint64_t dist = 2;
-    //std::cout << res.position << ' ' << res.interval << ' ' << res.offset << std::endl;
-    //res.interval should never be > data.size()
-    while (dist < data.size() - 1 - res.interval && data.get<2>(res.interval + dist) <= res.position)
-        dist *= 2;
-    res.interval += dist/2;
-    
-    dist = dist/2 - 1;
-    using myint = uint64_t;
-
-    myint lo = res.interval;
-    myint hi = std::min(lo + dist, data.size() - 2);
-    myint ans = -1;
-    while(lo <= hi) {
-        myint mid = (lo + hi) >> 1;
-        myint here = data.get<2>(mid);
-        if (here <= res.position){
-            lo = (ans = mid) + 1;
-        } else {
-            hi = mid - 1;
-        }
-    }
-    
-    res.interval = ans;
-    res.offset = res.position - data.get<2>(res.interval);
-    //std::cout << "exit map" << std::endl;
-    return res;
-}
 
 class LCPComputer {
     uint64_t totalLen;
@@ -944,17 +571,19 @@ class LCPComputer {
             packedTripleVector buffer;
             uint64_t bufferElementsPerThread;
             {
-                const uint64_t bufferMaxBits = numRuns;
-                uint64_t bufferElements = bufferMaxBits/(2*PhiNEWONEHE.data.a + PhiNEWONEHE.data.b);
                 //uses 64 bytes at least
-                if (bufferElements < 8)
-                    bufferElements = 8;
-                if (bufferElements < 8*threads) {
+                const uint64_t bufferMaxBits = std::max(numRuns, static_cast<uint64_t>(512));
+                const uint64_t bitsPerElement = (2*PhiNEWONEHE.data.a + PhiNEWONEHE.data.b);
+                uint64_t bufferElements = (bufferMaxBits + bitsPerElement - 1)/bitsPerElement;
+                //each thread should use at least 64 bytes:
+                if (bufferElements*bitsPerElement < threads*512) {
                     //!!!!!!!!!!!!!!!!!!! should be rare, #threads is huge or r is very small
                     //8 is an arbitrary constant I chose so that the buffer is not useless
-                    std::cout << "WARNING: limiting number of threads in Phi computation to " << bufferElements
-                        << " to save memory. Previously, would have been " << threads << std::endl;
-                    threads = bufferElements/8;
+                    if (v >= TIME) {
+                        std::cout << "WARNING: limiting number of threads in Phi computation to " << bufferElements/8
+                            << " to save memory. Previously, would have been " << threads << std::endl;
+                    }
+                    threads = (bufferElements*bitsPerElement)/512;
                 }
                 bufferElementsPerThread = bufferElements/threads;
                 bufferElements = bufferElementsPerThread*threads;
@@ -1655,9 +1284,13 @@ class LCPComputer {
         */
     }
 
-    void ComputeMinLCPRun(std::ofstream& out) const {
+    void ComputeMinLCPRun(std::ofstream& out
+            #ifndef BENCHFASTONLY
+            , const verbosity v
+            #endif
+            ) const {
         //O(r log sigma) time, can be skipped if RLBWT is maintained or re-read
-        Timer.start("Computing Min LCP per Run");
+        if (v >= TIME) { Timer.start("Computing Min LCP per Run"); }
         struct MappedPositionRunPair {
             uint64_t psiInputInt;
             MoveStructureTable::IntervalPoint runStart;
@@ -1727,7 +1360,7 @@ class LCPComputer {
             std::cerr << "ERROR: runs found by recovering RLBWT not equal to runs in F!\n";
             exit(1);
         }
-        Timer.stop(); //Computing Min LCP per Run
+        if (v >= TIME) { Timer.stop(); } //Computing Min LCP per Run
     }
 
     void printRaw(const sdsl::int_vector<>& intAtTop) const {

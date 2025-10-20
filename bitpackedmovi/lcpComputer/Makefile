@@ -28,9 +28,9 @@ objs = $(ropebwt3dir)/bre.o\
 	   $(ropebwt3dir)/rope.o\
 	   $(ropebwt3dir)/ssa.o
 
-lcpHeads = $(optIncDir)/optbwtrl/util.h\
-           $(optIncDir)/optbwtrl/lcpComputer.h\
-           $(optIncDir)/optbwtrl/moveStructure.h\
+lcpHeads = $(optIncDir)/util/util.h\
+           $(optIncDir)/lcpComputer/lcpComputer.h\
+           $(optIncDir)/moveStructure/moveStructure.h\
 
 libs = -lsdsl -lpthread -lz -lm -latomic
 incs = -I$(optIncDir) -isystem$(incdir) -isystem$(ropebwt3dir)
@@ -56,8 +56,8 @@ clean:
 test: lcpComputer
 	set -e && \
 	for testind in $(testinds); do \
-		./lcpComputer $$testind $$testind; \
+		./lcpComputer -f fmd -i $$testind -orlcp test.rlcp -t testTEMPFILE; \
 	done
 
-lcpComputer: $(lcpHeads) $(objs) lcpComputer.cpp
-	$(CXX) $(cppflags) $(incs) -L$(libdir) $^ -o $@ $(libs)
+lcpComputer: lcpComputer.cpp $(lcpHeads) $(objs)
+	$(CXX) $(cppflags) $(incs) -L$(libdir) $(objs) $< -o $@ $(libs)

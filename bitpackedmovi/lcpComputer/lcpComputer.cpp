@@ -1,7 +1,10 @@
-#include"optbwtrl/lcpComputer.h"
+#include"lcpComputer/lcpComputer.h"
 
 void printUsage() {
     std::cout << 
+        "lcpComputer computes the minimum LCP values in each run of the BWT of a text.\n"
+        "It does so by computing the Psi and Phi move data structures in compressed space.\n"
+        "It can optionally output the computed index to avoid later recomputation or for downstream analysis.\n\n"
         "Usage: lcpComputer <arguments>\n"
         "Options:\n"
         "  Input:\n"
@@ -195,7 +198,7 @@ int main(const int argc, const char*argv[]) {
             std::cerr << "ERROR: File '" << o.orlcp << "' failed to open for writing!\n";
             exit(1);
         }
-        ourIndex.ComputeMinLCPRun(lcpOut);
+        ourIndex.ComputeMinLCPRun(lcpOut, o.v);
         #ifndef BENCHFASTONLY
         if (o.v >= TIME) { Timer.stop(); } //min LCP per run computation
         #endif
