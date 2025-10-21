@@ -59,14 +59,12 @@ void computeMSRow(const std::string& inpMSIndex, const std::string& query = ""){
     
     // LCPComputer lcp_comp(inputOptbwtrl);
 	
-	MSIndex ms;
+	MSIndex msIndex;
 	std::ifstream in(inpMSIndex);
-	std::cout << "Loading msIndex..." << std::endl;
-	ms.load(in);
-	std::cout << "Loaded msIndex successfully." << std::endl;
+	std::cout << "Loading " << inpMSIndex << "..." << std::endl;
+	msIndex.load(in);
+	std::cout << "Successfully loaded" << inpMSIndex << "." << std::endl;
 	in.close();
-	// ms.constructFromLCPIndexFileWriteAndClear(in, out);
-	// out.close();
 
     std::vector row(query.size(), 0);
     // Encode the query into integers 
@@ -79,20 +77,19 @@ void computeMSRow(const std::string& inpMSIndex, const std::string& query = ""){
 	BWTInt['N'] = 5;
 
 	// Initial interval
-	/*
 	MoveStructureTable::IntervalPoint inp;
     inp.interval = 0;
     inp.offset = 0;
     for (int i = query.size() - 1; i >= 0; --i) {
 		row[i] = inp.interval;
-        // if (BWTInt[query[i]] != msIndex::RLBWT[inp.interval]) {
+        if (BWTInt[query[i]] != msIndex.rlbwt[inp.interval]) {
             // find the next run that has the same character as query[i]
             // we do this by "repositioning"
             // In Movi, they search up and down, here we don't need to do that?
-        // }
+        }
         // perform LF(i, x) to find (LF[i], x')
-		// inp = msIndex::LF(inp.offset, inp.interval) 
-    }*/
+		MoveStructureTable::IntervalPoint newinp = msIndex.LF.map(inp);
+    }
 }
 
 
