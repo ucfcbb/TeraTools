@@ -8,6 +8,7 @@
 #include<omp.h>
 #include<atomic>
 #include<mutex>
+#include <filesystem>
 
 static constexpr const char* lcp_index_extension = ".lcp_index";
 
@@ -931,6 +932,19 @@ class LCPComputer {
 
     public:
     typedef uint64_t size_type;
+
+	// Constructor to assist with matching statistic computation
+	LCPComputer(const std::string& inputOptbwtrl) {
+		if (!std::filesystem::exists(inputOptbwtrl)) {
+			std::cout << inputOptbwtrl << " doesn't exist!" << std::endl;
+			exit(EXIT_FAILURE);
+		}
+		std::ifstream in(inputOptbwtrl);
+        std::cout << "Loading input Optbwtrl..." << std::endl;
+        load(in);
+        in.close();
+        std::cout << "Succesfully loaded." << std::endl;
+	}
 
     //input: a run length encoding of a multidollar BWT where all dollars are represented by 0
     //All characters between (and including) 0 and max_char are assumed to have more than 0 occurrences
