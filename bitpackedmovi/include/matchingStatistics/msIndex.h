@@ -31,11 +31,13 @@ class MSIndex {
         std::unordered_map<uint64_t, uint64_t> currentStarts;
         //initialize currentStarts
         MoveStructureTable::IntervalPoint p{static_cast<uint64_t>(-1), 0, numSequences}, start;
+        while (p.interval < numRuns && p.offset >= LF.data.get<2>(p.interval))
+            p.offset -= LF.data.get<2>(p.interval++);
+        start = p;
         //std::cout << "starting initialization loop" << std::endl;
         for (uint64_t i = numSequences; i < numRuns; ++i) {
             while (p.interval < numRuns && p.offset >= LF.data.get<2>(p.interval))
                 p.offset -= LF.data.get<2>(p.interval++);
-            if (i == numSequences) { start = p; }
             if (F[i] != F[i - 1])
                 currentStarts[pointToInt(p)] = F[i];
             p.offset += Psi.data.get<2>(i);
@@ -61,6 +63,8 @@ class MSIndex {
     }
 
     public:
+    typedef uint64_t size_type;
+
     void constructFromLCPIndexFileWriteAndClear(std::ifstream& lcpIn, std::ofstream& MSIout, verbosity v = TIME,
             bool vLF = false,
             bool vPsi = false,
@@ -181,12 +185,32 @@ class MSIndex {
         return text;
     }
 
-    void serialize() {
+    size_type serialize(std::ostream &out, sdsl::structure_tree_node *v=NULL, std::string name="") {
+        sdsl::structure_tree_node* child = sdsl::structure_tree::add_child(v, name, sdsl::util::class_name(*this));
+        size_type bytes = 0;
 
+        bytes += sdsl::serialize(F, out, child, "F");
+        bytes += sdsl::serialize(rlbwt, out, child, "rlbwt");
+        bytes += sdsl::serialize(Psi, out, child, "Psi");
+        bytes += sdsl::serialize(LF, out, child, "LF");
+        bytes += sdsl::serialize(intAtTop, out, child, "intAtTop");
+        bytes += sdsl::serialize(Phi, out, child, "Phi");
+        bytes += sdsl::serialize(InvPhi, out, child, "InvPhi");
+        bytes += sdsl::serialize(PLCPsamples, out, child, "PLCPsamples");
+
+        sdsl::structure_tree::add_size(child, bytes);
+        return bytes;
     }
 
-    void load() {
-
+    void load(std::istream& in) {
+        sdsl::load(F, in);
+        sdsl::load(rlbwt, in);
+        sdsl::load(Psi, in);
+        sdsl::load(LF, in);
+        sdsl::load(intAtTop, in);
+        sdsl::load(Phi, in);
+        sdsl::load(InvPhi, in);
+        sdsl::load(PLCPsamples, in);
     }
 };
 #endif //#ifndef R_SA_LCP_MSINDEX_H
