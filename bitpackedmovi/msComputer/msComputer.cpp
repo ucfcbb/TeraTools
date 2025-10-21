@@ -48,7 +48,7 @@ void testLastWeek(const std::string& inputOptbwtrl){
 }
 
 
-void computeMSRow(const std::string& inputOptbwtrl, const std::string& query = ""){
+void computeMSRow(const std::string& inpMSIndex, const std::string& query = ""){
 	/* Assume, we'll have the following data-structures from msIndex
 	 * i - position - [1, n]
      * x is the interval that contains i
@@ -57,7 +57,16 @@ void computeMSRow(const std::string& inputOptbwtrl, const std::string& query = "
      * RLBWT[x]
 	 */
     
-    LCPComputer lcp_comp(inputOptbwtrl);
+    // LCPComputer lcp_comp(inputOptbwtrl);
+	
+	MSIndex ms;
+	std::ifstream in(inpMSIndex);
+	std::cout << "Loading msIndex..." << std::endl;
+	ms.load(in);
+	std::cout << "Loaded msIndex successfully." << std::endl;
+	in.close();
+	// ms.constructFromLCPIndexFileWriteAndClear(in, out);
+	// out.close();
 
     std::vector row(query.size(), 0);
     // Encode the query into integers 
@@ -70,6 +79,7 @@ void computeMSRow(const std::string& inputOptbwtrl, const std::string& query = "
 	BWTInt['N'] = 5;
 
 	// Initial interval
+	/*
 	MoveStructureTable::IntervalPoint inp;
     inp.interval = 0;
     inp.offset = 0;
@@ -82,18 +92,17 @@ void computeMSRow(const std::string& inputOptbwtrl, const std::string& query = "
         // }
         // perform LF(i, x) to find (LF[i], x')
 		// inp = msIndex::LF(inp.offset, inp.interval) 
-    }
+    }*/
 }
 
 
 int main(int argc, char*argv[]) {
     if (argc != 2) {
-		std::cout << "msComputer <path/to/optbwtrl/file>" << std::endl;
+		std::cout << "msComputer <path/to/msIndex/file>" << std::endl;
         exit(1);
     }
 
-	std::string inpOptbwtrl = argv[1];
-	computeMSRow(inpOptbwtrl);
-	
+	std::string inpMSIndex = argv[1];
+	computeMSRow(inpMSIndex);
     return 0;
 }

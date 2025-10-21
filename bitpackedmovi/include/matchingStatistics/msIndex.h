@@ -205,14 +205,23 @@ class MSIndex {
 
     void load(std::istream& in) {
         sdsl::load(totalLen, in);
+		std::cout << "Loading msIndex1.." << std::endl;
         sdsl::load(F, in);
+		std::cout << "Loading msIndex2.." << std::endl;
         sdsl::load(rlbwt, in);
+		std::cout << "Loading msIndex3.." << std::endl;
         sdsl::load(Psi, in);
+		std::cout << "Loading msIndex4.." << std::endl;
         sdsl::load(LF, in);
+		std::cout << "Loading msIndex5.." << std::endl;
         sdsl::load(intAtTop, in);
+		std::cout << "Loading msIndex6.." << std::endl;
         sdsl::load(Phi, in);
+		std::cout << "Loading msIndex7.." << std::endl;
         sdsl::load(InvPhi, in);
+		std::cout << "Loading msIndex8.." << std::endl;
         sdsl::load(PLCPsamples, in);
+		std::cout << "Loading msIndex.." << std::endl;
     }
 
     //matching algorithms-----------------------
