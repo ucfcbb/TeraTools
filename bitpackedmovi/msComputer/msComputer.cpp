@@ -2,6 +2,8 @@
 #include "matchingStatistics/msIndex.h"
 #include "moveStructure/moveStructure.h"
 
+#include <unordered_map>
+
 void testLastWeek(){
     // std::string inputOptbwtrl = argv[1];
     // LCPComputer lcp_comp(inputOptbwtrl);
@@ -49,7 +51,7 @@ void testLastWeek(){
 
 
 void computeMSRow(const std::string& query){
-	/* Assume, we'll have the following data-structures
+	/* Assume, we'll have the following data-structures from msIndex
 	 * i - position - [1, n]
      * x is the interval that contains i
      * LF(i, x) = (LF[i], x')
@@ -57,21 +59,30 @@ void computeMSRow(const std::string& query){
      * RLBWT[x]
 	 */
 
-	MoveStructureTable::IntervalPoint inp;
-    inp.interval = 0;
-    inp.offset = 0;
     
     std::vector row(query.size(), 0);
     // Encode the query into integers 
-	//
-    for (int i = query.size() - 1; i >= 0; ++i) {
-        if (query[i] != RLBWT[inp.interval]){
+	std::unordered_map<char, int> BWTInt;
+	BWTInt['$'] = 0;
+	BWTInt['A'] = 1;
+	BWTInt['C'] = 2;
+	BWTInt['G'] = 3;
+	BWTInt['T'] = 4;
+	BWTInt['N'] = 5;
+
+	// Initial interval
+	MoveStructureTable::IntervalPoint inp;
+    inp.interval = 0;
+    inp.offset = 0;
+    for (int i = query.size() - 1; i >= 0; --i) {
+		row[i] = inp.interval;
+        if (BWTInt[query[i]] != msIndex::RLBWT[inp.interval]) {
             // find the next run that has the same character as query[i]
             // we do this by "repositioning"
             // In Movi, they search up and down, here we don't need to do that?
         }
-        // perform LF(i, x)
-		// .map()
+        // perform LF(i, x) to find (LF[i], x')
+		inp = msIndex::LF(inp.offset, inp.interval) 
     }
 }
 
