@@ -40,7 +40,7 @@ void processOptions(const int argc, const char* argv[]) {
     }
 
     o.inputFile = getArgument(argc, argv, used, "-i", true, true);
-    o.oindex = getArgument(argc, argv, used, "-o", true, true);
+    o.oindex = getArgument(argc, argv, used, "-o", true, true) + ms_index_extension;
     std::string s = getArgument(argc, argv, used, "-v", false, true);
     if (s == "quiet")
         o.v = QUIET;

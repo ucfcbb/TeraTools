@@ -189,6 +189,7 @@ class MSIndex {
         sdsl::structure_tree_node* child = sdsl::structure_tree::add_child(v, name, sdsl::util::class_name(*this));
         size_type bytes = 0;
 
+        bytes += sdsl::serialize(totalLen, out, child, "totalLen");
         bytes += sdsl::serialize(F, out, child, "F");
         bytes += sdsl::serialize(rlbwt, out, child, "rlbwt");
         bytes += sdsl::serialize(Psi, out, child, "Psi");
@@ -203,6 +204,7 @@ class MSIndex {
     }
 
     void load(std::istream& in) {
+        sdsl::load(totalLen, in);
         sdsl::load(F, in);
         sdsl::load(rlbwt, in);
         sdsl::load(Psi, in);
@@ -211,6 +213,14 @@ class MSIndex {
         sdsl::load(Phi, in);
         sdsl::load(InvPhi, in);
         sdsl::load(PLCPsamples, in);
+    }
+
+    //matching algorithms-----------------------
+
+    //WARNING, THIS IMPLEMENTATION ASSUMES NO RUN SPLITTING, MAY BE BUGGY IF RUN SPLITTING IS PERFORMED
+    //NOTE: THIS ALGORITHM MIGHT BE FASTER IN PRACTICE IF WE COMPUTE IT IN THE TEXT ORDER,
+    //  I.E. BY PLCP instead of BWT order (faster due to locality of reference)
+    void superMaximalRepeats(std::ostream& out, const uint64_t lengthThreshold = 1) {
     }
 };
 #endif //#ifndef R_SA_LCP_MSINDEX_H
