@@ -9,11 +9,11 @@ class MSIndex {
 
     MoveStructureTable Psi, LF;
 
-    sdsl::int_vector<> intAtTop;
+    sdsl::int_vector<> intAtTop, intAtBot;
 
     MoveStructureStartTable Phi, InvPhi;
 
-    sdsl::int_vector<> PLCPsamples;
+    sdsl::int_vector<> PLCPsamples, PLCPBelowsamples;
 
     void generateRLBWTfromLFPsiandF() {
         const uint64_t numRuns = LF.data.size();
@@ -62,6 +62,19 @@ class MSIndex {
         }
     }
 
+    void generateInvPhiintAtBotPLCPBelow() {
+        uint64_t numIntervals = Phi.data.size() - 1;
+        sdsl::int_vector<> pi, invPi; 
+        std::tie(InvPhi, pi, invPi) = Phi.invertAndRetPiInvPi();
+        PLCPBelowsamples = sdsl::int_vector<>(PLCPsamples.size(), 0, PLCPsamples.width());
+        for (uint64_t i = 0; i < PLCPBelowsamples.size(); ++i)
+            PLCPBelowsamples[i] = PLCPsamples[pi[i]];
+        pi = sdsl::int_vector<>();
+        intAtBot = sdsl::int_vector<>(intAtTop.size(), 0, intAtTop.width());
+        for (uint64_t i = 0; i < intAtBot.size(); ++i)
+            intAtBot[i] = invPi[intAtTop[(i+1)%intAtTop.size()]];
+    }
+
     public:
     typedef uint64_t size_type;
 
@@ -96,6 +109,7 @@ class MSIndex {
             if (v >= TIME) { Timer.stop(); }
         };
         if (v >= TIME) { Timer.start("constructFromLCPIndexFileWriteAndClear"); }
+        if (v >= TIME) { Timer.start("Constructing LF, Psi, rlbwt, and F"); }
         //load
         sdsl::load(totalLen, lcpIn);
         sdsl::load(F, lcpIn);
@@ -126,29 +140,33 @@ class MSIndex {
         //clear
         rlbwt = F = sdsl::int_vector<>();
         LF = Psi = MoveStructureTable();
+        if (v >= TIME) { Timer.stop(); } //Constructing LF, Psi, rlbwt, and F
 
         //intAtTop
-        sdsl::load(intAtTop, lcpIn);
-        sdsl::serialize(intAtTop, MSIout);
-        intAtTop = sdsl::int_vector<>();
+        //PLCPsamples
         
+        if (v >= TIME) { Timer.start("Constructing intAtTop, intAtBot, Phi, invPhi, PLCPsamples, and PLCPBelowsamples"); }
         //load
+        sdsl::load(intAtTop, lcpIn);
         sdsl::load(Phi, lcpIn);
-        //Phi.print();
+        sdsl::load(PLCPsamples,lcpIn);
+        generateInvPhiintAtBotPLCPBelow();
         test2(vPhi, Phi, "Phi");
-        InvPhi = Phi.invert();
-        //InvPhi.print();
         test2(vInvPhi, InvPhi, "InvPhi");
         //write
+        sdsl::serialize(intAtTop, MSIout);
+        sdsl::serialize(intAtBot, MSIout);
         sdsl::serialize(Phi, MSIout);
         sdsl::serialize(InvPhi, MSIout);
-        //clear
-        Phi = InvPhi = MoveStructureStartTable();
-
-        //PLCPsamples
-        sdsl::load(PLCPsamples,lcpIn);
         sdsl::serialize(PLCPsamples, MSIout);
+        sdsl::serialize(PLCPBelowsamples, MSIout);
+        //clear
+        intAtTop = sdsl::int_vector<>();
+        intAtBot = sdsl::int_vector<>();
+        Phi = InvPhi = MoveStructureStartTable();
         PLCPsamples = sdsl::int_vector<>();
+        PLCPBelowsamples = sdsl::int_vector<>();
+        if (v >= TIME) { Timer.stop(); } //Constructing intAtTop, intAtBot, Phi, invPhi, PLCPsamples, and PLCPBelowsamples
         if (v >= TIME) { Timer.stop(); }
     }
 
@@ -195,9 +213,11 @@ class MSIndex {
         bytes += sdsl::serialize(Psi, out, child, "Psi");
         bytes += sdsl::serialize(LF, out, child, "LF");
         bytes += sdsl::serialize(intAtTop, out, child, "intAtTop");
+        bytes += sdsl::serialize(intAtBot, out, child, "intAtBot");
         bytes += sdsl::serialize(Phi, out, child, "Phi");
         bytes += sdsl::serialize(InvPhi, out, child, "InvPhi");
         bytes += sdsl::serialize(PLCPsamples, out, child, "PLCPsamples");
+        bytes += sdsl::serialize(PLCPBelowsamples, out, child, "PLCPBelowsamples");
 
         sdsl::structure_tree::add_size(child, bytes);
         return bytes;
@@ -205,23 +225,16 @@ class MSIndex {
 
     void load(std::istream& in) {
         sdsl::load(totalLen, in);
-		std::cout << "Loading msIndex1.." << std::endl;
         sdsl::load(F, in);
-		std::cout << "Loading msIndex2.." << std::endl;
         sdsl::load(rlbwt, in);
-		std::cout << "Loading msIndex3.." << std::endl;
         sdsl::load(Psi, in);
-		std::cout << "Loading msIndex4.." << std::endl;
         sdsl::load(LF, in);
-		std::cout << "Loading msIndex5.." << std::endl;
         sdsl::load(intAtTop, in);
-		std::cout << "Loading msIndex6.." << std::endl;
+        sdsl::load(intAtBot, in);
         sdsl::load(Phi, in);
-		std::cout << "Loading msIndex7.." << std::endl;
         sdsl::load(InvPhi, in);
-		std::cout << "Loading msIndex8.." << std::endl;
         sdsl::load(PLCPsamples, in);
-		std::cout << "Loading msIndex.." << std::endl;
+        sdsl::load(PLCPBelowsamples, in);
     }
 
     //matching algorithms-----------------------
@@ -230,6 +243,28 @@ class MSIndex {
     //NOTE: THIS ALGORITHM MIGHT BE FASTER IN PRACTICE IF WE COMPUTE IT IN THE TEXT ORDER,
     //  I.E. BY PLCP instead of BWT order (faster due to locality of reference)
     void superMaximalRepeats(std::ostream& out, const uint64_t lengthThreshold = 1) {
+        //a supermaximal repeat is a substring of the text T[i,i+l) s.t.
+        //  a. occ(T[i,i+l)) > 1
+        //  b. occ(T[i-1,i+l)) = 1
+        //  c. occ(T[i,i+l+1)) = 1
+        //T[i,i+l) is a super maximal repeat iff
+        //  a. i occurs in SA at the top or bottom of a run
+        //  b. max(PLCP[i], PLCP[invphi[i]]) >= max(PLCP[i-1], PLCP[invphi[i-1]])
+        //  c. l = max(PLCP[i], PLCP[invphi[i]])
+        //
+        //This function outputs all supermaximal repeats in the text and all of their occurrences in O(r + occ) time
+        //It could also be easily modified to only output the supermaximal repeats 
+        //in O(r + c) time where c is the number of repeats outputted
+        //
+        //If a lengthThreshold is provided, it only outputs supermaximal repeats of length at least the threshold (thresholds 0 and 1 have the same behavior)
+
+        out << "seq\tpos\tlen\tocc\n";
+
+        uint64_t runs = rlbwt.size();
+        for (uint64_t run = 0; run < runs; ++run) {
+            //check run boundary run (i.e. top of run [run] and bottom of run [run-1 mod runs]
+        uint64_t runs = rlbwt.size();
+        }
     }
 };
 #endif //#ifndef R_SA_LCP_MSINDEX_H
