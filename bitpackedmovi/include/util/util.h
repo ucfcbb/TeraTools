@@ -3,6 +3,7 @@
 #include<iostream>
 #include<stack>
 #include<chrono>
+#include<cstring>
 #include<string>
 #include<vector>
 #include<fstream>
@@ -37,7 +38,8 @@ void testOutFile(const std::string& name) {
     if (name == "") return;
     std::ofstream out(name, std::ios::app);
     if (!out.is_open()) {
-        std::cout << "File '" << name << "' failed to open for writing.\n";
+        std::cerr << "ERROR: Cannot open output file '" << name 
+                  << "' for writing: " << strerror(errno) << "\n";
         exit(1);
     }
 };
@@ -46,7 +48,8 @@ void testInFile(const std::string& name) {
     if (name == "") return;
     std::ofstream in(name, std::ios::app);
     if (!in.is_open()) {
-        std::cout << "File '" << name << "' failed to open for writing.\n";
+        std::cerr << "ERROR: Cannot open input file '" << name 
+                  << "' for reading: " << strerror(errno) << "\n";
         exit(1);
     }
 };

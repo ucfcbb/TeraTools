@@ -50,6 +50,22 @@ struct MoveStructureTable {
         }
     };
 
+    uint64_t get_interval(const size_type i) const {
+        return data.get<0>(i);
+    }
+
+    uint64_t get_offset(const size_type i) const {
+        return data.get<1>(i);
+    }
+
+    uint64_t get_length(const size_type i) const {
+        return data.get<2>(i);
+    }
+
+    uint64_t num_intervals() const {
+        return data.size();
+    }
+
     IntervalPoint map(const IntervalPoint& intPoint) const {
         IntervalPoint res;
         res.position = static_cast<uint64_t>(-1);
