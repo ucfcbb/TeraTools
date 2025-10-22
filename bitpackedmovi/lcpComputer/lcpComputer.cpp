@@ -73,7 +73,9 @@ void processOptions(const int argc, const char* argv[]) {
     o.inputFile = getArg("-i", true, true);
     o.tempFile = getArg("-t", true, true);
     o.oindex = getArg("-oindex", false, true) + lcp_index_extension;
-    o.orlcp = getArg("-orlcp", false, true) + rlcp_extension;
+    o.orlcp = getArg("-orlcp", false, true);
+    if (o.orlcp != "")
+        o.orlcp += rlcp_extension;
     s = getArg("-p", false, true);
     if (s != "")
         o.numThreads = std::stoul(s);
