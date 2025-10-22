@@ -115,7 +115,8 @@ class MSIndex {
         sdsl::load(F, lcpIn);
         sdsl::load(Psi, lcpIn);
         test(vPsi, Psi, "Psi");
-        LF = Psi.invert();
+        sdsl::int_vector<> pi;
+        std::tie(LF, pi, std::ignore) = Psi.invertAndRetPiInvPi();
         test(vLF, LF, "LF");
         generateRLBWTfromLFPsiandF();
         if (vText) {
@@ -148,6 +149,11 @@ class MSIndex {
         if (v >= TIME) { Timer.start("Constructing intAtTop, intAtBot, Phi, invPhi, PLCPsamples, and PLCPBelowsamples"); }
         //load
         sdsl::load(intAtTop, lcpIn);
+        assert(pi.size() == intAtTop.size());
+        for (uint64_t i = 0; i < pi.size(); ++i)
+            pi[i] = intAtTop[pi[i]];
+        intAtTop = pi;
+        pi = sdsl::int_vector<>();
         sdsl::load(Phi, lcpIn);
         sdsl::load(PLCPsamples,lcpIn);
         generateInvPhiintAtBotPLCPBelow();
@@ -263,7 +269,8 @@ class MSIndex {
         uint64_t runs = rlbwt.size();
         for (uint64_t run = 0; run < runs; ++run) {
             //check run boundary run (i.e. top of run [run] and bottom of run [run-1 mod runs]
-        uint64_t runs = rlbwt.size();
+            uint64_t runs = rlbwt.size();
+            uint64_t matchingLengthBetweenRuns = PLCPsamples[intAtTop[run]];
         }
     }
 };
