@@ -932,6 +932,15 @@ class LCPComputer {
     public:
     typedef uint64_t size_type;
 
+	// Constructor to assist with matching statistic computation
+	LCPComputer(const std::string& inFile) {
+        Timer.start("Loading input lcp_index");
+		std::ifstream in = safeOpenFile<std::ifstream>(inFile);
+        load(in);
+        in.close();
+        Timer.stop(); //Loading input lcp_index
+	}
+
     //input: a run length encoding of a multidollar BWT where all dollars are represented by 0
     //All characters between (and including) 0 and max_char are assumed to have more than 0 occurrences
     //in the text. max_char is ththe text

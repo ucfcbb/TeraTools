@@ -54,6 +54,16 @@ void testInFile(const std::string& name) {
     }
 };
 
+template <class T>
+T safeOpenFile(const std::string& name) {
+    T f(name);
+    if (!f.is_open()) {
+        std::cout << "File '" << name << "' failed to open!\n";
+        exit(1);
+    }
+    return f;
+}
+
 
 class timer {
     std::stack<std::pair<std::chrono::time_point<std::chrono::high_resolution_clock>, std::string>> processes; 

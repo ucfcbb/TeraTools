@@ -1,10 +1,10 @@
 #include "lcpComputer/lcpComputer.h"
 #include "matchingStatistics/msIndex.h"
 #include "moveStructure/moveStructure.h"
+#include <unordered_map>
 
-void testLastWeek(){
-    // std::string inputOptbwtrl = argv[1];
-    // LCPComputer lcp_comp(inputOptbwtrl);
+void testLastWeek(const std::string& inputOptbwtrl){ 
+	LCPComputer lcp_comp(inputOptbwtrl);
     // std::ifstream in(inputOptbwtrl);
 
     // lcp_comp.load(in);
@@ -48,39 +48,58 @@ void testLastWeek(){
 }
 
 
-void computeMSRow(const std::string& query){
-	/* Assume, we'll have the following data-structures
+void computeMSRow(const std::string& inpMSIndex, const std::string& query = ""){
+	/* Assume, we'll have the following data-structures from msIndex
 	 * i - position - [1, n]
      * x is the interval that contains i
      * LF(i, x) = (LF[i], x')
      * Phi(i, x) = (Phi[i], x')
      * RLBWT[x]
 	 */
+    
+    // LCPComputer lcp_comp(inputOptbwtrl);
+	
+	MSIndex msIndex;
+	std::ifstream in(inpMSIndex);
+	std::cout << "Loading " << inpMSIndex << "..." << std::endl;
+	msIndex.load(in);
+	std::cout << "Successfully loaded" << inpMSIndex << "." << std::endl;
+	in.close();
 
+    std::vector row(query.size(), 0);
+    // Encode the query into integers 
+	std::unordered_map<char, int> BWTInt;
+	BWTInt['$'] = 0;
+	BWTInt['A'] = 1;
+	BWTInt['C'] = 2;
+	BWTInt['G'] = 3;
+	BWTInt['T'] = 4;
+	BWTInt['N'] = 5;
+
+	// Initial interval
 	MoveStructureTable::IntervalPoint inp;
     inp.interval = 0;
     inp.offset = 0;
-    
-    std::vector row(query.size(), 0);
-    // Encode the query into integers 
-	//
-    for (int i = query.size() - 1; i >= 0; ++i) {
-        if (query[i] != RLBWT[inp.interval]){
+    for (int i = query.size() - 1; i >= 0; --i) {
+		row[i] = inp.interval;
+        if (BWTInt[query[i]] != msIndex.rlbwt[inp.interval]) {
             // find the next run that has the same character as query[i]
             // we do this by "repositioning"
             // In Movi, they search up and down, here we don't need to do that?
         }
-        // perform LF(i, x)
-		// .map()
+        // perform LF(i, x) to find (LF[i], x')
+		MoveStructureTable::IntervalPoint newinp = msIndex.LF.map(inp);
     }
 }
 
 
 int main(int argc, char*argv[]) {
     if (argc != 2) {
-		std::cout << "msComputer <path/to/optbwtrl/file>" << std::endl;
+		std::cout << "msComputer <path/to/msIndex/file>" << std::endl;
         exit(1);
     }
 
+	std::string inpMSIndex = argv[1];
+	computeMSRow(inpMSIndex);
     return 0;
 }

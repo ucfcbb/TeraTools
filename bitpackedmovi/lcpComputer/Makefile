@@ -36,7 +36,7 @@ libs = -lsdsl -lpthread -lz -lm -latomic
 incs = -I$(optIncDir) -isystem$(incdir) -isystem$(ropebwt3dir)
 
 developmentflags+= -Wall -Wpedantic -Wextra -pedantic-errors -Wold-style-cast
-cppflags+=$(developmentflags) -O3 -DNDEBUG
+cppflags+=$(developmentflags) -O3 -DNDEBUG -std=c++11
 #cppflags+=$(developmentflags) -Wall -g
 
 ifneq ($(asan),)

@@ -180,6 +180,47 @@ struct MoveStructureTable {
         return res;
     }
 
+    std::tuple<MoveStructureTable, sdsl::int_vector<>, sdsl::int_vector<>>
+    invertAndRetPiInvPi() {
+        const uint64_t numIntervals = data.size();
+        uint64_t maxRunLen = 0, maxOffset = 0;
+        sdsl::int_vector<> pi(numIntervals, 0, sdsl::bits::hi(numIntervals - 1) + 1);
+        sdsl::int_vector<> invPi(numIntervals, 0, sdsl::bits::hi(numIntervals - 1) + 1);
+        for (uint64_t i = 0; i < numIntervals; ++i) 
+            pi[i] = i;
+        std::sort(pi.begin(), pi.end(), 
+                [this] (const uint64_t& a, const uint64_t& b) {
+                return data.get<0>(a) < data.get<0>(b) || (data.get<0>(a) == data.get<0>(b) && data.get<1>(a) < data.get<1>(b));
+                });
+        for (uint64_t i = 0; i < numIntervals; ++i) 
+            invPi[pi[i]] = i;
+
+        IntervalPoint outPoint{static_cast<uint64_t>(-1), 0, 0};
+        for (uint64_t i = 0; i < numIntervals; ++i) {
+            while (outPoint.interval < numIntervals && outPoint.offset >= data.get<2>(pi[outPoint.interval]))
+                outPoint.offset -= data.get<2>(pi[outPoint.interval++]);
+            assert(outPoint.interval != numIntervals || outPoint.offset == 0);
+            uint64_t runlen = data.get<2>(i);
+            maxRunLen = std::max(maxRunLen, runlen);
+            maxOffset = std::max(maxOffset, outPoint.offset);
+            outPoint.offset += runlen;
+        }
+
+        MoveStructureTable res;
+        res.data = packedTripleVector(sdsl::bits::hi(numIntervals - 1) + 1, sdsl::bits::hi(maxOffset) + 1, sdsl::bits::hi(maxRunLen) + 1, numIntervals);
+        outPoint = {static_cast<uint64_t>(-1), 0, 0};
+        for (uint64_t i = 0; i < numIntervals; ++i) {
+            while (outPoint.interval < numIntervals && outPoint.offset >= data.get<2>(pi[outPoint.interval]))
+                outPoint.offset -= data.get<2>(pi[outPoint.interval++]);
+            assert(outPoint.interval != numIntervals || outPoint.offset == 0);
+            res.data.set<0>(invPi[i], outPoint.interval);
+            res.data.set<1>(invPi[i], outPoint.offset);
+            res.data.set<2>(invPi[i], data.get<2>(i));
+            outPoint.offset += data.get<2>(i);
+        }
+        return {res, pi, invPi};
+    }
+
     void print() const {
         std::cout << "D_index\tD_offset\tstartPosition\n";
         for (uint64_t i = 0 ; i < data.size(); ++i) {
@@ -352,6 +393,52 @@ struct MoveStructureStartTable {
         }
         res.data.set<2>(numIntervals, data.get<2>(numIntervals));
         return res;
+    }
+
+    std::tuple<MoveStructureStartTable, sdsl::int_vector<>, sdsl::int_vector<>>
+    invertAndRetPiInvPi() {
+        const uint64_t numIntervals = data.size() - 1;
+        uint64_t maxOffset = 0;
+        sdsl::int_vector<> pi(numIntervals, 0, sdsl::bits::hi(numIntervals - 1) + 1);
+        sdsl::int_vector<> invPi(numIntervals, 0, sdsl::bits::hi(numIntervals - 1) + 1);
+        for (uint64_t i = 0; i < numIntervals; ++i) 
+            pi[i] = i;
+        std::sort(pi.begin(), pi.end(), 
+                [this] (const uint64_t& a, const uint64_t& b) {
+                return data.get<0>(a) < data.get<0>(b) || (data.get<0>(a) == data.get<0>(b) && data.get<1>(a) < data.get<1>(b));
+                });
+        for (uint64_t i = 0; i < numIntervals; ++i) 
+            invPi[pi[i]] = i;
+
+        IntervalPoint outPoint{static_cast<uint64_t>(-1), 0, 0};
+        for (uint64_t i = 0; i < numIntervals; ++i) {
+            while (outPoint.interval < numIntervals && outPoint.offset >= data.get<2>(pi[outPoint.interval] + 1) - data.get<2>(pi[outPoint.interval])) {
+                outPoint.offset -= data.get<2>(pi[outPoint.interval] + 1) - data.get<2>(pi[outPoint.interval]);
+                ++outPoint.interval;
+            }
+            assert(outPoint.interval != numIntervals || outPoint.offset == 0);
+            maxOffset = std::max(maxOffset, outPoint.offset);
+            outPoint.offset += data.get<2>(i + 1) - data.get<2>(i);
+        }
+
+        MoveStructureStartTable res;
+        res.data = packedTripleVector(sdsl::bits::hi(numIntervals - 1) + 1, sdsl::bits::hi(maxOffset) + 1, sdsl::bits::hi(data.get<2>(numIntervals)) + 1, numIntervals + 1);
+        outPoint = {0, 0, 0};
+        uint64_t startPos = 0;
+        for (uint64_t i = 0; i < numIntervals; ++i) {
+            while (outPoint.interval < numIntervals && outPoint.offset >= data.get<2>(pi[outPoint.interval] + 1) - data.get<2>(pi[outPoint.interval])) {
+                outPoint.offset -= data.get<2>(pi[outPoint.interval] + 1) - data.get<2>(pi[outPoint.interval]);
+                ++outPoint.interval;
+            }
+            assert(outPoint.interval != numIntervals || outPoint.offset == 0);
+            res.data.set<0>(invPi[i], outPoint.interval);
+            res.data.set<1>(invPi[i], outPoint.offset);
+            res.data.set<2>(i, startPos);
+            startPos += data.get<2>(pi[i] + 1) - data.get<2>(pi[i]);
+            outPoint.offset += data.get<2>(i + 1) - data.get<2>(i);
+        }
+        res.data.set<2>(numIntervals, data.get<2>(numIntervals));
+        return {res, pi, invPi};
     }
 
     void print() const {

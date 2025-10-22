@@ -10,11 +10,11 @@ class MSIndex {
 
     MoveStructureTable Psi, LF;
 
-    sdsl::int_vector<> intAtTop;
+    sdsl::int_vector<> intAtTop, intAtBot;
 
     MoveStructureStartTable Phi, InvPhi;
 
-    sdsl::int_vector<> PLCPsamples;
+    sdsl::int_vector<> PLCPsamples, PLCPBelowsamples;
 
     void generateRLBWTfromLFPsiandF() {
         const uint64_t numRuns = LF.data.size();
@@ -32,11 +32,13 @@ class MSIndex {
         std::unordered_map<uint64_t, uint64_t> currentStarts;
         //initialize currentStarts
         MoveStructureTable::IntervalPoint p{static_cast<uint64_t>(-1), 0, numSequences}, start;
+        while (p.interval < numRuns && p.offset >= LF.data.get<2>(p.interval))
+            p.offset -= LF.data.get<2>(p.interval++);
+        start = p;
         //std::cout << "starting initialization loop" << std::endl;
         for (uint64_t i = numSequences; i < numRuns; ++i) {
             while (p.interval < numRuns && p.offset >= LF.data.get<2>(p.interval))
                 p.offset -= LF.data.get<2>(p.interval++);
-            if (i == numSequences) { start = p; }
             if (F[i] != F[i - 1])
                 currentStarts[pointToInt(p)] = F[i];
             p.offset += Psi.data.get<2>(i);
@@ -61,7 +63,22 @@ class MSIndex {
         }
     }
 
+    void generateInvPhiintAtBotPLCPBelow() {
+        uint64_t numIntervals = Phi.data.size() - 1;
+        sdsl::int_vector<> pi, invPi; 
+        std::tie(InvPhi, pi, invPi) = Phi.invertAndRetPiInvPi();
+        PLCPBelowsamples = sdsl::int_vector<>(PLCPsamples.size(), 0, PLCPsamples.width());
+        for (uint64_t i = 0; i < PLCPBelowsamples.size(); ++i)
+            PLCPBelowsamples[i] = PLCPsamples[pi[i]];
+        pi = sdsl::int_vector<>();
+        intAtBot = sdsl::int_vector<>(intAtTop.size(), 0, intAtTop.width());
+        for (uint64_t i = 0; i < intAtBot.size(); ++i)
+            intAtBot[i] = invPi[intAtTop[(i+1)%intAtTop.size()]];
+    }
+
     public:
+    typedef uint64_t size_type;
+
     void constructFromLCPIndexFileWriteAndClear(std::ifstream& lcpIn, std::ofstream& MSIout, verbosity v = TIME,
             bool vLF = false,
             bool vPsi = false,
@@ -93,12 +110,14 @@ class MSIndex {
             if (v >= TIME) { Timer.stop(); }
         };
         if (v >= TIME) { Timer.start("constructFromLCPIndexFileWriteAndClear"); }
+        if (v >= TIME) { Timer.start("Constructing LF, Psi, rlbwt, and F"); }
         //load
         sdsl::load(totalLen, lcpIn);
         sdsl::load(F, lcpIn);
         sdsl::load(Psi, lcpIn);
         test(vPsi, Psi, "Psi");
-        LF = Psi.invert();
+        sdsl::int_vector<> pi;
+        std::tie(LF, pi, std::ignore) = Psi.invertAndRetPiInvPi();
         test(vLF, LF, "LF");
         generateRLBWTfromLFPsiandF();
         if (vText) {
@@ -123,29 +142,38 @@ class MSIndex {
         //clear
         rlbwt = F = sdsl::int_vector<>();
         LF = Psi = MoveStructureTable();
+        if (v >= TIME) { Timer.stop(); } //Constructing LF, Psi, rlbwt, and F
 
         //intAtTop
-        sdsl::load(intAtTop, lcpIn);
-        sdsl::serialize(intAtTop, MSIout);
-        intAtTop = sdsl::int_vector<>();
+        //PLCPsamples
         
+        if (v >= TIME) { Timer.start("Constructing intAtTop, intAtBot, Phi, invPhi, PLCPsamples, and PLCPBelowsamples"); }
         //load
+        sdsl::load(intAtTop, lcpIn);
+        assert(pi.size() == intAtTop.size());
+        for (uint64_t i = 0; i < pi.size(); ++i)
+            pi[i] = intAtTop[pi[i]];
+        intAtTop = pi;
+        pi = sdsl::int_vector<>();
         sdsl::load(Phi, lcpIn);
-        //Phi.print();
+        sdsl::load(PLCPsamples,lcpIn);
+        generateInvPhiintAtBotPLCPBelow();
         test2(vPhi, Phi, "Phi");
-        InvPhi = Phi.invert();
-        //InvPhi.print();
         test2(vInvPhi, InvPhi, "InvPhi");
         //write
+        sdsl::serialize(intAtTop, MSIout);
+        sdsl::serialize(intAtBot, MSIout);
         sdsl::serialize(Phi, MSIout);
         sdsl::serialize(InvPhi, MSIout);
-        //clear
-        Phi = InvPhi = MoveStructureStartTable();
-
-        //PLCPsamples
-        sdsl::load(PLCPsamples,lcpIn);
         sdsl::serialize(PLCPsamples, MSIout);
+        sdsl::serialize(PLCPBelowsamples, MSIout);
+        //clear
+        intAtTop = sdsl::int_vector<>();
+        intAtBot = sdsl::int_vector<>();
+        Phi = InvPhi = MoveStructureStartTable();
         PLCPsamples = sdsl::int_vector<>();
+        PLCPBelowsamples = sdsl::int_vector<>();
+        if (v >= TIME) { Timer.stop(); } //Constructing intAtTop, intAtBot, Phi, invPhi, PLCPsamples, and PLCPBelowsamples
         if (v >= TIME) { Timer.stop(); }
     }
 
@@ -273,12 +301,69 @@ using Phi_IntervalPoint = MoveStructureStartTable::IntervalPoint;
         return pred_row;
     }
 
-    void serialize() {
+    size_type serialize(std::ostream &out, sdsl::structure_tree_node *v=NULL, std::string name="") {
+        sdsl::structure_tree_node* child = sdsl::structure_tree::add_child(v, name, sdsl::util::class_name(*this));
+        size_type bytes = 0;
 
+        bytes += sdsl::serialize(totalLen, out, child, "totalLen");
+        bytes += sdsl::serialize(F, out, child, "F");
+        bytes += sdsl::serialize(rlbwt, out, child, "rlbwt");
+        bytes += sdsl::serialize(Psi, out, child, "Psi");
+        bytes += sdsl::serialize(LF, out, child, "LF");
+        bytes += sdsl::serialize(intAtTop, out, child, "intAtTop");
+        bytes += sdsl::serialize(intAtBot, out, child, "intAtBot");
+        bytes += sdsl::serialize(Phi, out, child, "Phi");
+        bytes += sdsl::serialize(InvPhi, out, child, "InvPhi");
+        bytes += sdsl::serialize(PLCPsamples, out, child, "PLCPsamples");
+        bytes += sdsl::serialize(PLCPBelowsamples, out, child, "PLCPBelowsamples");
+
+        sdsl::structure_tree::add_size(child, bytes);
+        return bytes;
     }
 
-    void load() {
+    void load(std::istream& in) {
+        sdsl::load(totalLen, in);
+        sdsl::load(F, in);
+        sdsl::load(rlbwt, in);
+        sdsl::load(Psi, in);
+        sdsl::load(LF, in);
+        sdsl::load(intAtTop, in);
+        sdsl::load(intAtBot, in);
+        sdsl::load(Phi, in);
+        sdsl::load(InvPhi, in);
+        sdsl::load(PLCPsamples, in);
+        sdsl::load(PLCPBelowsamples, in);
+    }
 
+    //matching algorithms-----------------------
+
+    //WARNING, THIS IMPLEMENTATION ASSUMES NO RUN SPLITTING, MAY BE BUGGY IF RUN SPLITTING IS PERFORMED
+    //NOTE: THIS ALGORITHM MIGHT BE FASTER IN PRACTICE IF WE COMPUTE IT IN THE TEXT ORDER,
+    //  I.E. BY PLCP instead of BWT order (faster due to locality of reference)
+    void superMaximalRepeats(std::ostream& out, const uint64_t lengthThreshold = 1) {
+        //a supermaximal repeat is a substring of the text T[i,i+l) s.t.
+        //  a. occ(T[i,i+l)) > 1
+        //  b. occ(T[i-1,i+l)) = 1
+        //  c. occ(T[i,i+l+1)) = 1
+        //T[i,i+l) is a super maximal repeat iff
+        //  a. i occurs in SA at the top or bottom of a run
+        //  b. max(PLCP[i], PLCP[invphi[i]]) >= max(PLCP[i-1], PLCP[invphi[i-1]])
+        //  c. l = max(PLCP[i], PLCP[invphi[i]])
+        //
+        //This function outputs all supermaximal repeats in the text and all of their occurrences in O(r + occ) time
+        //It could also be easily modified to only output the supermaximal repeats 
+        //in O(r + c) time where c is the number of repeats outputted
+        //
+        //If a lengthThreshold is provided, it only outputs supermaximal repeats of length at least the threshold (thresholds 0 and 1 have the same behavior)
+
+        out << "seq\tpos\tlen\tocc\n";
+
+        uint64_t runs = rlbwt.size();
+        for (uint64_t run = 0; run < runs; ++run) {
+            //check run boundary run (i.e. top of run [run] and bottom of run [run-1 mod runs]
+            uint64_t runs = rlbwt.size();
+            uint64_t matchingLengthBetweenRuns = PLCPsamples[intAtTop[run]];
+        }
     }
 
 // std::pair<std::vector<uint64_t>, std::vector<uint64_t>> _query_ms(const char* query, const uint64_t m) {
