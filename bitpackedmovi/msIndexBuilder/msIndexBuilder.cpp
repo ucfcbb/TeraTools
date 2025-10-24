@@ -63,7 +63,7 @@ void processOptions(const int argc, const char* argv[]) {
             exit(1);
         }
     testInFile(o.inputFile);
-    testOutFile(o.oindex);
+    testOutFile(o.oindex + ms_index_extension);
 }
 
 int main(const int argc, const char*argv[]) {
@@ -75,13 +75,13 @@ int main(const int argc, const char*argv[]) {
         Timer.start(msg);
     }
     std::ifstream in(o.inputFile);
-    std::ofstream out(o.oindex);
+    std::ofstream out(o.oindex + ms_index_extension);
     if (!in.is_open()) {
         std::cerr << "Input file '" << o.inputFile << "' failed to open for reading!\n";
         exit(1);
     }
     if (!out.is_open()) {
-        std::cerr << "Output file '" << o.oindex << "' failed to open for reading!\n";
+        std::cerr << "Output file '" << o.oindex + ms_index_extension << "' failed to open for reading!\n";
         exit(1);
     }
     MSIndex().constructFromLCPIndexFileWriteAndClear(in, out, o.v,  o.vLF, o.vPsi, o.vText, o.vPhi, o.vInvPhi);

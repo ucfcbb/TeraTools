@@ -1,5 +1,6 @@
 #ifndef R_SA_LCP_MSINDEX_H
 #define R_SA_LCP_MSINDEX_H
+#include <optional>
 #include<sdsl/int_vector.hpp>
 #include"moveStructure/moveStructure.h"
 
@@ -9,11 +10,11 @@ class MSIndex {
 
     MoveStructureTable Psi, LF;
 
-    sdsl::int_vector<> intAtTop;
+    sdsl::int_vector<> intAtTop, intAtBot;
 
     MoveStructureStartTable Phi, InvPhi;
 
-    sdsl::int_vector<> PLCPsamples;
+    sdsl::int_vector<> PLCPsamples, PLCPBelowsamples;
 
     void generateRLBWTfromLFPsiandF() {
         const uint64_t numRuns = LF.data.size();
@@ -62,6 +63,19 @@ class MSIndex {
         }
     }
 
+    void generateInvPhiintAtBotPLCPBelow() {
+        uint64_t numIntervals = Phi.data.size() - 1;
+        sdsl::int_vector<> pi, invPi; 
+        std::tie(InvPhi, pi, invPi) = Phi.invertAndRetPiInvPi();
+        PLCPBelowsamples = sdsl::int_vector<>(PLCPsamples.size(), 0, PLCPsamples.width());
+        for (uint64_t i = 0; i < PLCPBelowsamples.size(); ++i)
+            PLCPBelowsamples[i] = PLCPsamples[pi[i]];
+        pi = sdsl::int_vector<>();
+        intAtBot = sdsl::int_vector<>(intAtTop.size(), 0, intAtTop.width());
+        for (uint64_t i = 0; i < intAtBot.size(); ++i)
+            intAtBot[i] = invPi[intAtTop[(i+1)%intAtTop.size()]];
+    }
+
     public:
     typedef uint64_t size_type;
 
@@ -96,12 +110,14 @@ class MSIndex {
             if (v >= TIME) { Timer.stop(); }
         };
         if (v >= TIME) { Timer.start("constructFromLCPIndexFileWriteAndClear"); }
+        if (v >= TIME) { Timer.start("Constructing LF, Psi, rlbwt, and F"); }
         //load
         sdsl::load(totalLen, lcpIn);
         sdsl::load(F, lcpIn);
         sdsl::load(Psi, lcpIn);
         test(vPsi, Psi, "Psi");
-        LF = Psi.invert();
+        sdsl::int_vector<> pi;
+        std::tie(LF, pi, std::ignore) = Psi.invertAndRetPiInvPi();
         test(vLF, LF, "LF");
         generateRLBWTfromLFPsiandF();
         if (vText) {
@@ -126,29 +142,38 @@ class MSIndex {
         //clear
         rlbwt = F = sdsl::int_vector<>();
         LF = Psi = MoveStructureTable();
+        if (v >= TIME) { Timer.stop(); } //Constructing LF, Psi, rlbwt, and F
 
         //intAtTop
-        sdsl::load(intAtTop, lcpIn);
-        sdsl::serialize(intAtTop, MSIout);
-        intAtTop = sdsl::int_vector<>();
+        //PLCPsamples
         
+        if (v >= TIME) { Timer.start("Constructing intAtTop, intAtBot, Phi, invPhi, PLCPsamples, and PLCPBelowsamples"); }
         //load
+        sdsl::load(intAtTop, lcpIn);
+        assert(pi.size() == intAtTop.size());
+        for (uint64_t i = 0; i < pi.size(); ++i)
+            pi[i] = intAtTop[pi[i]];
+        intAtTop = pi;
+        pi = sdsl::int_vector<>();
         sdsl::load(Phi, lcpIn);
-        //Phi.print();
+        sdsl::load(PLCPsamples,lcpIn);
+        generateInvPhiintAtBotPLCPBelow();
         test2(vPhi, Phi, "Phi");
-        InvPhi = Phi.invert();
-        //InvPhi.print();
         test2(vInvPhi, InvPhi, "InvPhi");
         //write
+        sdsl::serialize(intAtTop, MSIout);
+        sdsl::serialize(intAtBot, MSIout);
         sdsl::serialize(Phi, MSIout);
         sdsl::serialize(InvPhi, MSIout);
-        //clear
-        Phi = InvPhi = MoveStructureStartTable();
-
-        //PLCPsamples
-        sdsl::load(PLCPsamples,lcpIn);
         sdsl::serialize(PLCPsamples, MSIout);
+        sdsl::serialize(PLCPBelowsamples, MSIout);
+        //clear
+        intAtTop = sdsl::int_vector<>();
+        intAtBot = sdsl::int_vector<>();
+        Phi = InvPhi = MoveStructureStartTable();
         PLCPsamples = sdsl::int_vector<>();
+        PLCPBelowsamples = sdsl::int_vector<>();
+        if (v >= TIME) { Timer.stop(); } //Constructing intAtTop, intAtBot, Phi, invPhi, PLCPsamples, and PLCPBelowsamples
         if (v >= TIME) { Timer.stop(); }
     }
 
@@ -185,6 +210,97 @@ class MSIndex {
         return text;
     }
 
+using LF_IntervalPoint = MoveStructureTable::IntervalPoint;
+using Phi_IntervalPoint = MoveStructureStartTable::IntervalPoint;
+    
+    // Make static contexpr, but this is probably fine
+    static uint8_t charToBits(const char c) {
+        switch (c) {
+            case '\0': return 0;
+            case  'A': return 1;
+            case  'C': return 2;
+            case  'G': return 3;
+            case  'T': return 4;
+            default: throw std::invalid_argument("Invalid character: " + std::string(1, c));
+        };
+    }
+
+
+    LF_IntervalPoint start_bwt_pos() const {
+        return LF_IntervalPoint{static_cast<uint64_t>(-1), 0, 0};
+    }
+
+    LF_IntervalPoint end_bwt_pos() const {
+        return LF_IntervalPoint{static_cast<uint64_t>(-1), LF.num_intervals() - 1, LF.get_length(LF.num_intervals() - 1) - 1};
+    }
+    
+    std::optional<LF_IntervalPoint> pred_char(const LF_IntervalPoint& pos, const uint8_t c) const {
+        uint64_t interval = pos.interval;
+        while (rlbwt[interval] != c) {
+            if (interval == 0) return std::nullopt;
+            --interval;
+        }
+        return LF_IntervalPoint{static_cast<uint64_t>(-1), interval, LF.get_length(interval) - 1};
+    }
+
+    LF_IntervalPoint pred_char_cyclic(const LF_IntervalPoint& pos, const uint8_t c) const {
+        auto pred = pred_char(pos, c);
+        if (pred.has_value()) {
+            return pred.value();
+        }
+        else {
+            pred = pred_char(end_bwt_pos(), c);
+            if (pred.has_value()) {
+                return pred.value();
+            }
+            else {
+                throw std::runtime_error("Character not found in BWT: " + std::string(1, c));
+            }
+        }
+    }
+    
+    std::optional<LF_IntervalPoint> succ_char(const LF_IntervalPoint& pos, const uint8_t c) const {
+        uint64_t interval = pos.interval;
+        while (rlbwt[interval] != c) {
+            if (interval == LF.data.size() - 1) return std::nullopt;
+            ++interval;
+        }
+        return LF_IntervalPoint{static_cast<uint64_t>(-1), interval, 0};
+    }
+
+    LF_IntervalPoint succ_char_cyclic(const LF_IntervalPoint& pos, const uint8_t c) const {
+        auto succ = succ_char(pos, c);
+        if (succ.has_value()) {
+            return succ.value();
+        }
+        else {
+            succ = succ_char(start_bwt_pos(), c);
+            if (succ.has_value()) {
+                return succ.value();
+            }
+            else {
+                throw std::runtime_error("Character not found in BWT: " + std::string(1, c));
+            }
+        }
+    }
+
+    // Returns vector (row[0..m-1]) where:
+    // row[i] = IntervalPoint of suffix which matches lexicographically smallest suffix with maximum match to P[i..m-1] 
+    std::vector<LF_IntervalPoint> pred_row(const char* pattern, const uint64_t m) const {
+        std::vector<LF_IntervalPoint> pred_row(m);
+        LF_IntervalPoint rlbwt_pos = end_bwt_pos();
+
+        for (uint64_t i = 0; i < m; ++i) {
+            uint8_t c = charToBits(pattern[m - i - 1]);
+            if (c != rlbwt[rlbwt_pos.interval]) {
+                rlbwt_pos = pred_char_cyclic(rlbwt_pos, c);
+            }
+            rlbwt_pos = LF.map(rlbwt_pos);
+            pred_row[m - i - 1] = rlbwt_pos;
+        }
+        return pred_row;
+    }
+
     size_type serialize(std::ostream &out, sdsl::structure_tree_node *v=NULL, std::string name="") {
         sdsl::structure_tree_node* child = sdsl::structure_tree::add_child(v, name, sdsl::util::class_name(*this));
         size_type bytes = 0;
@@ -195,9 +311,11 @@ class MSIndex {
         bytes += sdsl::serialize(Psi, out, child, "Psi");
         bytes += sdsl::serialize(LF, out, child, "LF");
         bytes += sdsl::serialize(intAtTop, out, child, "intAtTop");
+        bytes += sdsl::serialize(intAtBot, out, child, "intAtBot");
         bytes += sdsl::serialize(Phi, out, child, "Phi");
         bytes += sdsl::serialize(InvPhi, out, child, "InvPhi");
         bytes += sdsl::serialize(PLCPsamples, out, child, "PLCPsamples");
+        bytes += sdsl::serialize(PLCPBelowsamples, out, child, "PLCPBelowsamples");
 
         sdsl::structure_tree::add_size(child, bytes);
         return bytes;
@@ -205,23 +323,16 @@ class MSIndex {
 
     void load(std::istream& in) {
         sdsl::load(totalLen, in);
-		std::cout << "Loading msIndex1.." << std::endl;
         sdsl::load(F, in);
-		std::cout << "Loading msIndex2.." << std::endl;
         sdsl::load(rlbwt, in);
-		std::cout << "Loading msIndex3.." << std::endl;
         sdsl::load(Psi, in);
-		std::cout << "Loading msIndex4.." << std::endl;
         sdsl::load(LF, in);
-		std::cout << "Loading msIndex5.." << std::endl;
         sdsl::load(intAtTop, in);
-		std::cout << "Loading msIndex6.." << std::endl;
+        sdsl::load(intAtBot, in);
         sdsl::load(Phi, in);
-		std::cout << "Loading msIndex7.." << std::endl;
         sdsl::load(InvPhi, in);
-		std::cout << "Loading msIndex8.." << std::endl;
         sdsl::load(PLCPsamples, in);
-		std::cout << "Loading msIndex.." << std::endl;
+        sdsl::load(PLCPBelowsamples, in);
     }
 
     //matching algorithms-----------------------
@@ -230,6 +341,60 @@ class MSIndex {
     //NOTE: THIS ALGORITHM MIGHT BE FASTER IN PRACTICE IF WE COMPUTE IT IN THE TEXT ORDER,
     //  I.E. BY PLCP instead of BWT order (faster due to locality of reference)
     void superMaximalRepeats(std::ostream& out, const uint64_t lengthThreshold = 1) {
+        //a supermaximal repeat is a substring of the text T[i,i+l) s.t.
+        //  a. occ(T[i,i+l)) > 1
+        //  b. occ(T[i-1,i+l)) = 1
+        //  c. occ(T[i,i+l+1)) = 1
+        //T[i,i+l) is a super maximal repeat iff
+        //  a. i occurs in SA at the top or bottom of a run
+        //  b. max(PLCP[i], PLCP[invphi[i]]) >= max(PLCP[i-1], PLCP[invphi[i-1]])
+        //  c. l = max(PLCP[i], PLCP[invphi[i]])
+        //
+        //This function outputs all supermaximal repeats in the text and all of their occurrences in O(r + occ) time
+        //It could also be easily modified to only output the supermaximal repeats 
+        //in O(r + c) time where c is the number of repeats outputted
+        //
+        //If a lengthThreshold is provided, it only outputs supermaximal repeats of length at least the threshold (thresholds 0 and 1 have the same behavior)
+
+        out << "seq\tpos\tlen\tocc\n";
+
+        uint64_t runs = rlbwt.size();
+        for (uint64_t run = 0; run < runs; ++run) {
+            //check run boundary run (i.e. top of run [run] and bottom of run [run-1 mod runs]
+            uint64_t runs = rlbwt.size();
+            uint64_t matchingLengthBetweenRuns = PLCPsamples[intAtTop[run]];
+        }
     }
+
+// std::pair<std::vector<uint64_t>, std::vector<uint64_t>> _query_ms(const char* query, const uint64_t m) {
+//     // std::vector<uint64_t> ms_len;
+//     // std::vector<uint64_t> ms_pos;
+
+//     // position, interval, offset
+//     MoveStructureTable::IntervalPoint rlbwt_pos = {static_cast<uint64_t>(-1), rlbwt.size() - 1, LF.data.get<2>(rlbwt.size() - 1) - 1};
+//     MoveStructureStartTable::IntervalPoint phi_pos = {0, intAtTop[0], 0};
+//     phi_pos = Phi.map(phi_pos);
+
+//     uint64_t current_ms_len = 0;
+//     for (uint64_t i = 0; i < m; ++i) {
+//         const char c = charToBits[query[m - i - 1]];
+
+//         if (c == rlbwt[rlbwt_pos.interval]) {
+//             ms_len[m - i - 1] = current_ms_len + 1;
+//             ms_pos[m - i - 1] = phi_pos.position;
+//         } else {
+//             // search for pred
+//             // iterate the lcp
+//             // forward extension (Psi/FL)
+
+//             // search for succ
+//             // iterate the lcp
+//             // forward extension (Psi/FL)
+//         }
+//         // LF step
+//         // Update Phi position
+//     }
+//     return std::make_pair(ms_len, ms_pos);
+// }
 };
 #endif //#ifndef R_SA_LCP_MSINDEX_H
