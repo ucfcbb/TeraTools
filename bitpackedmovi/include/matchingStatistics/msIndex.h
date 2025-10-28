@@ -178,7 +178,7 @@ class MSIndex {
         sdsl::load(intAtTop, lcpIn);
         assert(pi.size() == intAtTop.size());
         for (uint64_t i = 0; i < pi.size(); ++i)
-            pi[i] = intAtTop[pi[i]];
+            pi[i] = (intAtTop[pi[i]] + 1)%pi.size();
         intAtTop = pi;
         pi = sdsl::int_vector<>();
         sdsl::load(Phi, lcpIn);
