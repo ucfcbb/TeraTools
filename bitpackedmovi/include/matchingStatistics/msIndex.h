@@ -669,7 +669,7 @@ private:
     
     // Number of consecutive steps to take before switching to the other extension method
     // Best if multiple of 2, since Psi uses 2 mapping steps per iteration
-    template<size_t consecutive_steps = 4>
+    template<size_t consecutive_steps = 10>
     uint64_t dual_lce(const Phi_IntervalPoint& phi_position, const LF_IntervalPoint& start, const LF_IntervalPoint& end, const uint64_t distance, const uint64_t lower_lim = 0, const uint64_t upper_lim = std::numeric_limits<uint64_t>::max()) {
         if (start == end) { throw std::runtime_error("Calling LCE on the same position!"); }
         bool extend_up = start > end;
@@ -698,17 +698,19 @@ private:
 
         size_t counter = 0; // Counter for mapping steps taken
         auto phi_turn = [&]() { return (counter < consecutive_steps); };
-        auto phi_condition = [&]() { return (i < distance) && (phi_lce >= lower_lim); };
-        auto psi_condition = [&]() { return (F[start_psi_pos.interval] == F[end_psi_pos.interval]) && (psi_lce < upper_lim); };
-        // In this case, we know the psi will finish first, so we can skip the phi computation
+        // Regular condition and early stopping condition not met for both phi and psi
+        auto phi_condition = [&]() { return (i < distance) && !(phi_lce < lower_lim); };
+        auto psi_condition = [&]() { return (F[start_psi_pos.interval] == F[end_psi_pos.interval]) && !(psi_lce >= upper_lim); };
+        // In this case, we know the psi will finish first with its early stopping condition met, so we can skip the phi computation
         // Multiply by 2 because we take two mapping steps per iteration
-        auto skip_phi = [&]() { return (2*upper_lim < distance); };
+        bool skip_phi = (2*upper_lim < distance);
         while (true) {
-            if (!skip_phi() && phi_turn()) {
+            if (!skip_phi && phi_turn()) {
                 if (!phi_condition()) { break; } // If distance is reached, break and return the current LCE
                 uint64_t lcp = PLCPsamples[phi_extension_position.interval] - phi_extension_position.offset;
                 phi_lce = std::min(phi_lce, lcp);
-                if (!phi_condition()) { phi_lce = 0; break; } // If the minimum LCE goes beneath the lower limit, stop and return 0
+                // Will only change from above if early stopping condition is met
+                if (!phi_condition()) { phi_lce = 0; break; }
                 if (i == distance - 1) { ++i; break; } // Increment i and break to avoid redundant mapping step during last iteration
                 phi_extension_position = Phi.map(phi_extension_position);
                 ++i;
@@ -721,6 +723,7 @@ private:
             else {
                 if (!psi_condition()) { break; }
                 ++psi_lce;
+                // Will only change from above if early stopping condition is met
                 if (!psi_condition()) { break; }
                 start_psi_pos = Psi.map(start_psi_pos);
                 end_psi_pos = Psi.map(end_psi_pos);
