@@ -127,12 +127,10 @@ pair<vector<int>, vector<int>> computeTrueMS(const string& pattern, vector<int>&
 
 		if (pos == 0 || pos == n + 1) {
 			// c[i] is the number of occurences of characters smaller than i that in the Text
-			cout << "We ended up here" << endl;
 			pos = count[id[pattern[i]]];
 			assert(len == 0);
 			len = 0;
 		} else {
-			// cout << "At i = " << i << ", we LF " << endl;
 			pos = LF[pos-1] + 1;
 			++len;
 		}
@@ -153,11 +151,10 @@ void printUsage() {
 int main(int argc, char* argv[]) {
 	// input will be text
 	// input will be pattern/query
-	
 	string textFile;
 	string patternFile;
 	bool computeMS = false;
-	switch (argc){
+	switch (argc) {
 		case 2:
 			textFile = argv[1];
 			break;
@@ -185,31 +182,29 @@ int main(int argc, char* argv[]) {
 	int numStrs = 0;
 	vector<int> str_starts;
 	string combined;
+
 	readTextFile(textFile, str_starts, combined, numStrs);
 	cout << "combined/concatenated text = " << combined << endl;
 	cout << "numStrs = " << numStrs << endl;
+
     map<char, int> id;
     build_char_map(combined, numStrs, id);
-	// for(auto kv: id) {
-	// std::cout << kv.first << " : " << kv.second << std::endl;
-	// }
-	// std::cout << std::endl;
     int n = combined.size();
 	cout << "n (length of concatenated text) = " << n << endl;
     vi num = build_num_vec(combined, id, numStrs);
-	// cout << "num.length = " << num.size() << endl;
-	// printVectors<int>(num, "num");
+
 	// Compute SA and LCP
     SuffixArray sa(num, id.size() + numStrs + 1);
-	// printBWT(sa, combined);
+
 	vector<int> bwt(sa.sa.size(), 0);
 	compute_bwt(sa, combined, n, bwt);
 	print_bwt(sa, combined, n);
+
 	// Compute C (count) array 
 	// the maximum value in the values of the key,value pair
 	vector<int> count(id.size() + numStrs + 2);
 	compute_c(num, count);
-	printVectors<int>(count, "count");
+	// printVectors<int>(count, "count");
 
 	cout << "SuffixArray.length = " << sa.sa.size() << endl;
 	printVectors<int>(sa.sa, "Suffix Array");
@@ -225,6 +220,11 @@ int main(int argc, char* argv[]) {
 	// printVectors<int>(rank, "rank");
 	cout << "LF.length = " << LF.size() << endl;
 	printVectors<int>(LF, "LF");
+
+	// compute Inverse LF
+	vector<int> InvLF(n);
+    for (int i = 0; i < n; i++) InvLF[LF[i]] = i;
+	printVectors<int>(InvLF, "Inverse LF");
 
 	if (computeMS) {
 		// Read pattern input files
