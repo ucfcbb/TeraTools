@@ -582,7 +582,6 @@ private:
     }
 
     // void reposition_threshold(const uint8_t c, LF_IntervalPoint& pos, Phi_IntervalPoint& phi_pos, uint64_t& length, LCEFunction lce) {
-    // void reposition_pred()
 
     // ================================ LCE Functions ================================
     /**
@@ -593,7 +592,7 @@ private:
     * @param end End position (predecessor or successor position)
     * @param distance Distance to the end position (distance to the predecessor or successor)
     * @param lower_lim If the minimum LCE goes beneath this value, stop and return 0
-    * @return uint64_t The LCE between the start and end position
+    * @return uint64_t The LCE between the start and end position (or 0 if it goes beneath the lower limit)
     */
     uint64_t phi_lce(const Phi_IntervalPoint& phi_position, const LF_IntervalPoint& start, const LF_IntervalPoint& end, const uint64_t distance, const uint64_t lower_lim = 0) {
         if (start == end) { throw std::runtime_error("Calling LCE on the same position!"); }
@@ -631,7 +630,7 @@ private:
     * @param start Start position (current MS position)
     * @param end End position (predecessor or successor position)
     * @param upper_lim If the LCE reaches this value, stop and return the value
-    * @return uint64_t The LCE between the start and end position
+    * @return uint64_t The LCE between the start and end position (or upper_lim if it is reached)
     */
     uint64_t psi_lce(const LF_IntervalPoint& start, const LF_IntervalPoint& end, const uint64_t upper_lim = 0) {
         if (start == end) { throw std::runtime_error("Calling LCE on the same position!"); }
@@ -666,9 +665,19 @@ private:
     uint64_t psi_lce(const Phi_IntervalPoint& /*_phi_position*/, const LF_IntervalPoint& start, const LF_IntervalPoint& end, const uint64_t /*_distance*/, const uint64_t /*lower_lim*/, const uint64_t upper_lim) {
         return psi_lce(start, end, upper_lim);
     }
-    
-    // Number of consecutive steps to take before switching to the other extension method
-    // Best if multiple of 2, since Psi uses 2 mapping steps per iteration
+
+    /**
+    * @brief LCE between start and end position, where end is a run head or tail, by using both Phi and Psi, with early stopping conditions
+    * 
+    * @tparam consecutive_steps Number of consecutive steps to take before switching to the other extension method, best if multiple of 2 since Psi uses 2 mapping steps per iteration
+    * @param phi_position Current Phi position
+    * @param start Start position (current MS position)
+    * @param end End position (predecessor or successor position)
+    * @param distance Distance to the end position (distance to the predecessor or successor)
+    * @param lower_lim If the minimum LCE goes beneath this value, stop and return 0
+    * @param upper_lim If the LCE reaches this value, stop and return the value
+    * @return uint64_t The LCE between the start and end position
+    */
     template<size_t consecutive_steps = 10>
     uint64_t dual_lce(const Phi_IntervalPoint& phi_position, const LF_IntervalPoint& start, const LF_IntervalPoint& end, const uint64_t distance, const uint64_t lower_lim = 0, const uint64_t upper_lim = std::numeric_limits<uint64_t>::max()) {
         if (start == end) { throw std::runtime_error("Calling LCE on the same position!"); }
