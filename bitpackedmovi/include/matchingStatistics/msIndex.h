@@ -8,13 +8,16 @@ class MSIndex {
     uint64_t totalLen;
     sdsl::int_vector<> F, rlbwt;
 
+    sdsl::int_vector<> PsiIntAtTop, PsiOffAtTop;
     MoveStructureTable Psi, LF;
 
     sdsl::int_vector<> intAtTop, intAtBot;
-
     MoveStructureStartTable Phi, InvPhi;
-
     sdsl::int_vector<> PLCPsamples, PLCPBelowsamples;
+
+    using LF_IntervalPoint = MoveStructureTable::IntervalPoint;
+    using Psi_IntervalPoint = MoveStructureTable::IntervalPoint;
+    using Phi_IntervalPoint = MoveStructureStartTable::IntervalPoint;
 
     void generateRLBWTfromLFPsiandF() {
         const uint64_t numRuns = LF.data.size();
@@ -64,7 +67,6 @@ class MSIndex {
     }
 
     void generateInvPhiintAtBotPLCPBelow() {
-        uint64_t numIntervals = Phi.data.size() - 1;
         sdsl::int_vector<> pi, invPi; 
         std::tie(InvPhi, pi, invPi) = Phi.invertAndRetPiInvPi();
         PLCPBelowsamples = sdsl::int_vector<>(PLCPsamples.size(), 0, PLCPsamples.width());
@@ -74,6 +76,24 @@ class MSIndex {
         intAtBot = sdsl::int_vector<>(intAtTop.size(), 0, intAtTop.width());
         for (uint64_t i = 0; i < intAtBot.size(); ++i)
             intAtBot[i] = invPi[intAtTop[(i+1)%intAtTop.size()]];
+    }
+
+    void generatePsiAtTop() {
+        PsiIntAtTop = sdsl::int_vector<>(LF.num_intervals(), 0, LF.data.a);
+        PsiOffAtTop = sdsl::int_vector<>(LF.num_intervals(), 0, LF.data.b);
+        uint64_t L_pos = 0;
+        uint64_t F_pos = 0;
+        uint64_t F_int = 0;
+        for (uint64_t L_int = 0; L_int < LF.num_intervals(); ++L_int) {
+            PsiIntAtTop[L_int] = F_int;
+            PsiOffAtTop[L_int] = L_pos - F_pos;
+            
+            L_pos += LF.get_length(L_int);
+            while (F_int < Psi.num_intervals() && F_pos + Psi.get_length(F_int) <= L_pos) {
+                F_pos += Psi.get_length(F_int);
+                ++F_int;
+            }
+        }
     }
 
     public:
@@ -110,7 +130,7 @@ class MSIndex {
             if (v >= TIME) { Timer.stop(); }
         };
         if (v >= TIME) { Timer.start("constructFromLCPIndexFileWriteAndClear"); }
-        if (v >= TIME) { Timer.start("Constructing LF, Psi, rlbwt, and F"); }
+        if (v >= TIME) { Timer.start("Constructing LF, Psi, rlbwt, F, PsiIntAtTop, and PsiOffAtTop"); }
         //load
         sdsl::load(totalLen, lcpIn);
         sdsl::load(F, lcpIn);
@@ -120,6 +140,7 @@ class MSIndex {
         std::tie(LF, pi, std::ignore) = Psi.invertAndRetPiInvPi();
         test(vLF, LF, "LF");
         generateRLBWTfromLFPsiandF();
+        generatePsiAtTop();
         if (vText) {
             if (v >= TIME) { Timer.start("Recovering texts from LF and Psi"); }
             if (recoverTextLF() == recoverTextPsi()){
@@ -139,10 +160,13 @@ class MSIndex {
         sdsl::serialize(rlbwt, MSIout);
         sdsl::serialize(Psi, MSIout);
         sdsl::serialize(LF, MSIout);
+        sdsl::serialize(PsiIntAtTop, MSIout);
+        sdsl::serialize(PsiOffAtTop, MSIout);
         //clear
         rlbwt = F = sdsl::int_vector<>();
         LF = Psi = MoveStructureTable();
-        if (v >= TIME) { Timer.stop(); } //Constructing LF, Psi, rlbwt, and F
+        PsiIntAtTop = PsiOffAtTop = sdsl::int_vector<>();
+        if (v >= TIME) { Timer.stop(); } //Constructing LF, Psi, rlbwt, F, PsiIntAtTop, and PsiOffAtTop
 
         //intAtTop
         //PLCPsamples
@@ -210,97 +234,6 @@ class MSIndex {
         return text;
     }
 
-using LF_IntervalPoint = MoveStructureTable::IntervalPoint;
-using Phi_IntervalPoint = MoveStructureStartTable::IntervalPoint;
-    
-    // Make static contexpr, but this is probably fine
-    static uint8_t charToBits(const char c) {
-        switch (c) {
-            case '\0': return 0;
-            case  'A': return 1;
-            case  'C': return 2;
-            case  'G': return 3;
-            case  'T': return 4;
-            default: throw std::invalid_argument("Invalid character: " + std::string(1, c));
-        };
-    }
-
-
-    LF_IntervalPoint start_bwt_pos() const {
-        return LF_IntervalPoint{static_cast<uint64_t>(-1), 0, 0};
-    }
-
-    LF_IntervalPoint end_bwt_pos() const {
-        return LF_IntervalPoint{static_cast<uint64_t>(-1), LF.num_intervals() - 1, LF.get_length(LF.num_intervals() - 1) - 1};
-    }
-    
-    std::optional<LF_IntervalPoint> pred_char(const LF_IntervalPoint& pos, const uint8_t c) const {
-        uint64_t interval = pos.interval;
-        while (rlbwt[interval] != c) {
-            if (interval == 0) return std::nullopt;
-            --interval;
-        }
-        return LF_IntervalPoint{static_cast<uint64_t>(-1), interval, LF.get_length(interval) - 1};
-    }
-
-    LF_IntervalPoint pred_char_cyclic(const LF_IntervalPoint& pos, const uint8_t c) const {
-        auto pred = pred_char(pos, c);
-        if (pred.has_value()) {
-            return pred.value();
-        }
-        else {
-            pred = pred_char(end_bwt_pos(), c);
-            if (pred.has_value()) {
-                return pred.value();
-            }
-            else {
-                throw std::runtime_error("Character not found in BWT: " + std::string(1, c));
-            }
-        }
-    }
-    
-    std::optional<LF_IntervalPoint> succ_char(const LF_IntervalPoint& pos, const uint8_t c) const {
-        uint64_t interval = pos.interval;
-        while (rlbwt[interval] != c) {
-            if (interval == LF.data.size() - 1) return std::nullopt;
-            ++interval;
-        }
-        return LF_IntervalPoint{static_cast<uint64_t>(-1), interval, 0};
-    }
-
-    LF_IntervalPoint succ_char_cyclic(const LF_IntervalPoint& pos, const uint8_t c) const {
-        auto succ = succ_char(pos, c);
-        if (succ.has_value()) {
-            return succ.value();
-        }
-        else {
-            succ = succ_char(start_bwt_pos(), c);
-            if (succ.has_value()) {
-                return succ.value();
-            }
-            else {
-                throw std::runtime_error("Character not found in BWT: " + std::string(1, c));
-            }
-        }
-    }
-
-    // Returns vector (row[0..m-1]) where:
-    // row[i] = IntervalPoint of suffix which matches lexicographically smallest suffix with maximum match to P[i..m-1] 
-    std::vector<LF_IntervalPoint> pred_row(const char* pattern, const uint64_t m) const {
-        std::vector<LF_IntervalPoint> pred_row(m);
-        LF_IntervalPoint rlbwt_pos = end_bwt_pos();
-
-        for (uint64_t i = 0; i < m; ++i) {
-            uint8_t c = charToBits(pattern[m - i - 1]);
-            if (c != rlbwt[rlbwt_pos.interval]) {
-                rlbwt_pos = pred_char_cyclic(rlbwt_pos, c);
-            }
-            rlbwt_pos = LF.map(rlbwt_pos);
-            pred_row[m - i - 1] = rlbwt_pos;
-        }
-        return pred_row;
-    }
-
     size_type serialize(std::ostream &out, sdsl::structure_tree_node *v=NULL, std::string name="") {
         sdsl::structure_tree_node* child = sdsl::structure_tree::add_child(v, name, sdsl::util::class_name(*this));
         size_type bytes = 0;
@@ -310,6 +243,8 @@ using Phi_IntervalPoint = MoveStructureStartTable::IntervalPoint;
         bytes += sdsl::serialize(rlbwt, out, child, "rlbwt");
         bytes += sdsl::serialize(Psi, out, child, "Psi");
         bytes += sdsl::serialize(LF, out, child, "LF");
+        bytes += sdsl::serialize(PsiIntAtTop, out, child, "PsiIntAtTop");
+        bytes += sdsl::serialize(PsiOffAtTop, out, child, "PsiOffAtTop");
         bytes += sdsl::serialize(intAtTop, out, child, "intAtTop");
         bytes += sdsl::serialize(intAtBot, out, child, "intAtBot");
         bytes += sdsl::serialize(Phi, out, child, "Phi");
@@ -327,6 +262,8 @@ using Phi_IntervalPoint = MoveStructureStartTable::IntervalPoint;
         sdsl::load(rlbwt, in);
         sdsl::load(Psi, in);
         sdsl::load(LF, in);
+        sdsl::load(PsiIntAtTop, in);
+        sdsl::load(PsiOffAtTop, in);
         sdsl::load(intAtTop, in);
         sdsl::load(intAtBot, in);
         sdsl::load(Phi, in);
@@ -366,35 +303,465 @@ using Phi_IntervalPoint = MoveStructureStartTable::IntervalPoint;
         }
     }
 
-// std::pair<std::vector<uint64_t>, std::vector<uint64_t>> _query_ms(const char* query, const uint64_t m) {
-//     // std::vector<uint64_t> ms_len;
-//     // std::vector<uint64_t> ms_pos;
+    // Returns vector (row[0..m-1]) where:
+    // row[i] = IntervalPoint of suffix which matches lexicographically smallest suffix with maximum match to P[i..m-1] 
+    std::vector<LF_IntervalPoint> pred_row(const char* pattern, const uint64_t m) const {
+        std::vector<LF_IntervalPoint> pred_row(m);
+        LF_IntervalPoint rlbwt_pos = end_bwt_pos();
 
-//     // position, interval, offset
-//     MoveStructureTable::IntervalPoint rlbwt_pos = {static_cast<uint64_t>(-1), rlbwt.size() - 1, LF.data.get<2>(rlbwt.size() - 1) - 1};
-//     MoveStructureStartTable::IntervalPoint phi_pos = {0, intAtTop[0], 0};
-//     phi_pos = Phi.map(phi_pos);
+        for (uint64_t i = 0; i < m; ++i) {
+            uint8_t c = charToBits(pattern[m - i - 1]);
+            if (c != rlbwt[rlbwt_pos.interval]) {
+                rlbwt_pos = pred_char_cyclic(rlbwt_pos, c);
+            }
+            rlbwt_pos = LF.map(rlbwt_pos);
+            pred_row[m - i - 1] = rlbwt_pos;
+        }
+        return pred_row;
+    }
 
-//     uint64_t current_ms_len = 0;
-//     for (uint64_t i = 0; i < m; ++i) {
-//         const char c = charToBits[query[m - i - 1]];
+    // std::pair<std::vector<uint64_t>, std::vector<uint64_t>> ms_phi(const char* pattern, const uint64_t m) {
+    //     std::vector<uint64_t> ms_len(m);
+    //     std::vector<uint64_t> ms_pos(m);
 
-//         if (c == rlbwt[rlbwt_pos.interval]) {
-//             ms_len[m - i - 1] = current_ms_len + 1;
-//             ms_pos[m - i - 1] = phi_pos.position;
-//         } else {
-//             // search for pred
-//             // iterate the lcp
-//             // forward extension (Psi/FL)
+    //     // initialize to last position in BWT (for both rlbwt and corresponding Phi position)
+    //     LF_IntervalPoint rlbwt_pos = end_bwt_pos();
+    //     Phi_IntervalPoint phi_pos = rlbwt_to_phi(rlbwt_pos.interval);
+    //     phi_pos = Phi.map(phi_pos);
 
-//             // search for succ
-//             // iterate the lcp
-//             // forward extension (Psi/FL)
-//         }
-//         // LF step
-//         // Update Phi position
-//     }
-//     return std::make_pair(ms_len, ms_pos);
-// }
+    //     uint64_t length = 0;
+    //     for (uint64_t i = 0; i < m; ++i) {
+    //         uint8_t c = charToBits(pattern[m - i - 1]);
+    //         if (c == rlbwt[rlbwt_pos.interval]) {
+    //             ++length;
+    //         } else {
+    //             length = 0;
+    //             reposition_phi(c, rlbwt_pos, phi_pos, length);
+    //         }     
+    //         backward_step(rlbwt_pos, phi_pos);
+
+    //         ms_len[m - i - 1] = length;
+    //         ms_pos[m - i - 1] = phi_pos.position;
+    //     }
+    //     return std::make_pair(ms_len, ms_pos);
+    // }
+
+    std::tuple<std::vector<uint64_t>, std::vector<uint64_t>, std::vector<std::pair<uint64_t, uint64_t>>> ms_phi(const char* pattern, const uint64_t m) {
+        std::vector<uint64_t> ms_len(m);
+        std::vector<uint64_t> ms_pos(m);
+        std::vector<std::pair<uint64_t, uint64_t>> ms_row(m);
+
+        // initialize to last position in BWT (for both rlbwt and corresponding Phi position)
+        LF_IntervalPoint rlbwt_pos = end_bwt_pos();
+        Phi_IntervalPoint phi_pos = rlbwt_to_phi(0);
+        phi_pos = Phi.map(phi_pos);
+
+        uint64_t length = 0;
+        for (uint64_t i = 0; i < m; ++i) {
+            uint8_t c = charToBits(pattern[m - i - 1]);
+            if (c == rlbwt[rlbwt_pos.interval]) {
+                ++length;
+            } else {
+                reposition_phi(c, rlbwt_pos, phi_pos, length);
+            }     
+            backward_step(rlbwt_pos, phi_pos);
+
+            ms_len[m - i - 1] = length;
+            ms_pos[m - i - 1] = phi_pos.position;
+            ms_row[m - i - 1] = std::make_pair(rlbwt_pos.interval, rlbwt_pos.offset);
+        }
+        return std::make_tuple(ms_len, ms_pos, ms_row);
+    }
+
+    // std::pair<std::vector<uint64_t>, std::vector<uint64_t>> ms_psi(const char* pattern, const uint64_t m)  {
+    //     std::vector<uint64_t> ms_len(m);
+    //     std::vector<uint64_t> ms_pos(m);
+
+    //     // initialize to last position in BWT (for both rlbwt and corresponding Phi position)
+    //     LF_IntervalPoint rlbwt_pos = end_bwt_pos();
+    //     Phi_IntervalPoint phi_pos = rlbwt_to_phi(rlbwt_pos.interval);
+    //     phi_pos = Phi.map(phi_pos);
+
+    //     uint64_t length = 0;
+    //     for (uint64_t i = 0; i < m; ++i) {
+    //         uint8_t c = charToBits(pattern[m - i - 1]);
+    //         if (c == rlbwt[rlbwt_pos.interval]) {
+    //             ++length;
+    //         } else {
+    //             length = 0;
+    //             reposition_psi(i, pattern, m, rlbwt_pos, phi_pos, length);
+    //         }
+    //         backward_step(rlbwt_pos, phi_pos);
+
+    //         ms_len[m - i - 1] = length;
+    //         ms_pos[m - i - 1] = phi_pos.position;
+    //     }
+    //     return std::make_pair(ms_len, ms_pos);
+    // }
+
+    std::tuple<std::vector<uint64_t>, std::vector<uint64_t>, std::vector<std::pair<uint64_t, uint64_t>>> ms_psi(const char* pattern, const uint64_t m)  {
+        std::vector<uint64_t> ms_len(m);
+        std::vector<uint64_t> ms_pos(m);
+        std::vector<std::pair<uint64_t, uint64_t>> ms_row(m);
+
+        // initialize to last position in BWT (for both rlbwt and corresponding Phi position)
+        LF_IntervalPoint rlbwt_pos = end_bwt_pos();
+        Phi_IntervalPoint phi_pos = rlbwt_to_phi(0);
+        phi_pos = Phi.map(phi_pos);
+
+        uint64_t length = 0;
+        for (uint64_t i = 0; i < m; ++i) {
+            uint8_t c = charToBits(pattern[m - i - 1]);
+            if (c == rlbwt[rlbwt_pos.interval]) {
+                ++length;
+            } else {
+                reposition_psi(c, rlbwt_pos, phi_pos, length);
+            }
+            backward_step(rlbwt_pos, phi_pos);
+
+            ms_len[m - i - 1] = length;
+            ms_pos[m - i - 1] = phi_pos.position;
+            ms_row[m - i - 1] = std::make_pair(rlbwt_pos.interval, rlbwt_pos.offset);
+        }
+        return std::make_tuple(ms_len, ms_pos, ms_row);
+    }
+
+private:
+    // ================================ General helper functions ================================
+    // Make static contexpr, but this is probably fine
+    static uint8_t charToBits(const char c) {
+        switch (c) {
+            case '\0': return 0;
+            case  '$': return 0;
+            case  'A': return 1;
+            case  'C': return 2;
+            case  'G': return 3;
+            case  'T': return 4;
+            default: throw std::invalid_argument("Invalid character: " + std::string(1, c));
+        };
+    }
+
+    LF_IntervalPoint start_bwt_pos() const {
+        return LF_IntervalPoint{static_cast<uint64_t>(-1), 0, 0};
+    }
+
+    LF_IntervalPoint end_bwt_pos() const {
+        return LF_IntervalPoint{static_cast<uint64_t>(-1), LF.num_intervals() - 1, LF.get_length(LF.num_intervals() - 1) - 1};
+    }
+    
+    Phi_IntervalPoint rlbwt_to_phi(const uint64_t interval) const {
+        return Phi_IntervalPoint{Phi.get_start(intAtTop[interval]), intAtTop[interval], 0};
+    }
+    
+    Psi_IntervalPoint rlbwt_to_psi(const uint64_t interval) const {
+        return Psi_IntervalPoint{static_cast<uint64_t>(-1), PsiIntAtTop[interval], PsiOffAtTop[interval]};
+    }
+
+    Psi_IntervalPoint rlbwt_to_psi(LF_IntervalPoint pos) const {
+        Psi_IntervalPoint psi_pos = rlbwt_to_psi(pos.interval);
+        psi_pos.offset += pos.offset;
+        while (psi_pos.offset >= Psi.get_length(psi_pos.interval)) {
+            psi_pos.offset -= Psi.get_length(psi_pos.interval);
+            ++psi_pos.interval;
+        }
+        return psi_pos;
+    }
+    
+    void backward_step(LF_IntervalPoint& rlbwt_pos, Phi_IntervalPoint& phi_pos) {
+        rlbwt_pos = LF.map(rlbwt_pos);
+        if (phi_pos.offset == 0) {
+            if (phi_pos.interval == 0) { phi_pos.interval = Phi.data.size() - 1; }
+            else { phi_pos.interval--; }
+            phi_pos.position = Phi.get_start(phi_pos.interval) + Phi.get_length(phi_pos.interval) - 1;
+            phi_pos.offset = Phi.get_length(phi_pos.interval) - 1;
+        }
+        else {
+            phi_pos.position--;
+            phi_pos.offset--;
+        }
+    }
+    
+    // Returns LF position and distance to the previous occurrence of character c
+    std::optional<std::pair<LF_IntervalPoint, uint64_t>> pred_char(const LF_IntervalPoint& pos, const uint8_t c) const {
+        if (rlbwt[pos.interval] == c) {
+            return std::make_pair(pos, 0);
+        }
+        uint64_t distance = pos.offset + 1;
+
+        if (pos.interval == 0) return std::nullopt;
+        uint64_t interval = pos.interval - 1;
+
+        while (rlbwt[interval] != c) {
+            distance += LF.get_length(interval);
+            if (interval == 0) return std::nullopt;
+            --interval;
+        }
+        return std::make_pair(LF_IntervalPoint{static_cast<uint64_t>(-1), interval, LF.get_length(interval) - 1}, distance);
+    }
+
+    LF_IntervalPoint pred_char_cyclic(const LF_IntervalPoint& pos, const uint8_t c) const {
+        auto pred = pred_char(pos, c);
+        if (pred.has_value()) {
+            return pred.value().first;
+        }
+        else {
+            pred = pred_char(end_bwt_pos(), c);
+            if (pred.has_value()) {
+                return pred.value().first;
+            }
+            else {
+                throw std::runtime_error("Character not found in BWT: " + std::string(1, c));
+            }
+        }
+    }
+    
+    // Returns LF position and distance to the next occurrence of character c
+    std::optional<std::pair<LF_IntervalPoint, uint64_t>> succ_char(const LF_IntervalPoint& pos, const uint8_t c) const {
+        if (rlbwt[pos.interval] == c) {
+            return std::make_pair(pos, 0);
+        }
+        uint64_t distance = LF.get_length(pos.interval) - pos.offset;
+
+        if (pos.interval == LF.data.size() - 1) return std::nullopt;
+        uint64_t interval = pos.interval + 1;
+
+        while (rlbwt[interval] != c) {
+            distance += LF.get_length(interval);
+            if (interval == LF.data.size() - 1) return std::nullopt;
+            ++interval;
+        }
+        return std::make_pair(LF_IntervalPoint{static_cast<uint64_t>(-1), interval, 0}, distance);
+    }
+
+    LF_IntervalPoint succ_char_cyclic(const LF_IntervalPoint& pos, const uint8_t c) const {
+        auto succ = succ_char(pos, c);
+        if (succ.has_value()) {
+            return succ.value().first;
+        }
+        else {
+            succ = succ_char(start_bwt_pos(), c);
+            if (succ.has_value()) {
+                return succ.value().first;
+            }
+            else {
+                throw std::runtime_error("Character not found in BWT: " + std::string(1, c));
+            }
+        }
+    }
+
+    // ================================ Phi LCE ================================
+    uint64_t phi_lce(const Phi_IntervalPoint& phi_position, const LF_IntervalPoint& start, const LF_IntervalPoint& end, const uint64_t distance, const uint64_t stop_threshold = 0) const {
+        if (start.interval == end.interval && start.offset == end.offset)
+            throw std::runtime_error("Calling LCE on the same position!");
+        bool extend_down = !(end.interval < start.interval || (end.interval == start.interval && end.offset < start.offset));
+
+        uint64_t lce = std::numeric_limits<uint64_t>::max();
+        Phi_IntervalPoint phi_extension_position = phi_position;
+        // Start extending from the end position when extending down
+        if (extend_down) {
+            phi_extension_position = rlbwt_to_phi(end.interval);
+        }
+
+        for (uint64_t i = 0; i < distance; ++i) {
+            uint64_t lcp = PLCPsamples[phi_extension_position.interval] - phi_extension_position.offset;
+            lce = std::min(lce, lcp);
+            // if (lce <= stop_threshold) { return 0; }
+            phi_extension_position = Phi.map(phi_extension_position);
+        }
+
+        return lce;
+    }
+
+    void reposition_phi(const uint8_t c, LF_IntervalPoint& pos, Phi_IntervalPoint& phi_pos, uint64_t& length) const {      
+        auto pred_pos_result = pred_char(pos, c);
+        auto succ_pos_result = succ_char(pos, c);
+        if (!pred_pos_result.has_value() && !succ_pos_result.has_value()) 
+            throw std::runtime_error("No valid positions found for repositioning, character not found in BWT: " + std::string(1, c));
+
+        Phi_IntervalPoint pred_phi_pos = phi_pos;
+        LF_IntervalPoint pred_pos = pos;
+        uint64_t pred_lce = 0;
+        if (pred_pos_result.has_value()) {
+            pred_pos = pred_pos_result.value().first;
+            uint64_t pred_distance = pred_pos_result.value().second;
+            pred_lce = phi_lce(pred_phi_pos, pos, pred_pos, pred_distance);
+            pred_phi_pos = rlbwt_to_phi(pred_pos.interval + 1);
+            pred_phi_pos = Phi.map(pred_phi_pos); // map from next head, we want the run tail
+            std::cout << "extend up from " << phi_pos.position << " to " << pred_phi_pos.position << " with lce " << pred_lce << std::endl;
+        }
+        
+        Phi_IntervalPoint succ_phi_pos = phi_pos;
+        LF_IntervalPoint succ_pos = pos;
+        uint64_t succ_lce = 0;
+        if (succ_pos_result.has_value()) {
+            succ_pos = succ_pos_result.value().first;
+            uint64_t succ_distance = succ_pos_result.value().second;
+            succ_lce = phi_lce(succ_phi_pos, pos, succ_pos, succ_distance, pred_lce);
+            succ_phi_pos = rlbwt_to_phi(succ_pos.interval);
+            std::cout << "extend down from " << phi_pos.position << " to " << succ_phi_pos.position << " with lce " << succ_lce << std::endl;
+        }  
+
+        if (pred_lce >= succ_lce && pred_pos_result.has_value()) {
+            pos = pred_pos;
+            phi_pos = pred_phi_pos;
+            length = std::min(pred_lce, length);
+        }
+        else {
+            pos = succ_pos;
+            phi_pos = succ_phi_pos;
+            length = std::min(succ_lce, length);
+        }
+
+        ++length;
+    }
+
+    // ================================ Psi LCE ================================
+    // uint64_t psi_lce(const LF_IntervalPoint& end, const uint64_t pos_on_pattern, const char* pattern, const uint64_t m) const {
+    //     Psi_IntervalPoint psi_pos = rlbwt_to_psi(end.interval);
+    //     psi_pos = Psi.map(psi_pos); // Move past BWT character
+
+    //     uint64_t lce = 0;
+    //     for (uint64_t i = pos_on_pattern + 1; i < m; ++i) {
+    //         uint8_t c = charToBits(pattern[m - i - 1]);
+    //         if (c == rlbwt[end.interval]) {
+    //             ++lce;
+    //         } else {
+    //             break;
+    //         }
+    //     }
+    //     return lce;
+    // }
+
+    uint64_t psi_lce(const Psi_IntervalPoint& start, const Psi_IntervalPoint& end) const {
+        if (start.interval == end.interval && start.offset == end.offset)
+            throw std::runtime_error("Calling LCE on the same position!");
+        bool extend_up = end.interval < start.interval || (end.interval == start.interval && end.offset < start.offset);
+
+        Psi_IntervalPoint start_psi_pos = rlbwt_to_psi(start);
+        Psi_IntervalPoint end_psi_pos;
+        if (extend_up) {
+            // TODO no bounds check?
+            end_psi_pos = rlbwt_to_psi(end.interval + 1);
+            --end_psi_pos.interval;
+            end_psi_pos.offset = Psi.get_length(end_psi_pos.interval) - 1;
+            std::cout << "extend up from " << Psi.get_start(start_psi_pos.interval) + start_psi_pos.offset << " to " << Psi.get_start(end_psi_pos.interval) + end_psi_pos.offset;
+        }
+        else {
+            end_psi_pos = rlbwt_to_psi(end.interval);
+            std::cout << "extend down from " << Psi.get_start(start_psi_pos.interval) + start_psi_pos.offset << " to " << Psi.get_start(end_psi_pos.interval) + end_psi_pos.offset;
+        }
+
+        // Move past BWT character
+        start_psi_pos = Psi.map(start_psi_pos);
+        end_psi_pos = Psi.map(end_psi_pos);
+
+        uint64_t lce = 0;
+        while (F[start_psi_pos.interval] == F[end_psi_pos.interval]) {
+            ++lce;
+            start_psi_pos = Psi.map(start_psi_pos);
+            end_psi_pos = Psi.map(end_psi_pos);
+        }
+        std::cout << " with lce " << lce << std::endl;
+        return lce;
+    }
+
+    void reposition_psi(const uint8_t c, LF_IntervalPoint& pos, Phi_IntervalPoint& phi_pos, uint64_t& length) const { 
+        auto pred_pos_result = pred_char(pos, c);
+        auto succ_pos_result = succ_char(pos, c);
+        if (!pred_pos_result.has_value() && !succ_pos_result.has_value())
+            throw std::runtime_error("No valid positions found for repositioning, character not found in BWT: " + std::string(1, c));
+        
+
+        LF_IntervalPoint pred_pos = pos;
+        Phi_IntervalPoint pred_phi_pos = phi_pos;
+        uint64_t pred_lce = 0;
+        if (pred_pos_result.has_value()) {
+            pred_pos = pred_pos_result.value().first;
+            pred_phi_pos = rlbwt_to_phi(pred_pos.interval + 1);
+            pred_phi_pos = Phi.map(pred_phi_pos); // map from next head, we want the run tail
+            pred_lce = psi_lce(pos, pred_pos);
+            // std::cout << "pred_lce: " << pred_lce;
+            // std::cout << "\tpred_pos: " << pred_pos.interval << ' ' << pred_pos.offset;
+            // std::cout << "\tpred_phi_pos: " << pred_phi_pos.interval << ' ' << pred_phi_pos.offset << std::endl;
+        }
+
+        LF_IntervalPoint succ_pos = pos;
+        Phi_IntervalPoint succ_phi_pos = phi_pos;
+        uint64_t succ_lce = 0;
+        if (succ_pos_result.has_value()) {
+            succ_pos = succ_pos_result.value().first;
+            succ_phi_pos = rlbwt_to_phi(succ_pos.interval);
+            succ_lce = psi_lce(pos, succ_pos);
+            // std::cout << "succ_lce: " << succ_lce;
+            // std::cout << "\tsucc_pos: " << succ_pos.interval << ' ' << succ_pos.offset;
+            // std::cout << "\tsucc_phi_pos: " << succ_phi_pos.interval << ' ' << succ_phi_pos.offset << std::endl;
+        }
+
+        if (pred_lce >= succ_lce && pred_pos_result.has_value()) {
+            pos = pred_pos;
+            phi_pos = pred_phi_pos;
+            length = std::min(pred_lce, length);
+        }
+        else {
+            pos = succ_pos;
+            phi_pos = succ_phi_pos;
+            length = std::min(succ_lce, length);
+        }
+
+        ++length;
+    }
+
+    // void reposition_psi(const uint64_t pos_on_pattern, const char* pattern, const uint64_t m, LF_IntervalPoint& pos, Phi_IntervalPoint& phi_pos, uint64_t& length) const { 
+    //     uint8_t c = charToBits(pattern[m - pos_on_pattern - 1]);
+    //     auto pred_pos_result = pred_char(pos, c);
+    //     LF_IntervalPoint pred_pos = pos;
+    //     Phi_IntervalPoint pred_phi_pos = phi_pos;
+    //     uint64_t pred_lce = 0;
+    //     if (pred_pos_result.has_value()) {
+    //         pred_pos = pred_pos_result.value().first;
+    //         // Need to map once since this is a run tail
+    //         pred_phi_pos = rlbwt_to_phi(pred_pos.interval + 1);
+    //         pred_phi_pos = Phi.map(pred_phi_pos);
+    //         pred_lce = psi_lce(pos, pos_on_pattern, pattern, m);
+    //     }
+
+    //     auto succ_pos_result = succ_char(pos, c);
+    //     LF_IntervalPoint succ_pos = pos;
+    //     Phi_IntervalPoint succ_phi_pos = phi_pos;
+    //     uint64_t succ_lce = 0;
+    //     if (succ_pos_result.has_value()) {
+    //         succ_pos = succ_pos_result.value().first;
+    //         succ_phi_pos = rlbwt_to_phi(succ_pos.interval);
+    //         succ_lce = psi_lce(pos, pos_on_pattern, pattern, m);
+    //     }
+
+    //     if (pred_pos_result.has_value() && succ_pos_result.has_value()) {
+    //         if (pred_lce >= succ_lce) {
+    //             pos = pred_pos;
+    //             phi_pos = pred_phi_pos;
+    //             length = std::min(pred_lce, length);
+    //         }
+    //         else {
+    //             pos = succ_pos;
+    //             phi_pos = succ_phi_pos;
+    //             length = std::min(succ_lce, length);
+    //         }
+    //     }
+    //     else if (pred_pos_result.has_value()) {
+    //         pos = pred_pos;
+    //         phi_pos = pred_phi_pos;
+    //         length = std::min(pred_lce, length);
+    //     }
+    //     else if (succ_pos_result.has_value()) {
+    //         pos = succ_pos;
+    //         phi_pos = succ_phi_pos;
+    //         length = std::min(succ_lce, length);
+    //     }
+    //     else {
+    //         throw std::runtime_error("No valid positions found for repositioning, character not found in BWT: " + std::string(1, c));
+    //     }
+
+    //     ++length;
+    // }
 };
 #endif //#ifndef R_SA_LCP_MSINDEX_H

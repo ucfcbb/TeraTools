@@ -62,6 +62,15 @@ struct MoveStructureTable {
         return data.get<2>(i);
     }
 
+    // VERY SLOW, FOR TESTING ONLY
+    uint64_t get_start(const size_type i) const {
+        uint64_t start = 0;
+        for (uint64_t j = 0; j < i; ++j) {
+            start += get_length(j);
+        }
+        return start;
+    }
+
     uint64_t num_intervals() const {
         return data.size();
     }
@@ -277,6 +286,26 @@ struct MoveStructureStartTable {
             return position != rhs.position || interval != rhs.interval || offset != rhs.offset;
         }
     };
+
+    uint64_t get_interval(const size_type i) const {
+        return data.get<0>(i);
+    }
+
+    uint64_t get_offset(const size_type i) const {
+        return data.get<1>(i);
+    }
+
+    uint64_t get_start(const size_type i) const {
+        return data.get<2>(i);
+    }
+
+    uint64_t get_length(const size_type i) const {
+        return get_start(i + 1) - get_start(i);
+    }
+
+    uint64_t num_intervals() const {
+        return data.size() - 1;
+    }
     
     template <FFMethod M = EXPONENTIAL>
     IntervalPoint map(const IntervalPoint& intPoint) const;

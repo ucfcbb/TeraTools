@@ -48,49 +48,49 @@ void testLastWeek(const std::string& inputOptbwtrl){
 }
 
 
-void computeMSRow(const std::string& inpMSIndex, const std::string& query = ""){
-	/* Assume, we'll have the following data-structures from msIndex
-	 * i - position - [1, n]
-     * x is the interval that contains i
-     * LF(i, x) = (LF[i], x')
-     * Phi(i, x) = (Phi[i], x')
-     * RLBWT[x]
-	 */
+// void computeMSRow(const std::string& inpMSIndex, const std::string& query = ""){
+// 	/* Assume, we'll have the following data-structures from msIndex
+// 	 * i - position - [1, n]
+//      * x is the interval that contains i
+//      * LF(i, x) = (LF[i], x')
+//      * Phi(i, x) = (Phi[i], x')
+//      * RLBWT[x]
+// 	 */
     
-    // LCPComputer lcp_comp(inputOptbwtrl);
+//     // LCPComputer lcp_comp(inputOptbwtrl);
 	
-	MSIndex msIndex;
-	std::ifstream in(inpMSIndex);
-	std::cout << "Loading " << inpMSIndex << "..." << std::endl;
-	msIndex.load(in);
-	std::cout << "Successfully loaded" << inpMSIndex << "." << std::endl;
-	in.close();
+// 	MSIndex msIndex;
+// 	std::ifstream in(inpMSIndex);
+// 	std::cout << "Loading " << inpMSIndex << "..." << std::endl;
+// 	msIndex.load(in);
+// 	std::cout << "Successfully loaded" << inpMSIndex << "." << std::endl;
+// 	in.close();
 
-    std::vector row(query.size(), 0);
-    // Encode the query into integers 
-	std::unordered_map<char, int> BWTInt;
-	BWTInt['$'] = 0;
-	BWTInt['A'] = 1;
-	BWTInt['C'] = 2;
-	BWTInt['G'] = 3;
-	BWTInt['T'] = 4;
-	BWTInt['N'] = 5;
+//     std::vector row(query.size(), 0);
+//     // Encode the query into integers 
+// 	std::unordered_map<char, int> BWTInt;
+// 	BWTInt['$'] = 0;
+// 	BWTInt['A'] = 1;
+// 	BWTInt['C'] = 2;
+// 	BWTInt['G'] = 3;
+// 	BWTInt['T'] = 4;
+// 	BWTInt['N'] = 5;
 
-	// Initial interval
-	MoveStructureTable::IntervalPoint inp;
-    inp.interval = 0;
-    inp.offset = 0;
-    for (int i = query.size() - 1; i >= 0; --i) {
-		row[i] = inp.interval;
-        if (BWTInt[query[i]] != msIndex.rlbwt[inp.interval]) {
-            // find the next run that has the same character as query[i]
-            // we do this by "repositioning"
-            // In Movi, they search up and down, here we don't need to do that?
-        }
-        // perform LF(i, x) to find (LF[i], x')
-		MoveStructureTable::IntervalPoint newinp = msIndex.LF.map(inp);
-    }
-}
+// 	// Initial interval
+// 	MoveStructureTable::IntervalPoint inp;
+//     inp.interval = 0;
+//     inp.offset = 0;
+//     for (int i = query.size() - 1; i >= 0; --i) {
+// 		row[i] = inp.interval;
+//         if (BWTInt[query[i]] != msIndex.rlbwt[inp.interval]) {
+//             // find the next run that has the same character as query[i]
+//             // we do this by "repositioning"
+//             // In Movi, they search up and down, here we don't need to do that?
+//         }
+//         // perform LF(i, x) to find (LF[i], x')
+// 		MoveStructureTable::IntervalPoint newinp = msIndex.LF.map(inp);
+//     }
+// }
 
 
 int main(int argc, char*argv[]) {
@@ -100,6 +100,66 @@ int main(int argc, char*argv[]) {
     }
 
 	std::string inpMSIndex = argv[1];
-	computeMSRow(inpMSIndex);
+	MSIndex msIndex;
+	std::ifstream in(inpMSIndex);
+	std::cout << "Loading " << inpMSIndex << "..." << std::endl;
+	msIndex.load(in);
+	std::cout << "Successfully loaded" << inpMSIndex << "." << std::endl;
+	in.close();
+
+
+    std::string pattern = "GGGGGGGGGGATTTGGCATC";
+    const char* pattern_chars = pattern.c_str();
+    uint64_t m = pattern.size();
+
+    std::cout << "ms_phi: " << std::endl;
+	auto ms_result_phi = msIndex.ms_phi(pattern_chars, m);
+	std::vector<uint64_t> ms_len_phi = std::get<0>(ms_result_phi);
+	std::vector<uint64_t> ms_pos_phi = std::get<1>(ms_result_phi);
+	std::vector<std::pair<uint64_t, uint64_t>> ms_row_phi = std::get<2>(ms_result_phi);
+	std::cout << "\tms_len: ";
+	for (auto len : ms_len_phi) {
+		std::cout << len << " ";
+	}
+	std::cout << std::endl;
+	std::cout << "\tms_pos: ";
+	for (auto pos : ms_pos_phi) {
+		std::cout << pos << " ";
+	}
+	std::cout << std::endl;
+	std::cout << "\tms_row: ";
+	for (auto row : ms_row_phi) {
+		std::cout << row.first << " " << row.second << " ";
+	}
+	std::cout << std::endl;
+
+    std::cout << "ms_psi: " << std::endl;
+    auto ms_result_psi = msIndex.ms_psi(pattern_chars, m);
+	std::vector<uint64_t> ms_len_psi = std::get<0>(ms_result_psi);
+	std::vector<uint64_t> ms_pos_psi = std::get<1>(ms_result_psi);
+	std::vector<std::pair<uint64_t, uint64_t>> ms_row_psi = std::get<2>(ms_result_psi);
+	std::cout << "\tms_len: ";
+	for (auto len : ms_len_psi) {
+		std::cout << len << " ";
+	}
+	std::cout << std::endl;
+	std::cout << "\tms_pos: ";
+	for (auto pos : ms_pos_psi) {
+		std::cout << pos << " ";
+	}
+	std::cout << std::endl;
+	std::cout << "\tms_row: ";
+	for (auto row : ms_row_psi) {
+		std::cout << row.first << " " << row.second << " ";
+	}
+	std::cout << std::endl;
+
+    std::cout << "pred_row: " << std::endl;
+    auto pred_row_result = msIndex.pred_row(pattern_chars, m);
+    std::cout << "\tpred_row: ";
+    for (auto pos : pred_row_result) {
+        std::cout << pos.interval << " " << pos.offset << " ";
+    }
+    std::cout << std::endl << std::endl;
     return 0;
 }
