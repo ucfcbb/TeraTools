@@ -116,7 +116,6 @@ int main(int argc, char*argv[]) {
 	auto ms_result_phi = msIndex.ms_phi(pattern_chars, m);
 	std::vector<uint64_t> ms_len_phi = std::get<0>(ms_result_phi);
 	std::vector<uint64_t> ms_pos_phi = std::get<1>(ms_result_phi);
-	std::vector<std::pair<uint64_t, uint64_t>> ms_row_phi = std::get<2>(ms_result_phi);
 	std::cout << "\tms_len: ";
 	for (auto len : ms_len_phi) {
 		std::cout << len << " ";
@@ -127,17 +126,11 @@ int main(int argc, char*argv[]) {
 		std::cout << pos << " ";
 	}
 	std::cout << std::endl;
-	std::cout << "\tms_row: ";
-	for (auto row : ms_row_phi) {
-		std::cout << row.first << " " << row.second << " ";
-	}
-	std::cout << std::endl;
 
     std::cout << "ms_psi: " << std::endl;
     auto ms_result_psi = msIndex.ms_psi(pattern_chars, m);
 	std::vector<uint64_t> ms_len_psi = std::get<0>(ms_result_psi);
 	std::vector<uint64_t> ms_pos_psi = std::get<1>(ms_result_psi);
-	std::vector<std::pair<uint64_t, uint64_t>> ms_row_psi = std::get<2>(ms_result_psi);
 	std::cout << "\tms_len: ";
 	for (auto len : ms_len_psi) {
 		std::cout << len << " ";
@@ -148,18 +141,21 @@ int main(int argc, char*argv[]) {
 		std::cout << pos << " ";
 	}
 	std::cout << std::endl;
-	std::cout << "\tms_row: ";
-	for (auto row : ms_row_psi) {
-		std::cout << row.first << " " << row.second << " ";
+
+    std::cout << "ms_dual: " << std::endl;
+    auto ms_result_dual = msIndex.ms_dual(pattern_chars, m);
+	std::vector<uint64_t> ms_len_dual = std::get<0>(ms_result_dual);
+	std::vector<uint64_t> ms_pos_dual = std::get<1>(ms_result_dual);
+	std::cout << "\tms_len: ";
+	for (auto len : ms_len_dual) {
+		std::cout << len << " ";
+	}
+	std::cout << std::endl;
+	std::cout << "\tms_pos: ";
+	for (auto pos : ms_pos_dual) {
+		std::cout << pos << " ";
 	}
 	std::cout << std::endl;
 
-    std::cout << "pred_row: " << std::endl;
-    auto pred_row_result = msIndex.pred_row(pattern_chars, m);
-    std::cout << "\tpred_row: ";
-    for (auto pos : pred_row_result) {
-        std::cout << pos.interval << " " << pos.offset << " ";
-    }
-    std::cout << std::endl << std::endl;
     return 0;
 }
