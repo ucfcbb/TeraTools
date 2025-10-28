@@ -94,8 +94,8 @@ void testLastWeek(const std::string& inputOptbwtrl){
 
 
 int main(int argc, char*argv[]) {
-    if (argc != 2) {
-		std::cout << "msComputer <path/to/msIndex/file>" << std::endl;
+    if (argc != 3) {
+		std::cout << "msComputer <path/to/msIndex/file> <path/to/pattern/file>" << std::endl;
         exit(1);
     }
 
@@ -108,9 +108,14 @@ int main(int argc, char*argv[]) {
 	in.close();
 
 
-    std::string pattern = "GGGGGGGGGGATTTGGCATC";
-    const char* pattern_chars = pattern.c_str();
-    uint64_t m = pattern.size();
+	std::string patternFile = argv[2];
+	std::ifstream patternIn(patternFile);
+	std::string pattern;
+	getline(patternIn, pattern);
+	patternIn.close();
+	std::cout << "Successfully loaded pattern from " << patternFile << "." << std::endl;
+	const char* pattern_chars = pattern.c_str();
+	uint64_t m = pattern.size();
 
     std::cout << "ms_phi: " << std::endl;
 	auto ms_result_phi = msIndex.ms_phi(pattern_chars, m);

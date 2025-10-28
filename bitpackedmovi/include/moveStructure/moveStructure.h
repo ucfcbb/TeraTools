@@ -45,8 +45,25 @@ struct MoveStructureTable {
          */
         uint64_t position, interval, offset;
 
+        // Don't compare position
+        bool operator==(const IntervalPoint& rhs) const {
+            return interval == rhs.interval && offset == rhs.offset;
+        }
         bool operator!=(const IntervalPoint& rhs) const {
-            return position != rhs.position || interval != rhs.interval || offset != rhs.offset;
+            return !(*this == rhs);
+        }
+        bool operator<(const IntervalPoint& rhs) const {
+            if (interval == rhs.interval) { return offset < rhs.offset; }
+            return interval < rhs.interval;
+        }
+        bool operator>(const IntervalPoint& rhs) const {
+            return rhs < *this;
+        }
+        bool operator>=(const IntervalPoint& rhs) const {
+            return !(*this < rhs);
+        }
+        bool operator<=(const IntervalPoint& rhs) const {
+            return !(*this > rhs);
         }
     };
 
@@ -282,8 +299,24 @@ struct MoveStructureStartTable {
          */
         uint64_t position, interval, offset;
 
+        // TODO update this to use the new operators (leaving for backward compatibility)
         bool operator!=(const IntervalPoint& rhs) const {
             return position != rhs.position || interval != rhs.interval || offset != rhs.offset;
+        }
+        bool operator==(const IntervalPoint& rhs) const {
+            return position == rhs.position;
+        }
+        bool operator<(const IntervalPoint& rhs) const {
+            return position < rhs.position;
+        }
+        bool operator>(const IntervalPoint& rhs) const {
+            return rhs < *this;
+        }
+        bool operator>=(const IntervalPoint& rhs) const {
+            return !(*this < rhs);
+        }
+        bool operator<=(const IntervalPoint& rhs) const {
+            return !(*this > rhs);
         }
     };
 

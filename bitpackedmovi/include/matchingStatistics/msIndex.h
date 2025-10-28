@@ -359,11 +359,44 @@ class MSIndex {
     }
 
 private:
-    // Stats for MS computation
+    // ================================ MS Stats ================================
     #ifdef STATS
-    size_t phi_steps = 0;
-    size_t psi_steps = 0;
+    size_t phi_steps;
+    size_t psi_steps;
+    size_t iteration;
     std::vector<std::pair<uint64_t, uint64_t>> bwt_row;
+    std::vector<uint64_t> pred_lces;
+    std::vector<uint64_t> succ_lces;    
+
+    void init_ms_stats(const uint64_t m) {
+        phi_steps = 0;
+        psi_steps = 0;
+        iteration = m - 1;
+        bwt_row = std::vector<std::pair<uint64_t, uint64_t>>(m);
+        pred_lces = std::vector<uint64_t>(m);
+        succ_lces = std::vector<uint64_t>(m);
+    }
+
+    void print_ms_stats() const {
+        std::cout << "  Phi Steps: " << phi_steps << std::endl;
+        std::cout << "  Psi Steps: " << psi_steps << std::endl;
+        std::cout << "Total Steps: " << phi_steps + psi_steps << std::endl;
+        std::cout << "BWT Row: " << std::endl;
+        for (auto& [interval, offset] : bwt_row) {
+            std::cout << LF.get_start(interval) + offset << " ";
+        }
+        std::cout << std::endl;
+        std::cout << "Pred.LCE: " << std::endl;
+        for (auto lce : pred_lces) {
+            std::cout << lce << " ";
+        }
+        std::cout << std::endl;
+        std::cout << "Succ.LCE: " << std::endl;
+        for (auto lce : succ_lces) {
+            std::cout << lce << " ";
+        }
+        std::cout << std::endl;
+    }
     #endif
 
     // ================================ General helper functions ================================
@@ -396,6 +429,7 @@ private:
         return Psi_IntervalPoint{static_cast<uint64_t>(-1), PsiIntAtTop[interval], PsiOffAtTop[interval]};
     }
 
+    // Might need to "fast forward" to the correct interval
     Psi_IntervalPoint rlbwt_to_psi(LF_IntervalPoint pos) const {
         Psi_IntervalPoint psi_pos = rlbwt_to_psi(pos.interval);
         psi_pos.offset += pos.offset;
@@ -406,21 +440,22 @@ private:
         return psi_pos;
     }
     
+    // Perform one LF step and update Phi accordingly
     void backward_step(LF_IntervalPoint& rlbwt_pos, Phi_IntervalPoint& phi_pos) {
         rlbwt_pos = LF.map(rlbwt_pos);
         if (phi_pos.offset == 0) {
             if (phi_pos.interval == 0) { phi_pos.interval = Phi.data.size() - 1; }
             else { phi_pos.interval--; }
-            phi_pos.position = Phi.get_start(phi_pos.interval) + Phi.get_length(phi_pos.interval) - 1;
             phi_pos.offset = Phi.get_length(phi_pos.interval) - 1;
+            phi_pos.position = Phi.get_start(phi_pos.interval) + phi_pos.offset;
         }
         else {
-            phi_pos.position--;
-            phi_pos.offset--;
+            --phi_pos.position;
+            --phi_pos.offset;
         }
     }
     
-    // Returns LF position and distance to the previous occurrence of character c
+    // Returns LF position and distance to the previous occurrence of character c, if the predecessor exists. Returns passed position if already at the predecessor.
     std::optional<std::pair<LF_IntervalPoint, uint64_t>> pred_char(const LF_IntervalPoint& pos, const uint8_t c) const {
         if (rlbwt[pos.interval] == c) {
             return std::make_pair(pos, 0);
@@ -438,7 +473,7 @@ private:
         return std::make_pair(LF_IntervalPoint{static_cast<uint64_t>(-1), interval, LF.get_length(interval) - 1}, distance);
     }
     
-    // Returns LF position and distance to the next occurrence of character c
+    // Returns LF position and distance to the next occurrence of character c, if the successor exists. Returns passed position if already at the successor.
     std::optional<std::pair<LF_IntervalPoint, uint64_t>> succ_char(const LF_IntervalPoint& pos, const uint8_t c) const {
         if (rlbwt[pos.interval] == c) {
             return std::make_pair(pos, 0);
@@ -456,13 +491,12 @@ private:
         return std::make_pair(LF_IntervalPoint{static_cast<uint64_t>(-1), interval, 0}, distance);
     }
 
-    // ================================ MS Loop Functions ================================
+    // ================================ MS Loop (Main MS Function) ================================
+    // Used to define different MS algorithms by passing a different reposition function
     using RepositionFunction = std::function<void(const uint8_t c, LF_IntervalPoint& pos, Phi_IntervalPoint& phi_pos, uint64_t& length)>;
     std::pair<std::vector<uint64_t>, std::vector<uint64_t>> ms_loop(const char* pattern, const uint64_t m, RepositionFunction reposition) {
         #ifdef STATS
-        phi_steps = 0;
-        psi_steps = 0;
-        bwt_row = std::vector<std::pair<uint64_t, uint64_t>>(m);
+        init_ms_stats(m);
         #endif
 
         std::vector<uint64_t> ms_len(m);
@@ -470,10 +504,10 @@ private:
 
         // initialize to last position in BWT (for both rlbwt and corresponding Phi position)
         LF_IntervalPoint rlbwt_pos = end_bwt_pos();
-        Phi_IntervalPoint phi_pos = rlbwt_to_phi(0);
+        Phi_IntervalPoint phi_pos = rlbwt_to_phi(0); // Used to find MS positions
         phi_pos = Phi.map(phi_pos);
 
-        uint64_t length = 0;
+        uint64_t length = 0; // MS length
         for (uint64_t i = 0; i < m; ++i) {
             uint8_t c = charToBits(pattern[m - i - 1]);
             if (c != rlbwt[rlbwt_pos.interval]) {
@@ -485,24 +519,19 @@ private:
             ms_len[m - i - 1] = length;
             ms_pos[m - i - 1] = phi_pos.position;
             #ifdef STATS
+            --iteration;
             bwt_row[m - i - 1] = std::make_pair(rlbwt_pos.interval, rlbwt_pos.offset);
             #endif
         }
         
         #ifdef STATS
-        std::cout << "  Phi Steps: " << phi_steps << std::endl;
-        std::cout << "  Psi Steps: " << psi_steps << std::endl;
-        std::cout << "Total Steps: " << phi_steps + psi_steps << std::endl;
-        std::cout << "BWT Row: " << std::endl;
-        for (auto& [interval, offset] : bwt_row) {
-            std::cout << "(" << interval << "," << offset << ") ";
-        }
-        std::cout << std::endl;
+        print_ms_stats();
         #endif
         return std::make_pair(ms_len, ms_pos);
     }
 
     // ================================ Reposition Functions ================================
+    // Doesn't use thresholds, so we look for both the predecessor and successor
     using LCEFunction = std::function<uint64_t(const Phi_IntervalPoint& phi_position, const LF_IntervalPoint& start, const LF_IntervalPoint& end, const uint64_t distance, const uint64_t lower_lim, const uint64_t upper_lim)>;
     void reposition_explicit(const uint8_t c, LF_IntervalPoint& pos, Phi_IntervalPoint& phi_pos, uint64_t& length, LCEFunction lce) {
         auto pred_pos_result = pred_char(pos, c);
@@ -517,8 +546,12 @@ private:
             pred_pos = pred_pos_result.value().first;
             uint64_t pred_distance = pred_pos_result.value().second;
             pred_lce = lce(phi_pos, pos, pred_pos, pred_distance, 0, length);
+            // New phi position is a run tail, so map from the next head
             pred_phi_pos = rlbwt_to_phi(pred_pos.interval + 1);
-            pred_phi_pos = Phi.map(pred_phi_pos); // map from next head, we want the run tail
+            pred_phi_pos = Phi.map(pred_phi_pos);
+            #ifdef STATS
+            pred_lces[iteration] = pred_lce;
+            #endif
         }
 
         LF_IntervalPoint succ_pos;
@@ -528,9 +561,14 @@ private:
             succ_pos = succ_pos_result.value().first;
             uint64_t succ_distance = succ_pos_result.value().second;
             succ_lce = lce(phi_pos, pos, succ_pos, succ_distance, pred_lce, length);
+            // New phi position is a run head
             succ_phi_pos = rlbwt_to_phi(succ_pos.interval);
+            #ifdef STATS
+            succ_lces[iteration] = succ_lce;
+            #endif
         }
 
+        // Need to check pred_pos_result in case both LCEs are 0 (could mean either no predecessor or that the LCE really was 0)
         if (pred_lce >= succ_lce && pred_pos_result.has_value()) {
             pos = pred_pos;
             phi_pos = pred_phi_pos;
@@ -543,23 +581,36 @@ private:
         }
     }
 
+    // void reposition_threshold(const uint8_t c, LF_IntervalPoint& pos, Phi_IntervalPoint& phi_pos, uint64_t& length, LCEFunction lce) {
+    // void reposition_pred()
+
     // ================================ LCE Functions ================================
+    /**
+    * @brief LCE between start and end position, where end is a run head or tail, by enumerating the LCP interval using Phi and PLCP samples
+    * 
+    * @param phi_position Current Phi position
+    * @param start Start position (current MS position)
+    * @param end End position (predecessor or successor position)
+    * @param distance Distance to the end position (distance to the predecessor or successor)
+    * @param lower_lim If the minimum LCE goes beneath this value, stop and return 0
+    * @return uint64_t The LCE between the start and end position
+    */
     uint64_t phi_lce(const Phi_IntervalPoint& phi_position, const LF_IntervalPoint& start, const LF_IntervalPoint& end, const uint64_t distance, const uint64_t lower_lim = 0) {
-        if (start.interval == end.interval && start.offset == end.offset)
-            throw std::runtime_error("Calling LCE on the same position!");
-        bool extend_down = !(end.interval < start.interval || (end.interval == start.interval && end.offset < start.offset));
+        if (start == end) { throw std::runtime_error("Calling LCE on the same position!"); }
+        bool extend_down = start < end;
 
         uint64_t lce = std::numeric_limits<uint64_t>::max();
         Phi_IntervalPoint phi_extension_position = phi_position;
-        // Start extending from the end position when extending down
+        // Start extending from the end position when extending down to run head
         if (extend_down) {
             phi_extension_position = rlbwt_to_phi(end.interval);
         }
 
-        for (uint64_t i = 0; i < distance; ++i) {
+        for (size_t i = 0; i < distance; ++i) {
             uint64_t lcp = PLCPsamples[phi_extension_position.interval] - phi_extension_position.offset;
             lce = std::min(lce, lcp);
-            if (lce < lower_lim) { return 0; }
+            if (lce < lower_lim) { lce = 0; break; }
+            if (i == distance - 1) { ++i; break; } // Increment i and break to avoid redundant mapping step during last iteration
             phi_extension_position = Phi.map(phi_extension_position);
 
             #ifdef STATS
@@ -569,40 +620,51 @@ private:
 
         return lce;
     }
+    // Wrapper for reposition methods
     uint64_t phi_lce(const Phi_IntervalPoint& phi_position, const LF_IntervalPoint& start, const LF_IntervalPoint& end, const uint64_t distance, const uint64_t lower_lim, const uint64_t /*upper_lim*/) {
         return phi_lce(phi_position, start, end, distance, lower_lim);
     }
 
+    /**
+    * @brief LCE between start and end position, where end is a run head or tail, by forward character comparisons using Psi
+    * 
+    * @param start Start position (current MS position)
+    * @param end End position (predecessor or successor position)
+    * @param upper_lim If the LCE reaches this value, stop and return the value
+    * @return uint64_t The LCE between the start and end position
+    */
     uint64_t psi_lce(const LF_IntervalPoint& start, const LF_IntervalPoint& end, const uint64_t upper_lim = 0) {
-        if (start.interval == end.interval && start.offset == end.offset)
-            throw std::runtime_error("Calling LCE on the same position!");
-        bool extend_up = end.interval < start.interval || (end.interval == start.interval && end.offset < start.offset);
+        if (start == end) { throw std::runtime_error("Calling LCE on the same position!"); }
+        bool extend_up = start > end;
 
         Psi_IntervalPoint start_psi_pos = rlbwt_to_psi(start);
         Psi_IntervalPoint end_psi_pos;
+        // Extend to run tail
         if (extend_up) {
-            // TODO no bounds check?
             end_psi_pos = rlbwt_to_psi(end.interval + 1);
             --end_psi_pos.interval;
             end_psi_pos.offset = Psi.get_length(end_psi_pos.interval) - 1;
         }
+        // Extend to run head
         else {
             end_psi_pos = rlbwt_to_psi(end.interval);
         }
 
-        // Move past BWT character
+        // Move past BWT character (want to compare suffixes)
         start_psi_pos = Psi.map(start_psi_pos);
         end_psi_pos = Psi.map(end_psi_pos);
 
         uint64_t lce = 0;
-        while (F[start_psi_pos.interval] == F[end_psi_pos.interval]) {
+        // Use true loops to avoid redundant mapping steps during last iteration
+        while (true) {
+            if (F[start_psi_pos.interval] != F[end_psi_pos.interval]) { break; }
             ++lce;
-            if (lce >= upper_lim) { return lce; }
+            if (lce >= upper_lim) { break; }
             start_psi_pos = Psi.map(start_psi_pos);
             end_psi_pos = Psi.map(end_psi_pos);
 
             #ifdef STATS
-            ++psi_steps;
+            psi_steps += 2;
             #endif
         }
         return lce;
@@ -614,9 +676,8 @@ private:
     // Number of consecutive steps to take before switching to the other extension method, default is 10
     template<size_t consecutive_steps = 10>
     uint64_t dual_lce(const Phi_IntervalPoint& phi_position, const LF_IntervalPoint& start, const LF_IntervalPoint& end, const uint64_t distance, const uint64_t lower_lim = 0, const uint64_t upper_lim = std::numeric_limits<uint64_t>::max()) {
-        if (start.interval == end.interval && start.offset == end.offset)
-            throw std::runtime_error("Calling LCE on the same position!");
-        bool extend_up = end.interval < start.interval || (end.interval == start.interval && end.offset < start.offset);
+        if (start == end) { throw std::runtime_error("Calling LCE on the same position!"); }
+        bool extend_up = start > end;
         
         // Phi LCE
         uint64_t phi_lce = std::numeric_limits<uint64_t>::max();
@@ -631,60 +692,70 @@ private:
         uint64_t psi_lce = 0;
         Psi_IntervalPoint start_psi_pos = rlbwt_to_psi(start);
         Psi_IntervalPoint end_psi_pos;
+        // Extend to run tail
         if (extend_up) {
             // TODO no bounds check?
             end_psi_pos = rlbwt_to_psi(end.interval + 1);
             --end_psi_pos.interval;
             end_psi_pos.offset = Psi.get_length(end_psi_pos.interval) - 1;
         }
+        // Extend to run head
         else {
             end_psi_pos = rlbwt_to_psi(end.interval);
         }
-        // step past BWT character
+        // Move past BWT character (want to compare suffixes)
         start_psi_pos = Psi.map(start_psi_pos);
         end_psi_pos = Psi.map(end_psi_pos);
 
-        size_t counter = 0;
+        size_t counter = 0; // Counter for mapping steps taken
         auto phi_turn = [&]() { return (counter < consecutive_steps); };
-        auto phi_condition = [&]() { return (i < distance); };
-        auto psi_condition = [&]() { return (F[start_psi_pos.interval] == F[end_psi_pos.interval]); };
+        auto phi_condition = [&]() { return (i < distance) && (phi_lce >= lower_lim); };
+        auto psi_condition = [&]() { return (F[start_psi_pos.interval] == F[end_psi_pos.interval]) && (psi_lce < upper_lim); };
         // In this case, we know the psi will finish first, so we can skip the phi computation
-        auto skip_phi = [&]() { return (upper_lim < distance); };
-        while (phi_condition() && psi_condition()) {
+        // Multiply by 2 because we take two mapping steps per iteration
+        auto skip_phi = [&]() { return (2*upper_lim < distance); };
+        while (true) {
             if (!skip_phi() && phi_turn()) {
+                if (!phi_condition()) { break; } // If distance is reached, break and return the current LCE
                 uint64_t lcp = PLCPsamples[phi_extension_position.interval] - phi_extension_position.offset;
                 phi_lce = std::min(phi_lce, lcp);
-                if (phi_lce < lower_lim) { return 0; }
+                if (!phi_condition()) { phi_lce = 0; break; } // If the minimum LCE goes beneath the lower limit, stop and return 0
+                if (i == distance - 1) { ++i; break; } // Increment i and break to avoid redundant mapping step during last iteration
                 phi_extension_position = Phi.map(phi_extension_position);
                 ++i;
+
+                ++counter;
                 #ifdef STATS
                 ++phi_steps;
                 #endif
             }
             else {
+                if (!psi_condition()) { break; }
                 ++psi_lce;
-                if (psi_lce >= upper_lim) { return psi_lce; }
+                if (!psi_condition()) { break; }
                 start_psi_pos = Psi.map(start_psi_pos);
                 end_psi_pos = Psi.map(end_psi_pos);
 
+                counter += 2;
                 #ifdef STATS
-                ++psi_steps;
+                psi_steps += 2;
                 #endif
             }
             
-            ++counter;
             if (counter >= 2*consecutive_steps) {
                 counter = 0;
             }
         }
         
-        if (!phi_condition()) {
+        if (!phi_condition() && !psi_condition()) {
+            return std::min(phi_lce, psi_lce);
+        }
+        else if (!phi_condition()) {
             return phi_lce;
         }
         else {
             return psi_lce;
         }
     }
-
 };
 #endif //#ifndef R_SA_LCP_MSINDEX_H
