@@ -131,6 +131,9 @@ int main(int argc, char*argv[]) {
 		std::cout << pos << " ";
 	}
 	std::cout << std::endl;
+	#ifdef STATS
+	msIndex.print_ms_stats();
+	#endif
 
     std::cout << "ms_psi: " << std::endl;
     auto ms_result_psi = msIndex.ms_psi(pattern_chars, m);
@@ -146,6 +149,9 @@ int main(int argc, char*argv[]) {
 		std::cout << pos << " ";
 	}
 	std::cout << std::endl;
+	#ifdef STATS
+	msIndex.print_ms_stats();
+	#endif
 
     std::cout << "ms_dual: " << std::endl;
     auto ms_result_dual = msIndex.ms_dual(pattern_chars, m);
@@ -161,6 +167,9 @@ int main(int argc, char*argv[]) {
 		std::cout << pos << " ";
 	}
 	std::cout << std::endl;
+	#ifdef STATS
+	msIndex.print_ms_stats();
+	#endif
 
     return 0;
 }
