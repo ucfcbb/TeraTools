@@ -44,15 +44,16 @@ head -n -1 "$tmpfile" > "$INPUT_FILE"
 
 
 ROPEBWT3="../../ropebwt3/ropebwt3"
-BUILDER="../builder/builder"
+lcpComputer="../lcpComputer/lcpComputer"
+msIndexBuilder="../msIndexBuilder/msIndexBuilder"
 KACTL="../../less_efficient_but_accurate_algos/kactl-sa-implementation/kactl_impl"
-REPEATS="./repeats"
+MEM="../MEM/MEM"
 LOADER="../loader/loader"
 BRUTE_FORCE_CPP="../../less_efficient_but_accurate_algos/Repeats/brute_force_repeats.cpp"
 BRUTE_FORCE_BIN="../../less_efficient_but_accurate_algos/Repeats/brute_force_repeats"
 
-ROPEBWT3_OUT="../../data/repeatTest.fmd"
-REPEATS_OUT="rp1.out"
+ROPEBWT3_OUT="repeatTest.fmd"
+MEM_OUT="rp1.out"
 BRUTE_OUT="rp2.out"
 
 
@@ -60,21 +61,24 @@ echo "Building ropebwt3 index..."
 $ROPEBWT3 build -L -R "$INPUT_FILE" -d -o "$ROPEBWT3_OUT"
 
 
-echo "Running builder (optbwtrl) on $ROPEBWT3_OUT..."
-$BUILDER "$ROPEBWT3_OUT" "$ROPEBWT3_OUT"
+echo "Running lcpComputer on $ROPEBWT3_OUT..."
+$lcpComputer -f fmd -i "$ROPEBWT3_OUT" -t temp -oindex "$ROPEBWT3_OUT" -v quiet
 
-echo "Validating bwt"
-$KACTL < $INPUT_FILE > bwt.out
-$LOADER "$ROPEBWT3_OUT.optbwtrl" > rbwt.out
-diff bwt.out rbwt.out
-echo "Validation successful!"
+echo "Running msIndexBuilder on $ROPEBWT3_OUT..."
+$msIndexBuilder -i "$ROPEBWT3_OUT.lcp_index" -o "$ROPEBWT3_OUT" -v quiet
+
+#echo "Validating bwt"
+#$KACTL < $INPUT_FILE > bwt.out
+#$LOADER "$ROPEBWT3_OUT.optbwtrl" > rbwt.out
+#diff bwt.out rbwt.out
+#echo "Validation successful!"
 
 
-echo "Running repeats.cpp on $ROPEBWT3_OUT.optbwtrl..."
+echo "Running MEM on $ROPEBWT3_OUT.ms_index..."
 if [[ -n "$LEN_THRESHOLD" ]]; then
-    $REPEATS "$MODE" "$ROPEBWT3_OUT.optbwtrl" "$LEN_THRESHOLD" > "$REPEATS_OUT"
+    $MEM -MEM "$MODE" -i "$ROPEBWT3_OUT.ms_index" -L "$LEN_THRESHOLD" -o "$MEM_OUT" -v quiet
 else
-    $REPEATS "$MODE" "$ROPEBWT3_OUT.optbwtrl" > "$REPEATS_OUT"
+    $MEM -MEM "$MODE" -i "$ROPEBWT3_OUT.ms_index" -o "$MEM_OUT" -v quiet
 fi
 
 echo "Running brute_force_repeats on $INPUT_FILE..."
@@ -85,9 +89,9 @@ else
 fi
 
 
-tmpfile1=$(mktemp)
-tail -n +5 "$REPEATS_OUT" | sed '$d' > "$tmpfile1"
-header1=$(head -n 1 "$tmpfile1")
+#tmpfile1=$(mktemp)
+#tail -n +5 "$MEM_OUT" | sed '$d' > "$tmpfile1"
+header1=$(head -n 1 "$MEM_OUT")
 header2=$(head -n 1 "$BRUTE_OUT")
 
 if [[ "$header1" != "$header2" ]]; then
@@ -96,17 +100,14 @@ if [[ "$header1" != "$header2" ]]; then
     exit 1
 fi
 
-rm -f file1.sorted file2.sorted
-
-tail -n +2 "$tmpfile1" | sort -n -k1,1 -k2,2 -k3,3 -k4,4 > file1.sorted
-tail -n +2 "$BRUTE_OUT" | sort -n -k1,1 -k2,2 -k3,3 -k4,4 > file2.sorted
-
-
+sort "$MEM_OUT"   -n -k1,1 -k2,2 -k3,3 -k4,4 > file1.sorted
+sort "$BRUTE_OUT" -n -k1,1 -k2,2 -k3,3 -k4,4 > file2.sorted
 
 # echo "$header1"
 diff -u file1.sorted file2.sorted
 
 echo "Success! Correct repeats output."
 
-rm "$tmpfile1" "$REPEATS_OUT" "$BRUTE_OUT" "$ROPEBWT3_OUT" "$ROPEBWT3_OUT.optbwtrl"
+rm "$GEN_INPUT" "$ROPEBWT3_OUT" "$ROPEBWT3_OUT.lcp_index" temp construction.html "$ROPEBWT3_OUT.ms_index" 
+rm "$MEM_OUT" "$BRUTE_OUT"
 rm file1.sorted file2.sorted 
