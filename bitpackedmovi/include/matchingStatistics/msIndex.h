@@ -276,11 +276,6 @@ class MSIndex {
 
     #ifdef STATS
     void print_ms_stats() const {
-        std::cout << "\tms_row: ";
-        for (auto& [interval, offset] : bwt_row) {
-            std::cout << LF.get_start(interval) + offset + 1 << " ";
-        }
-        std::cout << std::endl << std::endl;
         std::cout << "\t  Phi Steps: " << phi_steps << std::endl;
         std::cout << "\t  Psi Steps: " << psi_steps << std::endl;
         std::cout << "\tTotal Steps: " << phi_steps + psi_steps << std::endl;
@@ -318,55 +313,26 @@ class MSIndex {
         }
     }
 
-    // Returns vector (row[0..m-1]) where:
-    // row[i] = IntervalPoint of suffix which matches lexicographically smallest suffix with maximum match to P[i..m-1] 
-    std::vector<LF_IntervalPoint> pred_row(const char* pattern, const uint64_t m) const {
-        std::vector<LF_IntervalPoint> pred_row(m);
-        LF_IntervalPoint rlbwt_pos = end_bwt_pos();
-
-        for (uint64_t i = 0; i < m; ++i) {
-            uint8_t c = charToBits(pattern[m - i - 1]);
-            if (c != rlbwt[rlbwt_pos.interval]) {
-                auto pred_pos_result = pred_char(rlbwt_pos, c);
-                if (pred_pos_result.has_value()) {
-                    rlbwt_pos = pred_pos_result.value().first;
-                }
-                else {
-                    auto succ_pos_result = succ_char(rlbwt_pos, c);
-                    if (succ_pos_result.has_value()) {
-                        rlbwt_pos = succ_pos_result.value().first;
-                    }
-                    else {
-                        throw std::runtime_error("Character not found in BWT: " + std::string(1, c));
-                    }
-                }
-            }
-            rlbwt_pos = LF.map(rlbwt_pos);
-            pred_row[m - i - 1] = rlbwt_pos;
-        }
-        return pred_row;
-    }
-
     std::pair<std::vector<uint64_t>, std::vector<uint64_t>> ms_phi(const char* pattern, const uint64_t m) {
-        return ms_loop(pattern, m, [this](const uint8_t c, LF_IntervalPoint& pos, Phi_IntervalPoint& phi_pos, uint64_t& length) {
-            reposition_explicit(c, pos, phi_pos, length, [this](const Phi_IntervalPoint& phi_pos, const LF_IntervalPoint& start, const LF_IntervalPoint& end, const uint64_t dist, const uint64_t lower_lim, const uint64_t upper_lim) {
-                return phi_lce(phi_pos, start, end, dist, lower_lim, upper_lim);
+        return ms_loop(pattern, m, [this](MSState& state, const uint8_t c) {
+            reposition_explicit(state, c, [this](const MSState& state, const PosDist& end, const uint64_t lower_lim) {
+                return phi_lce(state, end, lower_lim);
             });
         });
     }
     
     std::pair<std::vector<uint64_t>, std::vector<uint64_t>> ms_psi(const char* pattern, const uint64_t m) {
-        return ms_loop(pattern, m, [this](const uint8_t c, LF_IntervalPoint& pos, Phi_IntervalPoint& phi_pos, uint64_t& length) {
-            reposition_explicit(c, pos, phi_pos, length, [this](const Phi_IntervalPoint& phi_pos, const LF_IntervalPoint& start, const LF_IntervalPoint& end, const uint64_t dist, const uint64_t lower_lim, const uint64_t upper_lim) {
-                return psi_lce(phi_pos, start, end, dist, lower_lim, upper_lim);
+        return ms_loop(pattern, m, [this](MSState& state, const uint8_t c) {
+            reposition_explicit(state, c, [this](const MSState& state, const PosDist& end, const uint64_t lower_lim) {
+                return psi_lce(state, end, lower_lim);
             });
         });
     }
 
     std::pair<std::vector<uint64_t>, std::vector<uint64_t>> ms_dual(const char* pattern, const uint64_t m) {
-        return ms_loop(pattern, m, [this](const uint8_t c, LF_IntervalPoint& pos, Phi_IntervalPoint& phi_pos, uint64_t& length) {
-            reposition_explicit(c, pos, phi_pos, length, [this](const Phi_IntervalPoint& phi_pos, const LF_IntervalPoint& start, const LF_IntervalPoint& end, const uint64_t dist, const uint64_t lower_lim, const uint64_t upper_lim) {
-                return dual_lce(phi_pos, start, end, dist, lower_lim, upper_lim);
+        return ms_loop(pattern, m, [this](MSState& state, const uint8_t c) {
+            reposition_explicit(state, c, [this](const MSState& state, const PosDist& end, const uint64_t lower_lim) {
+                return dual_lce(state, end, lower_lim);
             });
         });
     }
@@ -376,12 +342,10 @@ private:
     #ifdef STATS
     size_t phi_steps;
     size_t psi_steps;
-    std::vector<std::pair<uint64_t, uint64_t>> bwt_row;
 
     void init_ms_stats(const uint64_t m) {
         phi_steps = 0;
         psi_steps = 0;
-        bwt_row = std::vector<std::pair<uint64_t, uint64_t>>(m);
     }
     #endif
 
@@ -399,38 +363,50 @@ private:
         };
     }
 
+    uint64_t get_PLCP(const Phi_IntervalPoint& phi_pos) const {
+        return PLCPsamples[phi_pos.interval] - phi_pos.offset;
+    }
+
     // ================================ BWT Position Conversion Functions ================================
     LF_IntervalPoint start_bwt_pos() const {
-        return LF_IntervalPoint{static_cast<uint64_t>(-1), 0, 0};
+        return LF_IntervalPoint(0, 0);
     }
 
     LF_IntervalPoint end_bwt_pos() const {
-        return LF_IntervalPoint{static_cast<uint64_t>(-1), LF.num_intervals() - 1, LF.get_length(LF.num_intervals() - 1) - 1};
+        return LF_IntervalPoint(LF.num_intervals() - 1, LF.get_length(LF.num_intervals() - 1) - 1);
     }
     
-    Phi_IntervalPoint rlbwt_to_phi(const uint64_t interval) const {
-        return Phi_IntervalPoint{Phi.get_start(intAtTop[interval]), intAtTop[interval], 0};
+    Phi_IntervalPoint rlbwt_head_to_phi(const uint64_t interval) const {
+        return Phi.get_interval_point(intAtTop[interval]);
+    }
+    Phi_IntervalPoint rlbwt_head_to_phi(LF_IntervalPoint pos) const {
+        assert(pos.offset == 0);
+        return rlbwt_head_to_phi(pos.interval);
     }
     
     // Should only be called if pos is a run tail --> is quicker than using the general method above
     Phi_IntervalPoint rlbwt_tail_to_phi(LF_IntervalPoint pos) const {
-        assert(pos.offset == LF.get_length(pos.interval) - 1);
+        assert(pos.offset == LF.get_length(pos) - 1);
         uint64_t next_interval = pos.interval + 1;
         if (pos.interval == LF.num_intervals() - 1) { next_interval = 0; }
-        Phi_IntervalPoint phi_pos = rlbwt_to_phi(next_interval);
+        Phi_IntervalPoint phi_pos = rlbwt_head_to_phi(next_interval);
         return Phi.map(phi_pos);
     }
 
-    Psi_IntervalPoint rlbwt_to_psi(const uint64_t interval) const {
-        return Psi_IntervalPoint{static_cast<uint64_t>(-1), PsiIntAtTop[interval], PsiOffAtTop[interval]};
+    Psi_IntervalPoint rlbwt_head_to_psi(const uint64_t interval) const {
+        return Psi_IntervalPoint(PsiIntAtTop[interval], PsiOffAtTop[interval]);
+    }
+    Psi_IntervalPoint rlbwt_head_to_psi(LF_IntervalPoint pos) const {
+        assert(pos.offset == 0);
+        return rlbwt_head_to_psi(pos.interval);
     }
 
     // Might need to "fast forward" to the correct interval
     Psi_IntervalPoint rlbwt_to_psi(LF_IntervalPoint pos) const {
-        Psi_IntervalPoint psi_pos = rlbwt_to_psi(pos.interval);
+        Psi_IntervalPoint psi_pos = rlbwt_head_to_psi(pos.interval);
         psi_pos.offset += pos.offset;
-        while (psi_pos.offset >= Psi.get_length(psi_pos.interval)) {
-            psi_pos.offset -= Psi.get_length(psi_pos.interval);
+        while (psi_pos.offset >= Psi.get_length(psi_pos)) {
+            psi_pos.offset -= Psi.get_length(psi_pos);
             ++psi_pos.interval;
         }
         return psi_pos;
@@ -439,12 +415,12 @@ private:
     // Should only be called if pos is a run tail --> is quicker than using the general method above
     // Doesn't work if called on the last interval
     Psi_IntervalPoint rlbwt_tail_to_psi(LF_IntervalPoint pos) const {
-        assert(pos.offset == LF.get_length(pos.interval) - 1);
+        assert(pos.offset == LF.get_length(pos) - 1);
         assert(pos.interval < LF.num_intervals() - 1);
-        Psi_IntervalPoint psi_pos = rlbwt_to_psi(pos.interval + 1);
+        Psi_IntervalPoint psi_pos = rlbwt_head_to_psi(pos.interval + 1);
         if (psi_pos.offset == 0) { 
             --psi_pos.interval; 
-            psi_pos.offset = Psi.get_length(psi_pos.interval) - 1;
+            psi_pos.offset = Psi.get_length(psi_pos) - 1;
         }
         else {
             --psi_pos.offset;
@@ -458,8 +434,8 @@ private:
         if (phi_pos.offset == 0) {
             if (phi_pos.interval == 0) { phi_pos.interval = Phi.data.size() - 1; }
             else { phi_pos.interval--; }
-            phi_pos.offset = Phi.get_length(phi_pos.interval) - 1;
-            phi_pos.position = Phi.get_start(phi_pos.interval) + phi_pos.offset;
+            phi_pos.offset = Phi.get_length(phi_pos) - 1;
+            phi_pos.position = Phi.get_start(phi_pos) + phi_pos.offset;
         }
         else {
             --phi_pos.position;
@@ -468,10 +444,15 @@ private:
     }
     
     // ================================ Predecessor and Successor Functions ================================
+    struct PosDist {
+        LF_IntervalPoint pos;
+        uint64_t dist;
+    };
+
     // Returns LF position and distance to the previous occurrence of character c, if the predecessor exists. Returns passed position if already at the predecessor.
-    std::optional<std::pair<LF_IntervalPoint, uint64_t>> pred_char(const LF_IntervalPoint& pos, const uint8_t c) const {
+    std::optional<PosDist> pred_char(const LF_IntervalPoint& pos, const uint8_t c) const {
         if (rlbwt[pos.interval] == c) {
-            return std::make_pair(pos, 0);
+            return PosDist{pos, 0};
         }
         uint64_t distance = pos.offset + 1;
 
@@ -483,13 +464,13 @@ private:
             if (interval == 0) return std::nullopt;
             --interval;
         }
-        return std::make_pair(LF_IntervalPoint{static_cast<uint64_t>(-1), interval, LF.get_length(interval) - 1}, distance);
+        return PosDist{LF_IntervalPoint(interval, LF.get_length(interval) - 1), distance};
     }
     
     // Returns LF position and distance to the next occurrence of character c, if the successor exists. Returns passed position if already at the successor.
-    std::optional<std::pair<LF_IntervalPoint, uint64_t>> succ_char(const LF_IntervalPoint& pos, const uint8_t c) const {
+    std::optional<PosDist> succ_char(const LF_IntervalPoint& pos, const uint8_t c) const {
         if (rlbwt[pos.interval] == c) {
-            return std::make_pair(pos, 0);
+            return PosDist{pos, 0};
         }
         uint64_t distance = LF.get_length(pos.interval) - pos.offset;
 
@@ -501,48 +482,56 @@ private:
             if (interval == LF.data.size() - 1) return std::nullopt;
             ++interval;
         }
-        return std::make_pair(LF_IntervalPoint{static_cast<uint64_t>(-1), interval, 0}, distance);
+        return PosDist{LF_IntervalPoint(interval, 0), distance};
     }
 
     // ================================ MS Loop (Main MS Function) ================================
+    struct MSState {
+        const char* pattern;
+        const uint64_t m;
+        uint64_t i; // position on pattern
+
+        LF_IntervalPoint rlbwt_pos;
+        Phi_IntervalPoint phi_pos;
+        uint64_t length;
+
+        MSState(const char* pattern, const uint64_t m, const LF_IntervalPoint& rlbwt_pos, const Phi_IntervalPoint& phi_pos) 
+        : pattern(pattern), m(m), i(0), rlbwt_pos(rlbwt_pos), phi_pos(phi_pos), length(0) {}
+    };
+
     // Used to define different MS algorithms by passing a different reposition function
-    using RepositionFunction = std::function<void(const uint8_t c, LF_IntervalPoint& pos, Phi_IntervalPoint& phi_pos, uint64_t& length)>;
+    using RepositionFunction = std::function<void(MSState& state, const uint8_t c)>;
     std::pair<std::vector<uint64_t>, std::vector<uint64_t>> ms_loop(const char* pattern, const uint64_t m, RepositionFunction reposition) {
         #ifdef STATS
         init_ms_stats(m);
         #endif
 
+        // Initial state is the end of the BWT, end of pattern, length of 0
+        MSState state(pattern, m, end_bwt_pos(), rlbwt_tail_to_phi(end_bwt_pos()));
+
         std::vector<uint64_t> ms_len(m);
         std::vector<uint64_t> ms_pos(m);
 
-        // initialize to last position in BWT (for both rlbwt and corresponding Phi position)
-        LF_IntervalPoint rlbwt_pos = end_bwt_pos();
-        Phi_IntervalPoint phi_pos = rlbwt_tail_to_phi(end_bwt_pos()); // Used to find MS positions
-
-        uint64_t length = 0; // MS length
-        for (uint64_t i = 0; i < m; ++i) {
-            uint8_t c = charToBits(pattern[m - i - 1]);
-            if (c != rlbwt[rlbwt_pos.interval]) {
-                reposition(c, rlbwt_pos, phi_pos, length);
+        for (state.i = 0; state.i < m; ++state.i) {
+            uint8_t c = charToBits(state.pattern[m - state.i - 1]);
+            if (c != rlbwt[state.rlbwt_pos.interval]) {
+                reposition(state, c);
             }
-            ++length;
-            backward_step(rlbwt_pos, phi_pos);
+            ++state.length;
+            backward_step(state.rlbwt_pos, state.phi_pos);
 
-            ms_len[m - i - 1] = length;
-            ms_pos[m - i - 1] = phi_pos.position;
-            #ifdef STATS
-            bwt_row[m - i - 1] = std::make_pair(rlbwt_pos.interval, rlbwt_pos.offset);
-            #endif
+            ms_len[state.m - state.i - 1] = state.length;
+            ms_pos[state.m - state.i - 1] = state.phi_pos.position;
         }
         return std::make_pair(ms_len, ms_pos);
     }
 
     // ================================ Reposition Functions ================================
     // Doesn't use thresholds, so we look for both the predecessor and successor
-    using LCEFunction = std::function<uint64_t(const Phi_IntervalPoint& phi_position, const LF_IntervalPoint& start, const LF_IntervalPoint& end, const uint64_t distance, const uint64_t lower_lim, const uint64_t upper_lim)>;
-    void reposition_explicit(const uint8_t c, LF_IntervalPoint& pos, Phi_IntervalPoint& phi_pos, uint64_t& length, LCEFunction lce) {
-        auto pred_pos_result = pred_char(pos, c);
-        auto succ_pos_result = succ_char(pos, c);
+    using LCEFunction = std::function<uint64_t(const MSState& state, const PosDist& end, const uint64_t lower_lim)>;
+    void reposition_explicit(MSState& state, const uint8_t c, LCEFunction lce) {
+        auto pred_pos_result = pred_char(state.rlbwt_pos, c);
+        auto succ_pos_result = succ_char(state.rlbwt_pos, c);
         if (!pred_pos_result.has_value() && !succ_pos_result.has_value())
             throw std::runtime_error("No valid positions found for repositioning, character not found in BWT: " + std::string(1, c));
 
@@ -550,10 +539,9 @@ private:
         Phi_IntervalPoint pred_phi_pos;
         uint64_t pred_lce = 0;
         if (pred_pos_result.has_value()) {
-            pred_pos = pred_pos_result.value().first;
-            uint64_t pred_distance = pred_pos_result.value().second;
-            pred_lce = lce(phi_pos, pos, pred_pos, pred_distance, 0, length);
+            pred_lce = lce(state, pred_pos_result.value(), 0);
             // New phi position is a run tail
+            pred_pos = pred_pos_result.value().pos;
             pred_phi_pos = rlbwt_tail_to_phi(pred_pos);
         }
 
@@ -561,23 +549,22 @@ private:
         Phi_IntervalPoint succ_phi_pos;
         uint64_t succ_lce = 0;
         if (succ_pos_result.has_value()) {
-            succ_pos = succ_pos_result.value().first;
-            uint64_t succ_distance = succ_pos_result.value().second;
-            succ_lce = lce(phi_pos, pos, succ_pos, succ_distance, pred_lce, length);
+            succ_lce = lce(state, succ_pos_result.value(), pred_lce);
             // New phi position is a run head
-            succ_phi_pos = rlbwt_to_phi(succ_pos.interval);
+            succ_pos = succ_pos_result.value().pos;
+            succ_phi_pos = rlbwt_head_to_phi(succ_pos);
         }
 
         // Need to check pred_pos_result in case both LCEs are 0 (could mean either no predecessor or that the LCE really was 0)
         if (pred_lce >= succ_lce && pred_pos_result.has_value()) {
-            pos = pred_pos;
-            phi_pos = pred_phi_pos;
-            length = std::min(pred_lce, length);
+            state.rlbwt_pos = pred_pos;
+            state.phi_pos = pred_phi_pos;
+            state.length = std::min(pred_lce, state.length);
         }
         else {
-            pos = succ_pos;
-            phi_pos = succ_phi_pos;
-            length = std::min(succ_lce, length);
+            state.rlbwt_pos = succ_pos;
+            state.phi_pos = succ_phi_pos;
+            state.length = std::min(succ_lce, state.length);
         }
     }
 
@@ -587,29 +574,28 @@ private:
     /**
     * @brief LCE between start and end position, where end is a run head or tail, by enumerating the LCP interval using Phi and PLCP samples
     * 
-    * @param phi_position Current Phi position
-    * @param start Start position (current MS position)
+    * @param state Current MS state
     * @param end End position (predecessor or successor position)
-    * @param distance Distance to the end position (distance to the predecessor or successor)
     * @param lower_lim If the minimum LCE goes beneath this value, stop and return 0
     * @return uint64_t The LCE between the start and end position (or 0 if it goes beneath the lower limit)
     */
-    uint64_t phi_lce(const Phi_IntervalPoint& phi_position, const LF_IntervalPoint& start, const LF_IntervalPoint& end, const uint64_t distance, const uint64_t lower_lim = 0) {
-        if (start == end) { throw std::runtime_error("Calling LCE on the same position!"); }
-        bool extend_down = start < end;
+    uint64_t phi_lce(const MSState& state, const PosDist& end, const uint64_t lower_lim = 0) {
+        if (state.rlbwt_pos == end.pos) { throw std::runtime_error("Calling LCE on the same position!"); }
+        bool extend_down = state.rlbwt_pos < end.pos;
 
         uint64_t lce = std::numeric_limits<uint64_t>::max();
-        Phi_IntervalPoint phi_extension_position = phi_position;
+        Phi_IntervalPoint phi_extension_position = state.phi_pos;
         // Start extending from the end position when extending down to run head
         if (extend_down) {
-            phi_extension_position = rlbwt_to_phi(end.interval);
+            phi_extension_position = rlbwt_head_to_phi(end.pos);
         }
 
-        for (size_t i = 0; i < distance; ++i) {
-            uint64_t lcp = PLCPsamples[phi_extension_position.interval] - phi_extension_position.offset;
+        for (size_t i = 0; i < end.dist; ++i) {
+            uint64_t lcp = get_PLCP(phi_extension_position);
             lce = std::min(lce, lcp);
             if (lce < lower_lim) { lce = 0; break; }
-            if (i == distance - 1) { ++i; break; } // Increment i and break to avoid redundant mapping step during last iteration
+            // Break to avoid redundant mapping step during last iteration
+            if (i == end.dist - 1) { break; }
             phi_extension_position = Phi.map(phi_extension_position);
 
             #ifdef STATS
@@ -619,51 +605,48 @@ private:
 
         return lce;
     }
-    // Wrapper for reposition methods
-    uint64_t phi_lce(const Phi_IntervalPoint& phi_position, const LF_IntervalPoint& start, const LF_IntervalPoint& end, const uint64_t distance, const uint64_t lower_lim, const uint64_t /*upper_lim*/) {
-        return phi_lce(phi_position, start, end, distance, lower_lim);
-    }
 
     /**
     * @brief LCE between start and end position, where end is a run head or tail, by forward character comparisons using Psi
     * 
-    * @param start Start position (current MS position)
+    * @param state Current MS state
     * @param end End position (predecessor or successor position)
-    * @param upper_lim If the LCE reaches this value, stop and return the value
-    * @return uint64_t The LCE between the start and end position (or upper_lim if it is reached)
+    * @return uint64_t The LCE between the start and end position (or the current matched length if it is reached)
     */
-    uint64_t psi_lce(const LF_IntervalPoint& start, const LF_IntervalPoint& end, const uint64_t upper_lim = 0) {
-        if (start == end) { throw std::runtime_error("Calling LCE on the same position!"); }
-        bool extend_up = start > end;
+    uint64_t psi_lce(const MSState& state, const PosDist& end) {
+        if (state.rlbwt_pos == end.pos) { throw std::runtime_error("Calling LCE on the same position!"); }
+        bool extend_up = state.rlbwt_pos > end.pos;
 
-        Psi_IntervalPoint start_psi_pos = rlbwt_to_psi(start);
+        size_t i = state.m - state.i; // position on pattern for psi extension
         Psi_IntervalPoint end_psi_pos;
         // Extend to run tail
         if (extend_up) {
-            end_psi_pos = rlbwt_tail_to_psi(end);
+            end_psi_pos = rlbwt_tail_to_psi(end.pos);
         }
         // Extend to run head
         else {
-            end_psi_pos = rlbwt_to_psi(end.interval);
+            end_psi_pos = rlbwt_head_to_psi(end.pos);
         }
 
         uint64_t lce = 0;
         // Use true loops to avoid redundant mapping steps during last iteration
         while (true) {
-            if (F[start_psi_pos.interval] != F[end_psi_pos.interval]) { break; }
+            if (i >= state.m 
+                || charToBits(state.pattern[i]) != F[end_psi_pos.interval]) { break; }
             ++lce;
-            if (lce >= upper_lim) { break; }
-            start_psi_pos = Psi.map(start_psi_pos);
+            if (lce >= state.length) { break; }
             end_psi_pos = Psi.map(end_psi_pos);
-
+            
+            ++i;
             #ifdef STATS
-            psi_steps += 2;
+            ++psi_steps;
             #endif
         }
         return lce;
     }
-    uint64_t psi_lce(const Phi_IntervalPoint& /*_phi_position*/, const LF_IntervalPoint& start, const LF_IntervalPoint& end, const uint64_t /*_distance*/, const uint64_t /*lower_lim*/, const uint64_t upper_lim) {
-        return psi_lce(start, end, upper_lim);
+    // Wrapper for psi_lce method
+    uint64_t psi_lce(const MSState& state, const PosDist& end, const uint64_t /*lower_lim*/) {
+        return psi_lce(state, end);
     }
 
     /**
@@ -679,51 +662,53 @@ private:
     * @return uint64_t The LCE between the start and end position
     */
     template<size_t consecutive_steps = 10>
-    uint64_t dual_lce(const Phi_IntervalPoint& phi_position, const LF_IntervalPoint& start, const LF_IntervalPoint& end, const uint64_t distance, const uint64_t lower_lim = 0, const uint64_t upper_lim = std::numeric_limits<uint64_t>::max()) {
-        if (start == end) { throw std::runtime_error("Calling LCE on the same position!"); }
-        bool extend_up = start > end;
+    uint64_t dual_lce(const MSState& state, const PosDist& end, const uint64_t lower_lim = 0) {
+        if (state.rlbwt_pos == end.pos) { throw std::runtime_error("Calling LCE on the same position!"); }
+        bool extend_up = state.rlbwt_pos > end.pos;
         
         // Phi LCE
         uint64_t phi_lce = std::numeric_limits<uint64_t>::max();
-        size_t i = 0; // counter for the phi extension
-        Phi_IntervalPoint phi_extension_position = phi_position;
-        // Start extending from the end position when extending down
+        size_t phi_i = 0; // counter for the phi extension
+        Phi_IntervalPoint phi_extension_position = state.phi_pos;
+        // Start extending from the end position when extending down to run head
         if (!extend_up) {
-            phi_extension_position = rlbwt_to_phi(end.interval);
+            phi_extension_position = rlbwt_head_to_phi(end.pos);
         }
         
         // Psi LCE
         uint64_t psi_lce = 0;
-        Psi_IntervalPoint start_psi_pos = rlbwt_to_psi(start);
+        size_t psi_i = state.m - state.i; // position on pattern for Psi extension
         Psi_IntervalPoint end_psi_pos;
         // Extend to run tail
         if (extend_up) {
-            end_psi_pos = rlbwt_tail_to_psi(end);
+            end_psi_pos = rlbwt_tail_to_psi(end.pos);
         }
         // Extend to run head
         else {
-            end_psi_pos = rlbwt_to_psi(end.interval);
+            end_psi_pos = rlbwt_head_to_psi(end.pos);
         }
 
         size_t counter = 0; // Counter for mapping steps taken
         auto phi_turn = [&]() { return (counter < consecutive_steps); };
-        // Regular condition and early stopping condition not met for both phi and psi
-        auto phi_condition = [&]() { return (i < distance) && !(phi_lce < lower_lim); };
-        auto psi_condition = [&]() { return (F[start_psi_pos.interval] == F[end_psi_pos.interval]) && !(psi_lce >= upper_lim); };
+        // Determines regular condition and whether early stopping condition not met for both phi and psi
+        auto phi_condition = [&]() { return (phi_i < end.dist) && !(phi_lce < lower_lim); };
+        auto psi_condition = [&]() { 
+            return (psi_i < state.m) && (charToBits(state.pattern[psi_i]) == F[end_psi_pos.interval]) && !(psi_lce >= state.length); 
+        };
         // In this case, we know the psi will finish first with its early stopping condition met, so we can skip the phi computation
-        // Multiply by 2 because we take two mapping steps per iteration
-        bool skip_phi = (2*upper_lim < distance);
+        bool skip_phi = (state.length < end.dist);
         while (true) {
             if (!skip_phi && phi_turn()) {
                 if (!phi_condition()) { break; } // If distance is reached, break and return the current LCE
-                uint64_t lcp = PLCPsamples[phi_extension_position.interval] - phi_extension_position.offset;
+                uint64_t lcp = get_PLCP(phi_extension_position);
                 phi_lce = std::min(phi_lce, lcp);
                 // Will only change from above if early stopping condition is met
                 if (!phi_condition()) { phi_lce = 0; break; }
-                if (i == distance - 1) { ++i; break; } // Increment i and break to avoid redundant mapping step during last iteration
+                // Increment i and break to avoid redundant mapping step during last iteration
+                if (phi_i == end.dist - 1) { ++phi_i; break; }
                 phi_extension_position = Phi.map(phi_extension_position);
-                ++i;
-
+                
+                ++phi_i;
                 ++counter;
                 #ifdef STATS
                 ++phi_steps;
@@ -734,12 +719,12 @@ private:
                 ++psi_lce;
                 // Will only change from above if early stopping condition is met
                 if (!psi_condition()) { break; }
-                start_psi_pos = Psi.map(start_psi_pos);
                 end_psi_pos = Psi.map(end_psi_pos);
 
-                counter += 2;
+                ++psi_i;
+                ++counter;
                 #ifdef STATS
-                psi_steps += 2;
+                ++psi_steps;
                 #endif
             }
             

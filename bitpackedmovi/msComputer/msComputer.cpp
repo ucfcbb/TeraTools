@@ -1,52 +1,7 @@
 #include "lcpComputer/lcpComputer.h"
 #include "matchingStatistics/msIndex.h"
 #include "moveStructure/moveStructure.h"
-#include <unordered_map>
-
-void testLastWeek(const std::string& inputOptbwtrl){ 
-	LCPComputer lcp_comp(inputOptbwtrl);
-    // std::ifstream in(inputOptbwtrl);
-
-    // lcp_comp.load(in);
-    // in.close();
-    
-    // lcp_comp.printPhiAndLCP();
-    // lcp_comp.printRaw();
-    
-    // size_t steps = 0;
-
-    // MoveStructure::IntervalPoint phiPoint;
-    // phiPoint.interval = 0;
-    // phiPoint.offset = 0;
-
-    // do {
-    //     phiPoint = lcp_comp.Phi.map(phiPoint);
-    //     std::cout << phiPoint.interval << '\t' << phiPoint.offset << "\t-->\t";
-    //     std::cout << lcp_comp.PLCPsamples[phiPoint.interval] - phiPoint.offset << std::endl;
-    //     steps++;
-    // } while (phiPoint.interval != 0 || phiPoint.offset != 0);
-    // std::cout << steps << std::endl;
-
-	/*
-		MoveStructure::IntervalPoint psiPoint;
-		psiPoint.interval = 0;
-		psiPoint.offset = 0;
-		steps = 0;
-		do {
-			psiPoint = lcp_comp.Psi.map(psiPoint);
-			std::cout << psiPoint.interval << '\t' << psiPoint.offset << "\t-->\t";
-			std::cout << lcp_comp.F[psiPoint.interval] << std::endl;
-			steps++;
-		} while (psiPoint.interval != 0 || psiPoint.offset != 0);
-		std::cout << steps << std::endl;
-	*/
-
-    // int_vector<16> bwt_to_psi_int_at_top;
-    // int_vector<16> bwt_to_psi_offset_at_top;
-    // int_vector<16> bwt_to_phi_int_at_bottom;
-    // int_vector<16> bwt_to_phi_offset_at_bottom;
-}
-
+#include <chrono>
 
 // void computeMSRow(const std::string& inpMSIndex, const std::string& query = ""){
 // 	/* Assume, we'll have the following data-structures from msIndex
@@ -92,7 +47,6 @@ void testLastWeek(const std::string& inputOptbwtrl){
 //     }
 // }
 
-
 int main(int argc, char*argv[]) {
     if (argc != 3) {
 		std::cout << "msComputer <path/to/msIndex/file> <path/to/pattern/file>" << std::endl;
@@ -107,7 +61,6 @@ int main(int argc, char*argv[]) {
 	std::cout << "Successfully loaded" << inpMSIndex << "." << std::endl;
 	in.close();
 
-
 	std::string patternFile = argv[2];
 	std::ifstream patternIn(patternFile);
 	std::string pattern;
@@ -116,57 +69,74 @@ int main(int argc, char*argv[]) {
 	std::cout << "Successfully loaded pattern from " << patternFile << "." << std::endl;
 	const char* pattern_chars = pattern.c_str();
 	uint64_t m = pattern.size();
+	std::cout << "Length of pattern: " << m << std::endl;
+
+	std::ofstream outPhi(patternFile + ".ms_phi.txt");
+	std::ofstream outPsi(patternFile + ".ms_psi.txt");
+	std::ofstream outDual(patternFile + ".ms_dual.txt");
 
     std::cout << "ms_phi: " << std::endl;
+	auto start_time = std::chrono::high_resolution_clock::now();
 	auto ms_result_phi = msIndex.ms_phi(pattern_chars, m);
+	auto end_time = std::chrono::high_resolution_clock::now();
+	auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end_time - start_time);
+	std::cout << "\t Time taken: " << duration.count() << " milliseconds" << std::endl;
 	std::vector<uint64_t> ms_len_phi = std::get<0>(ms_result_phi);
 	std::vector<uint64_t> ms_pos_phi = std::get<1>(ms_result_phi);
-	std::cout << "\tms_len: ";
+	outPhi << "\tms_len: ";
 	for (auto len : ms_len_phi) {
-		std::cout << len << " ";
+		outPhi << len << " ";
 	}
-	std::cout << std::endl;
-	std::cout << "\tms_pos: ";
+	outPhi << std::endl;
+	outPhi << "\tms_pos: ";
 	for (auto pos : ms_pos_phi) {
-		std::cout << pos << " ";
+		outPhi << pos << " ";
 	}
-	std::cout << std::endl;
+	outPhi << std::endl;
 	#ifdef STATS
 	msIndex.print_ms_stats();
 	#endif
 
     std::cout << "ms_psi: " << std::endl;
+    start_time = std::chrono::high_resolution_clock::now();
     auto ms_result_psi = msIndex.ms_psi(pattern_chars, m);
+    end_time = std::chrono::high_resolution_clock::now();
+    duration = std::chrono::duration_cast<std::chrono::milliseconds>(end_time - start_time);
+    std::cout << "\t Time taken: " << duration.count() << " milliseconds" << std::endl;
 	std::vector<uint64_t> ms_len_psi = std::get<0>(ms_result_psi);
 	std::vector<uint64_t> ms_pos_psi = std::get<1>(ms_result_psi);
-	std::cout << "\tms_len: ";
+	outPsi << "\tms_len: ";
 	for (auto len : ms_len_psi) {
-		std::cout << len << " ";
+		outPsi << len << " ";
 	}
-	std::cout << std::endl;
-	std::cout << "\tms_pos: ";
+	outPsi << std::endl;
+	outPsi << "\tms_pos: ";
 	for (auto pos : ms_pos_psi) {
-		std::cout << pos << " ";
+		outPsi << pos << " ";
 	}
-	std::cout << std::endl;
+	outPsi << std::endl;
 	#ifdef STATS
 	msIndex.print_ms_stats();
 	#endif
 
     std::cout << "ms_dual: " << std::endl;
+    start_time = std::chrono::high_resolution_clock::now();
     auto ms_result_dual = msIndex.ms_dual(pattern_chars, m);
+    end_time = std::chrono::high_resolution_clock::now();
+    duration = std::chrono::duration_cast<std::chrono::milliseconds>(end_time - start_time);
+    std::cout << "\t Time taken: " << duration.count() << " milliseconds" << std::endl;
 	std::vector<uint64_t> ms_len_dual = std::get<0>(ms_result_dual);
 	std::vector<uint64_t> ms_pos_dual = std::get<1>(ms_result_dual);
-	std::cout << "\tms_len: ";
+	outDual << "\tms_len: ";
 	for (auto len : ms_len_dual) {
-		std::cout << len << " ";
+		outDual << len << " ";
 	}
-	std::cout << std::endl;
-	std::cout << "\tms_pos: ";
+	outDual << std::endl;
+	outDual << "\tms_pos: ";
 	for (auto pos : ms_pos_dual) {
-		std::cout << pos << " ";
+		outDual << pos << " ";
 	}
-	std::cout << std::endl;
+	outDual << std::endl;
 	#ifdef STATS
 	msIndex.print_ms_stats();
 	#endif

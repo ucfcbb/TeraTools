@@ -45,6 +45,13 @@ struct MoveStructureTable {
          */
         uint64_t position, interval, offset;
 
+        IntervalPoint() = default;
+        // For backward compatibility, should be deprecated
+        IntervalPoint(const uint64_t position, const uint64_t interval, const uint64_t offset) 
+        : position(position), interval(interval), offset(offset) {}
+        IntervalPoint(const uint64_t interval, const uint64_t offset) 
+        : position(static_cast<uint64_t>(-1)), interval(interval), offset(offset) {}
+
         // Don't compare position
         bool operator==(const IntervalPoint& rhs) const {
             return interval == rhs.interval && offset == rhs.offset;
@@ -67,25 +74,45 @@ struct MoveStructureTable {
         }
     };
 
-    uint64_t get_interval(const size_type i) const {
+    uint64_t get_interval(const uint64_t i) const {
         return data.get<0>(i);
     }
+    uint64_t get_interval(const IntervalPoint& intPoint) const {
+        return get_interval(intPoint.interval);
+    }
 
-    uint64_t get_offset(const size_type i) const {
+    uint64_t get_offset(const uint64_t i) const {
         return data.get<1>(i);
     }
-
-    uint64_t get_length(const size_type i) const {
-        return data.get<2>(i);
+    uint64_t get_offset(const IntervalPoint& intPoint) const {
+        return get_offset(intPoint.interval);
     }
 
-    // VERY SLOW, FOR TESTING ONLY
-    uint64_t get_start(const size_type i) const {
+    uint64_t get_length(const uint64_t i) const {
+        return data.get<2>(i);
+    }
+    uint64_t get_length(const IntervalPoint& intPoint) const {
+        return get_length(intPoint.interval);
+    }
+
+    // VERY SLOW
+    uint64_t get_start(const uint64_t i) const {
         uint64_t start = 0;
         for (uint64_t j = 0; j < i; ++j) {
             start += get_length(j);
         }
         return start;
+    }
+    uint64_t get_start(const IntervalPoint& intPoint) const {
+        return get_start(intPoint.interval);
+    }
+
+    // VERY SLOW
+    uint64_t get_position(const uint64_t i, const uint64_t offset) const {
+        return get_start(i) + offset;
+    }
+    uint64_t get_position(const IntervalPoint& intPoint) const {
+        return get_position(intPoint.interval, intPoint.offset);
     }
 
     uint64_t num_intervals() const {
@@ -299,6 +326,10 @@ struct MoveStructureStartTable {
          */
         uint64_t position, interval, offset;
 
+        IntervalPoint() = default;
+        IntervalPoint(const uint64_t position, const uint64_t interval, const uint64_t offset) 
+        : position(position), interval(interval), offset(offset) {}
+
         // TODO update this to use the new operators (leaving for backward compatibility)
         bool operator!=(const IntervalPoint& rhs) const {
             return position != rhs.position || interval != rhs.interval || offset != rhs.offset;
@@ -320,20 +351,46 @@ struct MoveStructureStartTable {
         }
     };
 
-    uint64_t get_interval(const size_type i) const {
+    IntervalPoint get_interval_point(const uint64_t interval, const uint64_t offset) const {
+        return IntervalPoint{get_position(interval, offset), interval, offset};
+    }
+    IntervalPoint get_interval_point(const uint64_t interval) const {
+        return IntervalPoint{get_start(interval), interval, 0};
+    }
+
+    uint64_t get_interval(const uint64_t i) const {
         return data.get<0>(i);
     }
+    uint64_t get_interval(const IntervalPoint& intPoint) const {
+        return get_interval(intPoint.interval);
+    }
 
-    uint64_t get_offset(const size_type i) const {
+    uint64_t get_offset(const uint64_t i) const {
         return data.get<1>(i);
     }
-
-    uint64_t get_start(const size_type i) const {
-        return data.get<2>(i);
+    uint64_t get_offset(const IntervalPoint& intPoint) const {
+        return get_offset(intPoint.interval);
     }
 
-    uint64_t get_length(const size_type i) const {
+    uint64_t get_start(const uint64_t i) const {
+        return data.get<2>(i);
+    }
+    uint64_t get_start(const IntervalPoint& intPoint) const {
+        return get_start(intPoint.interval);
+    }
+
+    uint64_t get_position(const uint64_t i, const uint64_t offset) const {
+        return get_start(i) + offset;
+    }
+    uint64_t get_position(const IntervalPoint& intPoint) const {
+        return get_position(intPoint.interval, intPoint.offset);
+    }
+
+    uint64_t get_length(const uint64_t i) const {
         return get_start(i + 1) - get_start(i);
+    }
+    uint64_t get_length(const IntervalPoint& intPoint) const {
+        return get_length(intPoint.interval);
     }
 
     uint64_t num_intervals() const {
