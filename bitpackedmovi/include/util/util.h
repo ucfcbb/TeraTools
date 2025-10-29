@@ -81,6 +81,10 @@ class timer {
     }
     double stop() {
         auto end = std::chrono::high_resolution_clock::now();
+        if (processes.size() == 0) {
+            std::cerr << "ERROR: Stopping process when none exists!" << std::endl;
+            exit(1);
+        }
         auto beginNamePair = processes.top();
         double sec = std::chrono::duration<double>(end - beginNamePair.first).count();
         processes.pop();
