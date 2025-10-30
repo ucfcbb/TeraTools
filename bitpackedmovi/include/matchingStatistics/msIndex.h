@@ -375,8 +375,9 @@ class MSIndex {
 
         uint64_t runs = rlbwt.size();
         std::vector<std::stringstream> outputStreams(omp_get_max_threads());
-        const uint64_t maxBufferSize = std::max(static_cast<uint64_t>(8*1024), ((runs+7)/8)/outputStreams.size());
-        #pragma omp parallel for schedule(dynamic, 1024)
+        const uint64_t blockSize = 1024;
+        const uint64_t maxBufferSize = std::max(static_cast<uint64_t>(8*blockSize), ((runs+7)/8)/outputStreams.size());
+        #pragma omp parallel for schedule(dynamic, blockSize)
         for (uint64_t run = 0; run < runs; ++run) {
             //check run boundary run (i.e. top of run [run] and bottom of run [run-1 mod runs]
             uint64_t runs = rlbwt.size();
@@ -635,7 +636,7 @@ class MSIndex {
         }
 
         std::vector<std::stringstream> outputStreams(omp_get_max_threads());
-        const uint64_t maxBufferSize = std::max(static_cast<uint64_t>(8*1024), ((runs+7)/8)/outputStreams.size());
+        const uint64_t maxBufferSize = std::max(static_cast<uint64_t>(8*blockSize), ((runs+7)/8)/outputStreams.size());
         const uint64_t numBlocks = runs/blockSize + ((runs % blockSize) != 0);
         #pragma omp parallel for schedule(dynamic, 1)
         for (uint64_t block = 0; block < numBlocks; ++block) {

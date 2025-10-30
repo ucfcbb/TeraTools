@@ -2,7 +2,7 @@ SHELL := /bin/bash
 
 all: msIndexBuilder
 
-.PHONY: all clean test
+.PHONY: all clean test lcpComputerTest
 
 numIterRand=10
 
@@ -54,12 +54,14 @@ endif
 clean:
 	-rm msIndexBuilder
 
-test: msIndexBuilder
+lcpComputerTest:
+	make -C ../lcpComputer/ testIndexOnly
+
+test: msIndexBuilder lcpComputerTest
 	set -e && \
 	for testind in $(testinds); do \
-		./msIndexBuilder; \
+		./msIndexBuilder -i ../lcpComputer/$$testind.lcp_index -o $$testind; \
 	done
-	#./lcpComputer -f fmd -i $$testind -orlcp test.rlcp -t testTEMPFILE;
 
 msIndexBuilder: msIndexBuilder.cpp $(msHeads) $(objs)
 	$(CXX) $(cppflags) $(incs) -L$(libdir) $(objs) $< -o $@ $(libs)

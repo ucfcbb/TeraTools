@@ -1,8 +1,10 @@
 all: MEM
 
-.PHONY: all clean test
+.PHONY: all clean test msIndexBuilderTest
 
-testinds = ../../data/testing/idx.fmd.optbwtrl ../../data/testing/mtb152.fmd.optbwtrl
+testinds = ../../data/testing/idx.fmd ../../data/testing/mtb152.fmd
+
+LEN = 2000
 
 optIncDir = ../include
 incdir = ../thirdparty/include
@@ -48,11 +50,14 @@ endif
 clean:
 	-rm MEM
 
-test: MEM
+msIndexBuilderTest:
+	make -C ../msIndexBuilder/ test
+
+test: MEM msIndexBuilderTest
 	set -e && \
 	for testind in $(testinds); do \
-		./MEM SM $$testind; \
-		./MEM LM $$testind; \
+		./MEM -MEM SM -i $$testind.ms_index -o $$testind.SM.out; \
+		./MEM -MEM LM -i $$testind.ms_index -o $$testind.LM.out -L $(LEN); \
 	done
 
 MEM: MEM.cpp $(MEMHeads) $(objs)

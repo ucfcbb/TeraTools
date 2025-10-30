@@ -2,7 +2,7 @@ SHELL := /bin/bash
 
 all: lcpComputer
 
-.PHONY: all clean test
+.PHONY: all clean test testIndexOnly
 
 numIterRand=10
 
@@ -53,10 +53,18 @@ endif
 clean:
 	-rm lcpComputer
 
+testIndexOnly: lcpComputer
+	set -e && \
+	for testind in $(testinds); do \
+		./lcpComputer -f fmd -i $$testind -oindex $$testind -t testTEMPFILE; \
+        rm testTEMPFILE; \
+	done
+
 test: lcpComputer
 	set -e && \
 	for testind in $(testinds); do \
-		./lcpComputer -f fmd -i $$testind -orlcp test.rlcp -t testTEMPFILE; \
+		./lcpComputer -f fmd -i $$testind -orlcp test -t testTEMPFILE; \
+        rm testTEMPFILE; \
 	done
 
 lcpComputer: lcpComputer.cpp $(lcpHeads) $(objs)
