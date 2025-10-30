@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 
 
-# set -x
+#set -x
 set -e
 
 if [[ $# -lt 9 ]]; then
@@ -52,7 +52,7 @@ echo "Running MEM on temp/a.ms_index"
 $MEM -MEM $MODE -i "temp/a.ms_index" -L $LEN -o $MEM_OUT -v quiet
 
 echo "Running brute_force_repeats on generated/stringsAndReverse"
-$MEM_BRUTE $MODE $LEN_THRESHOLD < generated/stringsAndReverse > $BRUTE_OUT
+$MEM_BRUTE $MODE $LEN < generated/stringsAndReverse > $BRUTE_OUT
 
 
 header1=$(head -n 1 "$MEM_OUT")

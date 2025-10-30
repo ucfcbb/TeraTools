@@ -2,9 +2,9 @@ SHELL := /bin/bash
 
 all: test
 
-syngenparam = "10 10 10 10"
+syngenparam = "10 50 20 80"
 modes = SM LM
-LEN = 2
+LEN = 10
 numIter=10
 
 ropebwt3 = ../../../ropebwt3/
@@ -31,4 +31,5 @@ test: $(allprogs)
 				break; \
 			fi \
 		done; \
+        if [ $$test -ne $(numIter) ]; then echo FAILED $$mode test $$((++test)); break; fi \
 	done

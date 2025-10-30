@@ -13,7 +13,7 @@ void printUsage() {
         "    -o          FILE                       REQUIRED       file name of output\n"
         "  MEM:\n"
         "    -MEM        [SM,LM]                    REQUIRED       type of MEM to output, super maximal exact matches or locally maximal exact matches.\n"
-        "    -L          INT                        optional       minimum length of outputted MEMs (inclusive), must be nonnegative and > 0.\n"
+        "    -L          INT                        optional       minimum length of outputted MEMs (inclusive), must be nonnegative and > 0. REQUIRED for LM\n"
         "  General:\n"
         "    -v          [quiet,time,verb]          optional       Verbosity, verb for most verbose output, time for timer info, and quiet for no output. time is default.\n"
         "    -h, --help                             optional       Print this help message.\n"
@@ -61,7 +61,7 @@ void processOptions(const int argc, const char* argv[]) {
     }
 
 
-    s = getArgument(argc, argv, used, "-L", false, true);
+    s = getArgument(argc, argv, used, "-L", o.LEM, true);
     if (s != "") {
         o.L = std::stoull(s);
         if (o.L == 0) {
@@ -99,10 +99,8 @@ int main(const int argc, const char *argv[]) {
     if (o.v >= TIME) { Timer.start("Computing MEMs"); }
     if (o.SMEM)
         ind.superMaximalRepeats(out, o.L);
-    else if (o.LEM) {
-        std::cout << "LOCALLY MAXIMAL MATCHES NOT IMPLEMENTED YET!";
-        exit(1);
-    }
+    if (o.LEM)
+        ind.repeats(out, o.L);
     if (o.v >= TIME) { Timer.stop(); } 
 
     if (o.v >= TIME) { Timer.stop(); } //MEM

@@ -311,7 +311,7 @@ class MSIndex {
 
     //matching algorithms-----------------------
 
-    sdsl::int_vector<> getSeqStarts() {
+    sdsl::int_vector<> getSeqStarts() const {
         const uint64_t numRuns = LF.num_intervals();
         uint64_t numSequences = 0;
         while (numSequences < numRuns && F[numSequences] == 0) 
@@ -327,7 +327,7 @@ class MSIndex {
         return res;
     }
 
-    void superMaximalRepeats(std::ostream& out, const uint64_t lengthThreshold = 1) {
+    void superMaximalRepeats(std::ostream& out, const uint64_t lengthThreshold = 1) const {
         auto vec = getSeqStarts();
         superMaximalRepeats(out, vec, lengthThreshold);
     }
@@ -335,8 +335,8 @@ class MSIndex {
     //WARNING, THIS IMPLEMENTATION ASSUMES NO RUN SPLITTING, MAY BE BUGGY IF RUN SPLITTING IS PERFORMED
     //NOTE: THIS ALGORITHM MIGHT BE FASTER IN PRACTICE IF WE COMPUTE IT IN THE TEXT ORDER,
     //  I.E. BY PLCP instead of BWT order (faster due to locality of reference)
-    void superMaximalRepeats(std::ostream& out, const sdsl::int_vector<>& seqStarts, const uint64_t lengthThreshold = 1) {
-        //printRaw();
+    void superMaximalRepeats(std::ostream& out, const sdsl::int_vector<>& seqStarts, const uint64_t lengthThreshold = 1) const {
+        assert(lengthThreshold > 0);
         //a supermaximal repeat is a substring of the text T[i,i+l) s.t.
         //  a. occ(T[i,i+l)) > 1
         //  b. occ(T[i-1,i+l)) = 1
@@ -375,7 +375,7 @@ class MSIndex {
 
         uint64_t runs = rlbwt.size();
         std::vector<std::stringstream> outputStreams(omp_get_max_threads());
-        const uint64_t maxBufferSize = std::max(static_cast<uint64_t>(1024*1024), runs/outputStreams.size());
+        const uint64_t maxBufferSize = std::max(static_cast<uint64_t>(8*1024), ((runs+7)/8)/outputStreams.size());
         #pragma omp parallel for schedule(dynamic, 1024)
         for (uint64_t run = 0; run < runs; ++run) {
             //check run boundary run (i.e. top of run [run] and bottom of run [run-1 mod runs]
@@ -550,6 +550,203 @@ class MSIndex {
                 }
                 outSstream.str("");
                 outSstream.clear();
+            }
+        }
+        for (auto &s : outputStreams) 
+            out << s.str();
+    }
+
+    void repeats(std::ostream& out, const uint64_t lengthThreshold) const {
+        auto vec = getSeqStarts();
+        repeats(out, vec, lengthThreshold);
+    }
+
+    //WARNING, THIS IMPLEMENTATION ASSUMES NO RUN SPLITTING, MAY BE BUGGY IF RUN SPLITTING IS PERFORMED
+    //no default value for lengthThreshold because there will be many of length >= 1
+    //occ[c]^2 per character c?
+    void repeats(std::ostream& out, const sdsl::int_vector<>& seqStarts, const uint64_t lengthThreshold) const {
+        assert(lengthThreshold > 0);
+        //a repeat is a match T[i,i+l) = T[j, j+l) s.t.
+        //  a. T[i-1] != T[j-1]
+        //  b. T[i+l] != T[j+l]
+        //T[i,i+l) = T[j,j+l) is a repeat iff
+        //  a. There is a run boundary between ISA[i] and ISA[j]
+        //  b. BWT[ISA[i]] != BWT[ISA[j]]
+        //  c. l = min(LCP[k]) for k = min(ISA[i],ISA[j])+1 to max(ISA[i],ISA[j])
+        //
+        //This function outputs all repeats in the text of length at least lengthThreshold
+        //It runs in O(r + occ) time
+        out << "seq1\tpos1\tseq2\tpos2\tlen\n";
+        auto suffToSeqPos = [&seqStarts] (uint64_t suff) -> std::pair<uint64_t, uint64_t> {
+            //assert(suff < totalLen);
+            //seqStarts is length #seq
+            auto it = std::upper_bound(seqStarts.begin(), seqStarts.end(), suff);
+            assert (it != seqStarts.begin());
+            --it;
+            return {it - seqStarts.begin(), suff - *it};
+        };
+
+        uint64_t runs = rlbwt.size();
+
+        const uint64_t blockSize = 1024;
+        //partialMinLCP[j = (x*blockSize - 1)] is 0 if the length of the min lcp in run j
+        //is < lengthThreshold. For j - blockSize < j' < j, 
+        //partialMinLCP[j'] is 0 if partialMinLCP[j'+1] is 0 or if the length of the min lcp of run j'
+        //is < lengthThreshold.
+        sdsl::int_vector<> partialMinLCP(runs, 0, PLCPsamples.width());
+        //compute partialMinLCP
+        {
+            uint64_t dangerousInts = 64/partialMinLCP.width() + (64 % partialMinLCP.width() != 0);
+            const uint64_t numBlocks = runs/blockSize + ((runs % blockSize) != 0);
+            #pragma omp parallel for schedule(dynamic, 1)
+            for (uint64_t block = 0; block < numBlocks; ++block) {
+                uint64_t start = block*blockSize;
+                uint64_t end = std::min(runs, start + blockSize);
+                for (uint64_t offset = 0; offset < end - start; ++offset) {
+                    uint64_t run = end - 1 - offset;
+                    uint64_t nextRun = (run+1)%runs;
+                    uint64_t runLength = LF.get_length(run);
+                    uint64_t minLCPRun = static_cast<uint64_t>(-1);
+                    Phi_IntervalPoint curr = {Phi.data.get<2>(intAtTop[nextRun]), intAtTop[nextRun], 0};
+                    //compute minLCPRun
+                    for (uint64_t i = 0; i < runLength; ++i) {
+                        curr = Phi.map(curr);
+                        assert(curr.offset != 0 || i == runLength - 1);
+                        minLCPRun = std::min(minLCPRun, PLCP(curr));
+                        if (minLCPRun < lengthThreshold) {
+                            minLCPRun = 0;
+                            break;
+                        }
+                    }
+                    assert(curr.offset == 0 || minLCPRun == 0);
+                    if (minLCPRun == 0) 
+                        break;
+
+                    if (run >= start + dangerousInts && run < end - dangerousInts) 
+                        partialMinLCP[run] = minLCPRun;
+                    else {
+                        #pragma omp critical
+                        {
+                            partialMinLCP[run] = minLCPRun;
+                        }
+                    }
+                }
+            }
+        }
+
+        std::vector<std::stringstream> outputStreams(omp_get_max_threads());
+        const uint64_t maxBufferSize = std::max(static_cast<uint64_t>(8*1024), ((runs+7)/8)/outputStreams.size());
+        const uint64_t numBlocks = runs/blockSize + ((runs % blockSize) != 0);
+        #pragma omp parallel for schedule(dynamic, 1)
+        for (uint64_t block = 0; block < numBlocks; ++block) {
+            std::stringstream &outSstream = outputStreams[omp_get_thread_num()];
+            //minLCPRun is a stack of runs above run where the min LCP in each run
+            //is at least lengthThreshold. minLCPRun.back() stores the min LCP value
+            //in run run-1, minLCPRun[minLCPRun.size()-2] stores the min LCP value
+            //in run run-2, and so on. minLCP[i] >= lengthThreshold for all i
+            //run x is only in minLCPRun if run x+1 is also in it or x=run-1 and
+            //the LCP value at the top of run run is at least length threshold
+            std::vector<uint64_t> minLCPRun;
+            //initialize minLCPRun:
+            {
+                uint64_t start = block*blockSize;
+                start = (start)? start - 1 : runs - 1;
+                while (partialMinLCP[start]) {
+                    minLCPRun.push_back(partialMinLCP[start]);
+                    start = (start)? start - 1 : runs - 1;
+                }
+                std::reverse(minLCPRun.begin(), minLCPRun.end());
+            }
+
+            uint64_t start = block*blockSize;
+            uint64_t end = std::min(runs, start + blockSize);
+            
+            for (uint64_t run = start; run < end; ++run) {
+                uint64_t prevRun = (run == 0)? runs - 1 : run - 1;
+                Phi_IntervalPoint coord = {Phi.data.get<2>(intAtTop[run]), intAtTop[run], 0};
+                InvPhi_IntervalPoint topRun = {InvPhi.data.get<2>(intAtBot[prevRun]), intAtBot[prevRun], 0};
+                topRun = InvPhi.map(topRun);
+                LF_IntervalPoint lfcoord = {static_cast<uint64_t>(-1), run, 0};
+
+                uint64_t l, minLCP = static_cast<uint64_t>(-1), ch = rlbwt[run];
+
+                //returns lcp of SA[coord] and first position above it where BWT != ch
+                //assumes minLCPRun valid
+                //if lcp < length threshold, returns 0
+                //coord is always guaranteed to be either the top of run or a position where BWT[coord] != rlbwt[run]
+                auto nextDiffLCP = [lengthThreshold, run, &minLCPRun, this](InvPhi_IntervalPoint& coord, LF_IntervalPoint& lfcoord, const uint64_t ch) -> uint64_t {
+                    uint64_t l = PLCP(coord);
+                    if (l < lengthThreshold)
+                        return 0;
+                    if (lfcoord.offset || ch == 0 || rlbwt[(lfcoord.interval)? lfcoord.interval - 1 : LF.num_intervals() - 1] != rlbwt[run])
+                        return l;
+
+                    assert(lfcoord.interval);
+                    assert(lfcoord.offset == 0);
+                    --lfcoord.interval;
+                    coord = {Phi.data.get<2>(intAtTop[lfcoord.interval]), intAtTop[lfcoord.interval], 0};
+
+                    if (run - lfcoord.interval > minLCPRun.size())
+                        return 0;
+
+                    l = std::min(l, PLCP(coord));
+                    l = std::min(l, minLCPRun[minLCPRun.size() - (run - lfcoord.interval)]);
+                    if (l < lengthThreshold)
+                        l = 0;
+                    return l;
+                };
+
+                //suffix, minLCP to top of run
+                std::vector<std::pair<uint64_t,uint64_t>> minLCPSuff;
+
+                //go up
+                while ((l = nextDiffLCP(coord, lfcoord, ch)) != 0) {
+                    minLCP = std::min(l, minLCP);
+                    coord = Phi.map(coord);
+                    if (lfcoord.offset == 0) {
+                        lfcoord.interval = (lfcoord.interval)? lfcoord.interval - 1 : LF.num_intervals() - 1;
+                        lfcoord.offset = LF.get_length(lfcoord.interval);
+                    }
+                    --lfcoord.offset;
+
+                    minLCPSuff.emplace_back(coord.position, minLCP);
+                }
+
+                //go down current run
+                uint64_t rlen = LF.get_length(run), currLCP = static_cast<uint64_t>(-1);
+                for (uint64_t i = 0; currLCP >= lengthThreshold && i < rlen; ++i) {
+                    uint64_t suff = topRun.position;
+                    for (const auto& a : minLCPSuff) {
+                        auto suffPair = suffToSeqPos(suff);
+                        auto aPair = suffToSeqPos(a.first);
+                        if (suff < a.first)
+                            outSstream << suffPair.first << '\t'
+                                << suffPair.second << '\t'
+                                << aPair.first << '\t'
+                                << aPair.second << '\t'
+                                << std::min(a.second, currLCP) << '\n';
+                        else
+                            outSstream << aPair.first << '\t'
+                                << aPair.second << '\t'
+                                << suffPair.first << '\t'
+                                << suffPair.second << '\t'
+                                << std::min(a.second, currLCP) << '\n';
+                        if (outSstream.str().length() >= maxBufferSize) {
+                            #pragma omp critical
+                            {
+                                out << outSstream.str();
+                            }
+                            outSstream.str("");
+                            outSstream.clear();
+                        }
+                    }
+                    currLCP = std::min(currLCP, PLCPBelow(topRun));
+                    topRun  = InvPhi.map(topRun);
+                }
+                if (currLCP < lengthThreshold)
+                    minLCPRun.clear();
+                else 
+                    minLCPRun.push_back(currLCP);
             }
         }
         for (auto &s : outputStreams) 
