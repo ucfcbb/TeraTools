@@ -12,23 +12,23 @@ void printUsage() {
         "Usage: lcpComputer <arguments>\n"
         "Options:\n"
         "  Input:\n"
-        "    -f          [text,bwt,rlbwt,fmd]       REQUIRED       Format of input. 'text' is the original text, 'bwt' is the bwt of the text, 'rlbwt' is the rlbwt of the text, and 'fmd' is the rlbwt in the ropebwt3 fmd format of the text\n"
-        "    -i          FILE                       REQUIRED       File name of input file\n"
-        "    -t          FILE                       REQUIRED       Name of a file this program can read and write to temporarily\n"
+        "    -f          [text,bwt,rlbwt,fmd,lcp_index]  REQUIRED       Format of input. 'text' is the original text, 'bwt' is the bwt of the text, 'rlbwt' is the rlbwt of the text, 'fmd' is the rlbwt in the ropebwt3 fmd format of the text, and 'lcp_index' is the index outputted by lcpComputer -oindex\n"
+        "    -i          FILE                            REQUIRED       File name of input file\n"
+        "    -t          FILE                            REQUIRED       Name of a file this program can read and write to temporarily\n"
         "\n"
         "  Output:\n"
-        "    -oindex     FILE                       optional       Output constructed index to FILE" << lcp_index_extension << "\n"
-        "    -orlcp      FILE                       optional       Output (position, minLCP) pairs per run to FILE" << rlcp_extension << "\n"
+        "    -oindex     FILE                            optional       Output constructed index to FILE" << lcp_index_extension << "\n"
+        "    -orlcp      FILE                            optional       Output (position, minLCP) pairs per run to FILE" << rlcp_extension << "\n"
         "\n"
         "  Behavior:\n"
-        "    -p          INT                        optional       Limit the program to (nonnegative) INT threads. By default uses maximum available. Maximum on this hardware is " << omp_get_max_threads() << "\n"
-        "    -mmap                                  optional       read input using memory mapping (only avaiable for fmd) default: no memory mapping\n"
+        "    -p          INT                             optional       Limit the program to (nonnegative) INT threads. By default uses maximum available. Maximum on this hardware is " << omp_get_max_threads() << "\n"
+        "    -mmap                                       optional       read input using memory mapping (only avaiable for fmd) default: no memory mapping\n"
         #ifndef BENCHFASTONLY
-        "    -v          [quiet,time,verb]          optional       Verbosity, verb for most verbose output, time for timer info, and quiet for no output. time is default.\n"
+        "    -v          [quiet,time,verb]               optional       Verbosity, verb for most verbose output, time for timer info, and quiet for no output. time is default.\n"
         #else
-        "    -bench                                 optional       Has no effect. required if no outputs specified.\n"
+        "    -bench                                      optional       Has no effect. required if no outputs specified.\n"
         #endif
-        "    -h, --help                             optional       Print this help message.\n"
+        "    -h, --help                                  optional       Print this help message.\n"
         ;
     //add verification of psi and phi options
     //add sdsl::memory_monitor output option
@@ -40,7 +40,7 @@ void printUsage() {
 }
 
 struct options{
-    enum inputFormat { text, bwt, rlbwt, fmd }inputFormat;
+    enum inputFormat { text, bwt, rlbwt, fmd, lcp_index }inputFormat;
     std::string inputFile, tempFile, oindex="", orlcp="";
     unsigned numThreads = omp_get_max_threads();
     bool mmap;
@@ -66,6 +66,7 @@ void processOptions(const int argc, const char* argv[]) {
     else if (s == "bwt") o.inputFormat=options::bwt;
     else if (s == "rlbwt") o.inputFormat=options::rlbwt;
     else if (s == "fmd") o.inputFormat=options::fmd;
+    else if (s == "lcp_index") o.inputFormat=options::lcp_index;
     else {
         std::cout << "Invalid value passed to -f '" << s << "'\n";
         exit(1);
@@ -125,43 +126,55 @@ int main(const int argc, const char*argv[]) {
         #ifndef BENCHFASTONLY
         if (o.v >= TIME) { Timer.start("Reading Arguments"); }
         #endif
-        if (o.inputFormat != options::fmd) {
-            std::cerr << "Only fmd input currently implemented!" << std::endl;
+        if (o.inputFormat != options::fmd && o.inputFormat != options::lcp_index) {
+            std::cerr << "Only fmd and lcp_index input currently implemented!" << std::endl;
             exit(1);
         }
         #ifndef BENCHFASTONLY
         if (o.v >= TIME) { Timer.stop(); } //Reading Arguments 
-        if (o.v >= TIME) { Timer.start((o.mmap)? "Loading fmd with mmap" : "Loading fmd"); }
         #endif
+        if (o.inputFormat == options::fmd) {
+            #ifndef BENCHFASTONLY
+            if (o.v >= TIME) { Timer.start((o.mmap)? "Loading fmd with mmap" : "Loading fmd"); }
+            #endif
 
-        rb3_fmi_restore(&fmi, o.inputFile.c_str(), o.mmap);
-        if (fmi.e == 0 && fmi.r == 0) {
-            std::cerr << "ERROR: failed to load fmd from index file " << o.inputFile << std::endl;
-            exit(1);
-        }
+            rb3_fmi_restore(&fmi, o.inputFile.c_str(), o.mmap);
+            if (fmi.e == 0 && fmi.r == 0) {
+                std::cerr << "ERROR: failed to load fmd from index file " << o.inputFile << std::endl;
+                exit(1);
+            }
 
-        #ifndef BENCHFASTONLY
-        if (o.v >= TIME) { Timer.stop(); } //(o.mmap)? "Loading fmd with mmap" : "Loading fmd" 
-        #endif
-        
-        if (!LCPComputer::validateRB3(&fmi)) {
-            std::cerr << "ERROR: invalid ropebwt3 inputted!" << std::endl;
-            exit(1);
+            #ifndef BENCHFASTONLY
+            if (o.v >= TIME) { Timer.stop(); } //(o.mmap)? "Loading fmd with mmap" : "Loading fmd" 
+            #endif
+
+            if (!LCPComputer::validateRB3(&fmi)) {
+                std::cerr << "ERROR: invalid ropebwt3 inputted!" << std::endl;
+                exit(1);
+            }
         }
     }
     #ifndef BENCHFASTONLY
     if (o.v >= TIME) { Timer.stop(); } //Program Initialization 
+    #endif
 
-    if (o.v >= TIME) { Timer.start("LCP construction"); }
-    #endif
-    LCPComputer ourIndex(&fmi, o.tempFile
-            #ifndef BENCHFASTONLY
-            , o.v
-            #endif
-            );
-    #ifndef BENCHFASTONLY
-    if (o.v >= TIME) { Timer.stop(); } //LCP construction 
-    #endif
+    LCPComputer ourIndex;
+    if (o.inputFormat == options::fmd) {
+        #ifndef BENCHFASTONLY
+        if (o.v >= TIME) { Timer.start("LCP index construction"); }
+        #endif
+        ourIndex = LCPComputer(&fmi, o.tempFile
+                #ifndef BENCHFASTONLY
+                , o.v
+                #endif
+                );
+        #ifndef BENCHFASTONLY
+        if (o.v >= TIME) { Timer.stop(); } //LCP index construction 
+        #endif
+    }
+    else if (o.inputFormat == options::lcp_index) {
+        ourIndex = LCPComputer(o.inputFile, o.v);
+    }
 
 
     if (o.orlcp != "") {

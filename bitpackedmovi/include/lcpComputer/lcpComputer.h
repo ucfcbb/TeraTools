@@ -932,13 +932,23 @@ class LCPComputer {
     public:
     typedef uint64_t size_type;
 
+    LCPComputer() = default;
+
 	// Constructor to assist with matching statistic computation
-	LCPComputer(const std::string& inFile) {
-        Timer.start("Loading input lcp_index");
+	LCPComputer(const std::string& inFile
+            #ifndef BENCHFASTONLY
+            , verbosity v = QUIET
+            #endif
+            ) {
+        #ifndef BENCHFASTONLY
+        if (v >= TIME) { Timer.start("LCP index loading from file"); }
+        #endif
 		std::ifstream in = safeOpenFile<std::ifstream>(inFile);
         load(in);
         in.close();
-        Timer.stop(); //Loading input lcp_index
+        #ifndef BENCHFASTONLY
+        if (v >= TIME) { Timer.stop(); } //LCP index loading from file 
+        #endif
 	}
 
     //input: a run length encoding of a multidollar BWT where all dollars are represented by 0
@@ -1477,8 +1487,10 @@ class LCPComputer {
         }
         if (v >= TIME) { Timer.stop(); } //Parallel per run computation
 
+        if (v >= TIME) { Timer.start("bit compress"); }
         sdsl::util::bit_compress(thisRunMin);
         sdsl::util::bit_compress(thisRunMinLoc);
+        if (v >= TIME) { Timer.stop(); } //bit compress
 
         Phi = MoveStructureStartTable();
         PLCPsamples = sdsl::int_vector<>();
