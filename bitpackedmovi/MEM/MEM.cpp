@@ -15,6 +15,7 @@ void printUsage() {
         "    -MEM        [SM,LM]                    REQUIRED       type of MEM to output, super maximal exact matches or locally maximal exact matches.\n"
         "    -L          INT                        optional       minimum length of outputted MEMs (inclusive), must be nonnegative and > 0. REQUIRED for LM\n"
         "  General:\n"
+        "    -p          INT                        optional       Limit the program to (nonnegative) INT threads. By default uses maximum available. Maximum on this hardware is " << omp_get_max_threads() << "\n"
         "    -v          [quiet,time,verb]          optional       Verbosity, verb for most verbose output, time for timer info, and quiet for no output. time is default.\n"
         "    -h, --help                             optional       Print this help message.\n"
         ;
@@ -23,8 +24,9 @@ void printUsage() {
 struct options{
     std::string inputFile, oMEMs;
     bool SMEM = false, LEM = false;
-    verbosity v = TIME;
     uint64_t L = 1;
+    unsigned numThreads = omp_get_max_threads();
+    verbosity v = TIME;
 }o;
 
 void processOptions(const int argc, const char* argv[]) {
@@ -61,6 +63,10 @@ void processOptions(const int argc, const char* argv[]) {
     }
 
 
+    s = getArgument(argc, argv, used, "-p", false, true);
+    if (s != "")
+        o.numThreads = std::stoul(s);
+
     s = getArgument(argc, argv, used, "-L", o.LEM, true);
     if (s != "") {
         o.L = std::stoull(s);
@@ -81,6 +87,7 @@ void processOptions(const int argc, const char* argv[]) {
 
 int main(const int argc, const char *argv[]) {
     processOptions(argc, argv);
+    omp_set_num_threads(o.numThreads);
     if (o.v >= TIME) {
         std::string msg(argv[0]);
         for (int i = 1; i < argc; ++i)
