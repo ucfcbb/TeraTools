@@ -4,7 +4,7 @@ set -x
 set -e
 
 if [ $# -ne 5 ]; then 
-    echo "please specify exactly 8 command line arguments: ropebwt3, lcpComputer1, lcpComputer2(kactl), generator, and syngenparams"
+    echo "please specify exactly 5 command line arguments: ropebwt3, lcpComputer1, lcpComputer2(kactl), generator, and syngenparams"
     exit 1
 fi
 

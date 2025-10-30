@@ -1,8 +1,10 @@
 #ifndef R_SA_LCP_MSINDEX_H
 #define R_SA_LCP_MSINDEX_H
-#include <optional>
+#include<optional>
 #include<sdsl/int_vector.hpp>
 #include"moveStructure/moveStructure.h"
+#include<vector>
+#include<omp.h>
 
 #define STATS
 
@@ -20,6 +22,15 @@ class MSIndex {
     using LF_IntervalPoint = MoveStructureTable::IntervalPoint;
     using Psi_IntervalPoint = MoveStructureTable::IntervalPoint;
     using Phi_IntervalPoint = MoveStructureStartTable::IntervalPoint;
+    using InvPhi_IntervalPoint = MoveStructureStartTable::IntervalPoint;
+
+    uint64_t PLCP(Phi_IntervalPoint p) const {
+        return PLCPsamples[p.interval] - p.offset;
+    }
+
+    uint64_t PLCPBelow(InvPhi_IntervalPoint p) const {
+        return PLCPBelowsamples[p.interval] - p.offset;
+    }
 
     void generateRLBWTfromLFPsiandF() {
         const uint64_t numRuns = LF.data.size();
@@ -282,12 +293,50 @@ class MSIndex {
     }
     #endif
 
+    void printRaw() const {
+        std::cout << "LCP_Phi\tLCP_InvPhi\n";
+        std::vector<uint64_t> lcpPhi(totalLen), lcpInvPhi(totalLen);
+        MoveStructureStartTable::IntervalPoint phiPoint{static_cast<uint64_t>(-1), intAtTop[0], 0}, 
+            invPhiPoint{static_cast<uint64_t>(-1), intAtBot[intAtBot.size() - 1], 0};
+        for (uint64_t i = 0; i < totalLen; ++i) {
+            phiPoint = Phi.map(phiPoint);
+            lcpPhi[totalLen - 1 - i] = PLCP(phiPoint);
+            lcpInvPhi[i] = PLCPBelow(invPhiPoint);
+            invPhiPoint = InvPhi.map(invPhiPoint);
+        }
+        for (uint64_t i = 0; i < totalLen; ++i) {
+            std::cout << lcpPhi[i] << '\t' << lcpInvPhi[i] << '\n';
+        }
+    }
+
     //matching algorithms-----------------------
+
+    sdsl::int_vector<> getSeqStarts() {
+        const uint64_t numRuns = LF.num_intervals();
+        uint64_t numSequences = 0;
+        while (numSequences < numRuns && F[numSequences] == 0) 
+            ++numSequences;
+        sdsl::int_vector<> res(numSequences, 0, sdsl::bits::hi(totalLen) + 1);
+        InvPhi_IntervalPoint curr{0, intAtBot[rlbwt.size() - 1], 0};
+        curr = InvPhi.map(curr);
+        res[0] = 0;
+        for (uint64_t i = 1; i < numSequences; ++i) {
+            res[i] = curr.position + 1;
+            curr = InvPhi.map(curr);
+        }
+        return res;
+    }
+
+    void superMaximalRepeats(std::ostream& out, const uint64_t lengthThreshold = 1) {
+        auto vec = getSeqStarts();
+        superMaximalRepeats(out, vec, lengthThreshold);
+    }
 
     //WARNING, THIS IMPLEMENTATION ASSUMES NO RUN SPLITTING, MAY BE BUGGY IF RUN SPLITTING IS PERFORMED
     //NOTE: THIS ALGORITHM MIGHT BE FASTER IN PRACTICE IF WE COMPUTE IT IN THE TEXT ORDER,
     //  I.E. BY PLCP instead of BWT order (faster due to locality of reference)
-    void superMaximalRepeats(std::ostream& out, const uint64_t lengthThreshold = 1) {
+    void superMaximalRepeats(std::ostream& out, const sdsl::int_vector<>& seqStarts, const uint64_t lengthThreshold = 1) {
+        //printRaw();
         //a supermaximal repeat is a substring of the text T[i,i+l) s.t.
         //  a. occ(T[i,i+l)) > 1
         //  b. occ(T[i-1,i+l)) = 1
@@ -304,13 +353,207 @@ class MSIndex {
         //If a lengthThreshold is provided, it only outputs supermaximal repeats of length at least the threshold (thresholds 0 and 1 have the same behavior)
 
         out << "seq\tpos\tlen\tocc\n";
+        auto suffToSeqPos = [&seqStarts] (uint64_t suff) -> std::pair<uint64_t, uint64_t> {
+            //assert(suff < totalLen);
+            //seqStarts is length #seq
+            auto it = std::upper_bound(seqStarts.begin(), seqStarts.end(), suff);
+            assert (it != seqStarts.begin());
+            --it;
+            return {it - seqStarts.begin(), suff - *it};
+        };
+        //out << "suff\tlen\tocc\n";
+
+        auto decrementIntervalPoint = [] (MoveStructureStartTable::IntervalPoint& pt, const MoveStructureStartTable& src) {
+            pt.position = (pt.position)? pt.position - 1 : src.data.get<2>(src.data.size() - 1) - 1;
+            if (pt.offset == 0) {
+                pt.interval = (pt.interval)?pt.interval - 1 : src.num_intervals() - 1;
+                pt.offset = src.get_length(pt.interval);
+            }
+            --pt.offset;
+        };
+
 
         uint64_t runs = rlbwt.size();
+        std::vector<std::stringstream> outputStreams(omp_get_max_threads());
+        const uint64_t maxBufferSize = std::max(static_cast<uint64_t>(1024*1024), runs/outputStreams.size());
+        #pragma omp parallel for schedule(dynamic, 1024)
         for (uint64_t run = 0; run < runs; ++run) {
             //check run boundary run (i.e. top of run [run] and bottom of run [run-1 mod runs]
             uint64_t runs = rlbwt.size();
             uint64_t matchingLengthBetweenRuns = PLCPsamples[intAtTop[run]];
+            std::stringstream &outSstream = outputStreams[omp_get_thread_num()];
+
+            //check bottom of run run-1 mod runs
+           {
+                Phi_IntervalPoint currUp = {Phi.data.get<2>(intAtTop[run]), intAtTop[run], 0};
+                currUp = Phi.map(currUp);
+                uint64_t prevRun = (run == 0)? runs - 1 : run - 1;
+                InvPhi_IntervalPoint currDown = {InvPhi.data.get<2>(intAtBot[prevRun]), intAtBot[prevRun], 0};
+                assert(PLCPBelow(currDown) == matchingLengthBetweenRuns);
+                assert(currUp.position == currDown.position);
+
+                uint64_t prevLCP = PLCP(currUp);
+                
+                uint64_t maxLCP = std::max(matchingLengthBetweenRuns, prevLCP);
+                uint64_t LFmaxLCP;
+                if (maxLCP >= lengthThreshold) {
+                    Phi_IntervalPoint lfCurrUp = currUp;
+                    InvPhi_IntervalPoint lfCurrDown = currDown;
+                    decrementIntervalPoint(lfCurrUp, Phi);
+                    decrementIntervalPoint(lfCurrDown, InvPhi);
+                    
+                    LFmaxLCP = std::max(PLCP(lfCurrUp), PLCPBelow(lfCurrDown));
+                    /*
+                    #pragma omp critical 
+                    {
+                        auto so = suffToSeqPos(currUp.position);
+                        std::cout << "bot " << so.first << '\t' << so.second << std::endl;
+                        std::cout << " LFmaxLCP " << LFmaxLCP << " maxLCP " << maxLCP << std::endl;
+                        std::cout << " PLCP(lfCurrUp) " << PLCP(lfCurrUp) << " PLCPBelow(lfCurrDown) " << PLCPBelow(lfCurrDown) << std::endl;;
+                        so = suffToSeqPos(lfCurrUp.position);
+                        std::cout << " lfCurrUp: " << so.first << '\t' << so.second;
+                        so = suffToSeqPos(lfCurrDown.position);
+                        std::cout << " lfCurrDown: " << so.first << '\t' << so.second << std::endl;;
+                    }
+                    */
+
+                    //report super maximal exact matches
+                    if (LFmaxLCP <= maxLCP) {
+
+                        auto so = suffToSeqPos(currUp.position);
+                        outSstream << so.first << '\t' << so.second << '\t'
+                            << maxLCP;
+
+                        std::vector<uint64_t> occ;
+
+                        //go up
+                        //if statement redundant
+                        if (LF.get_length(prevRun) == 1 && prevLCP == maxLCP) {
+                            while (PLCP(currUp) >= maxLCP) {
+                                currUp = Phi.map(currUp);
+                                occ.emplace_back(currUp.position);
+                            }
+                        }
+
+                        /*
+                        for (auto x : occ) {
+                            auto so = suffToSeqPos(x);
+                            std::cout << '\t' << so.first << '\t' << so.second;
+                        }
+                        std::cout << std::endl;
+                        */
+                        std::reverse(occ.begin(), occ.end());
+                        /*
+                        for (auto x : occ) {
+                            auto so = suffToSeqPos(x);
+                            std::cout << '\t' << so.first << '\t' << so.second;
+                        }
+                        std::cout << std::endl;
+                        */
+
+                        //go down
+                        while (PLCPBelow(currDown) >= maxLCP) {
+                            currDown = InvPhi.map(currDown);
+                            occ.emplace_back(currDown.position);
+                        }
+
+                        outSstream << '\t' << 1 + occ.size();
+                        for (auto x : occ) {
+                            auto so = suffToSeqPos(x);
+                            outSstream << '\t' << so.first << '\t' << so.second;
+                        }
+                        outSstream << '\n';
+                    }
+                }
+            }
+
+           if (outSstream.str().length() >= maxBufferSize) {
+                #pragma omp critical
+               {
+                   out << outSstream.str();
+               }
+               outSstream.str("");
+               outSstream.clear();
+           }
+
+            //check top of run run
+            assert(LF.get_length(run) >= 1);
+            if (LF.get_length(run) != 1) {
+                Phi_IntervalPoint currUp = {Phi.data.get<2>(intAtTop[run]), intAtTop[run], 0};
+                assert(PLCP(currUp) == matchingLengthBetweenRuns);
+                uint64_t prevRun = (run == 0)? runs - 1 : run - 1;
+                InvPhi_IntervalPoint currDown = {InvPhi.data.get<2>(intAtBot[prevRun]), intAtBot[prevRun], 0};
+                currDown = InvPhi.map(currDown);
+                assert(currUp.position == currDown.position);
+
+                uint64_t nextLCP = PLCPBelow(currDown);
+
+                uint64_t maxLCP = std::max(matchingLengthBetweenRuns, nextLCP);
+                uint64_t LFmaxLCP;
+                if (maxLCP >= lengthThreshold) {
+                    Phi_IntervalPoint lfCurrUp = currUp;
+                    InvPhi_IntervalPoint lfCurrDown = currDown;
+                    decrementIntervalPoint(lfCurrUp, Phi);
+                    decrementIntervalPoint(lfCurrDown, InvPhi);
+
+                    LFmaxLCP = std::max(PLCP(lfCurrUp), PLCPBelow(lfCurrDown));
+                    /*
+                    #pragma omp critical 
+                    {
+                        auto so = suffToSeqPos(currUp.position);
+                        std::cout << "top " << so.first << '\t' << so.second << std::endl;
+                        std::cout << " LFmaxLCP " << LFmaxLCP << " maxLCP " << maxLCP << std::endl;
+                        std::cout << " PLCP(lfCurrUp) " << PLCP(lfCurrUp) << " PLCPBelow(lfCurrDown) " << PLCPBelow(lfCurrDown) << std::endl;;
+                    }
+                    */
+
+                    //report super maximal exact matches
+                    if (LFmaxLCP <= maxLCP) {
+
+                        auto so = suffToSeqPos(currUp.position);
+                        outSstream << so.first << '\t' << so.second << '\t'
+                            << maxLCP;
+
+                        std::vector<uint64_t> occ;
+
+                        //go up
+                        while (PLCP(currUp) >= maxLCP) {
+                            currUp = Phi.map(currUp);
+                            occ.emplace_back(currUp.position);
+                        }
+
+                        std::reverse(occ.begin(), occ.end());
+
+                        //go down
+                        //if statement redundant
+                        if (LF.get_length(run) == 1 && nextLCP == maxLCP) {
+                            while (PLCPBelow(currDown) >= maxLCP) {
+                                currDown = InvPhi.map(currDown);
+                                occ.emplace_back(currDown.position);
+                            }
+                        }
+
+                        outSstream << '\t' << 1 + occ.size();
+                        for (auto x: occ) {
+                            auto so = suffToSeqPos(x);
+                            outSstream << '\t' << so.first << '\t' << so.second;
+                        }
+                        outSstream << '\n';
+                    }
+                }
+            }
+
+            if (outSstream.str().length() >= maxBufferSize) {
+                #pragma omp critical
+                {
+                    out << outSstream.str();
+                }
+                outSstream.str("");
+                outSstream.clear();
+            }
         }
+        for (auto &s : outputStreams) 
+            out << s.str();
     }
 
     std::pair<std::vector<uint64_t>, std::vector<uint64_t>> ms_phi(const char* pattern, const uint64_t m) {
@@ -359,6 +602,7 @@ private:
             case  'C': return 2;
             case  'G': return 3;
             case  'T': return 4;
+            case  'N': return 5;
             default: throw std::invalid_argument("Invalid character: " + std::string(1, c));
         };
     }
