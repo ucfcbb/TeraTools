@@ -1391,6 +1391,7 @@ class LCPComputer {
 
         F = sdsl::int_vector<>();
         Psi = MoveStructureTable();
+        intAtTop = sdsl::int_vector<>();
         //bits allowed to play with: 
         //r log r + r log Psi_len_max >= r log n from ISA samples during LCP sampling
         //r log r + 2 r log Psi_len_max >= r log n from Psi removal
