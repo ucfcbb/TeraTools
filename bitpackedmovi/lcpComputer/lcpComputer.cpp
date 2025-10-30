@@ -171,7 +171,13 @@ int main(const int argc, const char*argv[]) {
             std::cerr << "ERROR: File '" << o.orlcp << "' failed to open for writing!\n";
             exit(1);
         }
-        ourIndex.ComputeMinLCPRun(lcpOut, o.v);
+        auto l = ourIndex.ComputeMinLCPRunParallelDestructive(o.v);
+        assert(l.first.size() == l.second.size());
+        uint64_t runs = l.first.size();
+        if (o.v >= TIME) { Timer.start("sequential output min LCP per run"); }
+        for (uint64_t i = 0; i < runs; ++i) 
+            lcpOut << "( " << l.first[i] << ", " << l.second[i] << ")\n";
+        if (o.v >= TIME) { Timer.stop(); } //sequential output min LCP per run
         #ifndef BENCHFASTONLY
         if (o.v >= TIME) { Timer.stop(); } //min LCP per run computation
         #endif

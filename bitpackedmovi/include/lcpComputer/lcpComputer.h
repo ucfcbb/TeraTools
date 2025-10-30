@@ -1298,7 +1298,7 @@ class LCPComputer {
         */
     }
 
-    void ComputeMinLCPRun(std::ofstream& out
+    void ComputeMinLCPRunSequential(std::ofstream& out
             #ifndef BENCHFASTONLY
             , const verbosity v
             #endif
@@ -1375,6 +1375,139 @@ class LCPComputer {
             exit(1);
         }
         if (v >= TIME) { Timer.stop(); } //Computing Min LCP per Run
+    }
+
+    std::pair<sdsl::int_vector<>,sdsl::int_vector<>>
+    ComputeMinLCPRunParallelDestructive(
+            #ifndef BENCHFASTONLY
+            const verbosity v
+            #endif
+            ) {
+        if (v >= TIME) { Timer.start("Computing Min LCP per Run"); }
+        uint64_t runs = F.size(), psilenwidth = Psi.data.c;
+        uint64_t intAtTopBWT = intAtTop[0];
+        //std::cout << intAtTopBWT << std::endl;
+        assert(runs == Phi.num_intervals());
+
+        F = sdsl::int_vector<>();
+        Psi = MoveStructureTable();
+        //bits allowed to play with: 
+        //r log r + r log Psi_len_max >= r log n from ISA samples during LCP sampling
+        //r log r + 2 r log Psi_len_max >= r log n from Psi removal
+        //r log sigma from F removal
+
+        //bits used here:
+        //r log r : prevRunIntAtTop
+        //r log lcp_max : thisRunMin
+        //r log Psi_len_max : thisRunMinLoc
+        //r log Psi_len_max : thisRunLength
+        sdsl::int_vector<> prevRunIntAtTop, thisRunMin, thisRunMinLoc, thisRunLength;
+
+        //each interval j of Phi is the suffix at the top of a run in the BWT, call it run i
+        //then 
+        //  prevrunIntAtTop[j] stores the interval j' where j' is the suffix at the top of run i - 1
+        //  thisRunMin[j] stores the minLCP of run i - 1
+        //  thisRunMinLoc[j] stores the location of the minLCP of run i - 1 (relative in the run)
+        //  thisRunLength[j] stores the length of run i - 1
+        prevRunIntAtTop = sdsl::int_vector<>(runs, 0, sdsl::bits::hi(runs - 1) + 1);
+        thisRunMin = sdsl::int_vector<>(runs, 0, PLCPsamples.width());
+        thisRunMinLoc = sdsl::int_vector<>(runs, 0, psilenwidth);
+        thisRunLength = sdsl::int_vector<>(runs, 0, psilenwidth);
+
+        auto PLCP = [this] (const MoveStructureStartTable::IntervalPoint& p) {
+            return PLCPsamples[p.interval] - p.offset;
+        };
+
+        if (v >= TIME) { Timer.start("Parallel per run computation"); }
+        const uint64_t blockSize = std::min(std::max(((runs+3)/4)/omp_get_num_threads(), static_cast<uint64_t>(1)), static_cast<uint64_t>(1024));
+        const uint64_t numBlocks = runs/blockSize + ((runs%blockSize) != 0);
+        const uint64_t minBitWidth = std::min(std::min(psilenwidth, static_cast<uint64_t>(PLCPsamples.width())), static_cast<uint64_t>(prevRunIntAtTop.width()));
+        const uint64_t dangerousInts = 64/minBitWidth + ((64%minBitWidth) != 0);
+        if (v >= VERB) { std::cout << "Block size: " << blockSize << std::endl; }
+        #pragma omp parallel for schedule(dynamic, 1)
+        for (uint64_t block = 0; block < numBlocks; ++block) {
+            const uint64_t start = block*blockSize;
+            const uint64_t end = std::min(runs, start + blockSize);
+            const uint64_t safeStart = start + dangerousInts,
+                  safeEnd = end - dangerousInts;
+            for (uint64_t run = start; run != end; ++run) {
+                //compute values for run
+                MoveStructureStartTable::IntervalPoint p = {Phi.data.get<2>(run), run, 0};
+                uint64_t minLCP = static_cast<uint64_t> (-1);
+                assert(PLCP(Phi.map(p)) < minLCP);
+                uint64_t minLCPLoc = minLCP;
+                uint64_t runLen = 0, l;
+                //std::cout << "run " << run << std::endl;
+                //std::cout << "suff " << p.position << std::endl;
+                do {
+                    p = Phi.map(p);
+                    //std::cout << "suff " << p.position << std::endl;
+                    //std::cout << "lcp " << PLCP(p) << std::endl;
+                    ++runLen;
+                    //currently outputs last location in run, use <= for first location in run
+                    if ((l = PLCP(p)) < minLCP) {
+                        //std::cout << "in if" << std::endl;
+                        minLCPLoc = runLen;
+                        minLCP = l;
+                        //std::cout << "minLCPLoc " << minLCPLoc << " minLCP " << minLCP << std::endl;
+                    }
+                } while (p.offset);
+                assert(minLCPLoc != static_cast<uint64_t>(-1));
+                minLCPLoc = runLen - minLCPLoc;
+                //std::cout << "runLen " << runLen << " newmiNLCPLoc " << minLCPLoc << std::endl;
+
+                //store values for run
+                if (run >= safeStart && run < safeEnd) {
+                    prevRunIntAtTop[run] = p.interval;
+                    thisRunMin[run] = minLCP;
+                    thisRunMinLoc[run] = minLCPLoc;
+                    thisRunLength[run] = runLen;
+                }
+                else {
+                    #pragma omp critical 
+                    {
+                        prevRunIntAtTop[run] = p.interval;
+                        thisRunMin[run] = minLCP;
+                        thisRunMinLoc[run] = minLCPLoc;
+                        thisRunLength[run] = runLen;
+                    }
+                }
+            }
+        }
+        if (v >= TIME) { Timer.stop(); } //Parallel per run computation
+
+        sdsl::util::bit_compress(thisRunMin);
+        sdsl::util::bit_compress(thisRunMinLoc);
+
+        Phi = MoveStructureStartTable();
+        PLCPsamples = sdsl::int_vector<>();
+
+        sdsl::int_vector<> minLCP(runs, 0, thisRunMin.width());
+        sdsl::int_vector<> minLCPLoc(runs, 0, sdsl::bits::hi(totalLen - 1) + 1);
+
+        if (v >= TIME) { Timer.start("Sequential reordering"); }
+        //curr is the intAtTop of run currRun+1 % runs
+        //startPos is the startPos of run currRun
+        uint64_t curr = intAtTopBWT, currRun = runs - 1, startPos = totalLen, prev;
+        uint64_t count = 0;
+        do {
+            startPos -= thisRunLength[curr];
+            prev = prevRunIntAtTop[curr];
+            minLCP[currRun] = thisRunMin[curr];
+            //remove + startPos for relative positions
+            //minLCPLoc[currRun] = thisRunMinLoc[currRun] + startPos;
+            minLCPLoc[currRun] = thisRunMinLoc[curr];
+            ++count;
+            //minLCPLoc[currRun] = startPos;
+            curr = prev;
+            assert(currRun != 0 || curr == intAtTopBWT);
+            --currRun;
+        } while (curr != intAtTopBWT); 
+        assert(currRun == static_cast<uint64_t>(-1));
+        assert(startPos == 0);
+        if (v >= TIME) { Timer.stop(); } //Sequential reordering
+        if (v >= TIME) { Timer.stop(); } //Computing Min LCP per Run
+        return {minLCPLoc, minLCP};
     }
 
     void printRaw(const sdsl::int_vector<>& intAtTop) const {
