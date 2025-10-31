@@ -11,20 +11,9 @@ incdir = ../thirdparty/include
 libdir = ../thirdparty/lib
 ropebwt3dir = ../../ropebwt3
 
-objs = $(ropebwt3dir)/bre.o\
-	   $(ropebwt3dir)/dawg.o\
-	   $(ropebwt3dir)/fm-index.o\
-	   $(ropebwt3dir)/io.o\
-	   $(ropebwt3dir)/kalloc.o\
-	   $(ropebwt3dir)/kthread.o\
-	   $(ropebwt3dir)/libsais16.o\
-	   $(ropebwt3dir)/libsais16x64.o\
-	   $(ropebwt3dir)/misc.o\
-	   $(ropebwt3dir)/mrope.o\
-	   $(ropebwt3dir)/rld0.o\
-	   $(ropebwt3dir)/rle.o\
-	   $(ropebwt3dir)/rope.o\
-	   $(ropebwt3dir)/ssa.o
+ropebwt3objs = $(shell grep -oPz "OBJS=.*\\\\\n.*\n" $(ropebwt3dir)/Makefile | tail -c +6 | tr -d "\\\\")
+
+objs = $(foreach obj, $(ropebwt3objs), $(ropebwt3dir)/$(obj))
 
 MEMHeads = $(optIncDir)/util/util.h\
            $(optIncDir)/matchingStatistics/msIndex.h\

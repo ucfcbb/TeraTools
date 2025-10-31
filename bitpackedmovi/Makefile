@@ -1,4 +1,4 @@
-ourdirs = builder extract lcpComputer loader msComputer msIndexBuilder repeats stats 
+ourdirs = lcpComputer msComputer msIndexBuilder MEM #repeats stats extract loader 
 subdirs = $(ourdirs) thirdparty
 
 all: $(subdirs)

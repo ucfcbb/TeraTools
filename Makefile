@@ -1,4 +1,4 @@
-subdirs = bitpackedmovi data less_efficient_but_accurate_algos MoveDataStructureBenchmark
+subdirs = bitpackedmovi data less_efficient_but_accurate_algos #MoveDataStructureBenchmark
 
 all: $(subdirs)
 
