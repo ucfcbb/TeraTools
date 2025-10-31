@@ -22,7 +22,8 @@ MEMHeads = $(optIncDir)/util/util.h\
 libs = -lsdsl -lpthread -lz -lm
 incs = -I$(optIncDir) -isystem$(incdir) -isystem$(ropebwt3dir)
 
-cppflags+=-Wall -O3 -DNDEBUG
+developmentflags+= -std=c++17 -Wall -Wpedantic -Wextra -pedantic-errors -Wold-style-cast
+cppflags+=$(developmentflags) -O3 -DNDEBUG
 #cppflags+=-Wall -g
 
 ifneq ($(asan),)
