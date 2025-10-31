@@ -969,15 +969,15 @@ class LCPComputer {
         }
 
         #ifndef BENCHFASTONLY
-        sdsl::memory_monitor::granularity(std::chrono::milliseconds(1));
-        sdsl::memory_monitor::start();
+        //sdsl::memory_monitor::granularity(std::chrono::milliseconds(1));
+        //sdsl::memory_monitor::start();
         #endif
 
         //Psi.intLens = &Flens;
         uint64_t numSequences;
         {
             #ifndef BENCHFASTONLY
-            auto event = sdsl::memory_monitor::event("Construct Psi");
+            //auto event = sdsl::memory_monitor::event("Construct Psi");
             #endif
             ConstructPsi(rb3, F, Psi, numSequences
                     #ifndef BENCHFASTONLY
@@ -1027,7 +1027,7 @@ class LCPComputer {
         sdsl::int_vector<> PhiIntLen;
         {
             #ifndef BENCHFASTONLY
-            auto event = sdsl::memory_monitor::event("Compute Auxiliary Data and Repair Endmarker Psis");
+            //auto event = sdsl::memory_monitor::event("Compute Auxiliary Data and Repair Endmarker Psis");
             #endif
             ComputeAuxAndRepairPsi(maxPhiIntLen, numTopRuns, seqLens, intAtTop, F, Psi, PhiIntLen, numSequences
                     #ifndef BENCHFASTONLY
@@ -1038,7 +1038,7 @@ class LCPComputer {
 
         {
             #ifndef BENCHFASTONLY
-            auto event = sdsl::memory_monitor::event("Computing and storing intAtEnd and F");
+            //auto event = sdsl::memory_monitor::event("Computing and storing intAtEnd and F");
             if (v >= TIME) { Timer.start("Computing and storing intAtEnd"); }
             #endif
             sdsl::int_vector<> intAtEnd(F.size(), 0, sdsl::bits::hi(F.size() - 1) + 1);
@@ -1119,7 +1119,7 @@ class LCPComputer {
         sdsl::int_vector<> Psi_Index_Samples, Psi_Offset_Samples;
         {
             #ifndef BENCHFASTONLY
-            auto event = sdsl::memory_monitor::event("Construct Phi and Equidistant ISA Samples");
+            //auto event = sdsl::memory_monitor::event("Construct Phi and Equidistant ISA Samples");
             #endif
             ConstructPhiAndSamples(Psi, PhiIntLen, Psi.data.c, numTopRuns, seqLens, intAtTop, numSequences, maxPhiIntLen, sampleInterval, Psi_Index_Samples, Psi_Offset_Samples
                     #ifndef BENCHFASTONLY
@@ -1196,7 +1196,7 @@ class LCPComputer {
         std::ifstream tempInFile;
         {
             #ifndef BENCHFASTONLY
-            auto event = sdsl::memory_monitor::event("Recover intAtEnd and F from disk");
+            //auto event = sdsl::memory_monitor::event("Recover intAtEnd and F from disk");
             if (v >= TIME) { Timer.start("Recover intAtEnd from disk"); }
             #endif
             intAtTop = sdsl::int_vector<>();
@@ -1219,7 +1219,7 @@ class LCPComputer {
 
         {
             #ifndef BENCHFASTONLY
-            auto event = sdsl::memory_monitor::event("Compute PLCP Samples");
+            //auto event = sdsl::memory_monitor::event("Compute PLCP Samples");
             #endif
             ComputePLCPSamples(intAtEnd, numSequences, F, Psi, numTopRuns, seqLens, sampleInterval, Psi_Index_Samples, Psi_Offset_Samples
                     #ifndef BENCHFASTONLY
@@ -1261,7 +1261,7 @@ class LCPComputer {
         //reload intAtEnd
         {
             #ifndef BENCHFASTONLY
-            auto event = sdsl::memory_monitor::event("Recover intAtTop from disk");
+            //auto event = sdsl::memory_monitor::event("Recover intAtTop from disk");
             if (v >= TIME) { Timer.start("Recover intAtTop from disk"); } 
             #endif
             if (!tempInFile.is_open()) {
@@ -1285,16 +1285,16 @@ class LCPComputer {
         */
 
         #ifndef BENCHFASTONLY
-        sdsl::memory_monitor::stop();
-        if (v >= TIME) {
-            std::cout << "peak usage = " << sdsl::memory_monitor::peak() << " bytes" << std::endl;
-            std::cout << "peak usage = " << static_cast<double>(sdsl::memory_monitor::peak())/1024 << " kibibytes" << std::endl;
-        }
+        //sdsl::memory_monitor::stop();
+        //if (v >= TIME) {
+            //std::cout << "peak usage = " << sdsl::memory_monitor::peak() << " bytes" << std::endl;
+            //std::cout << "peak usage = " << static_cast<double>(sdsl::memory_monitor::peak())/1024 << " kibibytes" << std::endl;
+        //}
 
-        std::ofstream cstofs("construction.html");
-        if (v >= VERB) { std::cout << "writing memory usage visualization to construction.html\n"; }
-        sdsl::memory_monitor::write_memory_log<sdsl::HTML_FORMAT>(cstofs);
-        cstofs.close();
+        //std::ofstream cstofs("construction.html");
+        //if (v >= VERB) { std::cout << "writing memory usage visualization to construction.html\n"; }
+        //sdsl::memory_monitor::write_memory_log<sdsl::HTML_FORMAT>(cstofs);
+        //cstofs.close();
         #endif
 
         /*
