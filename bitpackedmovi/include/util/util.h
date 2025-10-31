@@ -42,7 +42,7 @@ void testOutFile(const std::string& name) {
                   << "' for writing: " << strerror(errno) << "\n";
         exit(1);
     }
-};
+}
 
 void testInFile(const std::string& name) {
     if (name == "") return;
@@ -52,7 +52,7 @@ void testInFile(const std::string& name) {
                   << "' for reading: " << strerror(errno) << "\n";
         exit(1);
     }
-};
+}
 
 template <class T>
 T safeOpenFile(const std::string& name) {
