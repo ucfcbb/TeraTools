@@ -468,13 +468,14 @@ class MSIndex {
                 }
             }
 
-           if (outSstream.str().length() >= maxBufferSize) {
+           if (static_cast<uint64_t>(outSstream.tellp()) >= maxBufferSize) {
                 #pragma omp critical
                {
                    out << outSstream.str();
                }
                outSstream.str("");
                outSstream.clear();
+               assert(outSstream.tellp() == 0);
            }
 
             //check top of run run
@@ -544,13 +545,14 @@ class MSIndex {
                 }
             }
 
-            if (outSstream.str().length() >= maxBufferSize) {
+            if (static_cast<uint64_t>(outSstream.tellp()) >= maxBufferSize) {
                 #pragma omp critical
                 {
                     out << outSstream.str();
                 }
                 outSstream.str("");
                 outSstream.clear();
+               assert(outSstream.tellp() == 0);
             }
         }
         for (auto &s : outputStreams) 
@@ -732,13 +734,14 @@ class MSIndex {
                                 << suffPair.first << '\t'
                                 << suffPair.second << '\t'
                                 << std::min(a.second, currLCP) << '\n';
-                        if (outSstream.str().length() >= maxBufferSize) {
+                        if (static_cast<uint64_t>(outSstream.tellp()) >= maxBufferSize) {
                             #pragma omp critical
                             {
                                 out << outSstream.str();
                             }
                             outSstream.str("");
                             outSstream.clear();
+                            assert(outSstream.tellp() == 0);
                         }
                     }
                     currLCP = std::min(currLCP, PLCPBelow(topRun));

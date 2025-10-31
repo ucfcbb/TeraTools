@@ -33,8 +33,8 @@ MEMHeads = $(optIncDir)/util/util.h\
 libs = -lsdsl -lpthread -lz -lm
 incs = -I$(optIncDir) -isystem$(incdir) -isystem$(ropebwt3dir)
 
-#cppflags+=-Wall -O3 -DNDEBUG
-cppflags+=-Wall -g
+cppflags+=-Wall -O3 -DNDEBUG
+#cppflags+=-Wall -g
 
 ifneq ($(asan),)
 	cppflags+=-fsanitize=address
