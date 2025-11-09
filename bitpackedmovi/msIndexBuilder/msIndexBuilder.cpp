@@ -2,8 +2,6 @@
 #include"matchingStatistics/msIndex.h"
 #include"lcpComputer/lcpComputer.h"
 
-static constexpr const char* ms_index_extension = ".ms_index";
-
 void printUsage() {
     std::cout << 
         "msIndexBuilder builds an index that enables computing matching statistics of a pattern.\n"

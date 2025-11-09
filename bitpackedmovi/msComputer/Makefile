@@ -11,6 +11,7 @@ all: msComputer
 optIncDir = ../include
 incdir = ../thirdparty/include
 libdir = ../thirdparty/lib
+kseqdir = ../thirdparty/kseq
 ropebwt3dir = ../../ropebwt3
 
 objs = $(ropebwt3dir)/bre.o\
@@ -34,7 +35,7 @@ msHeads = $(optIncDir)/util/util.h\
            $(optIncDir)/moveStructure/moveStructure.h\
 
 libs = -lsdsl -lpthread -lz -lm -latomic
-incs = -I$(optIncDir) -isystem$(incdir) -isystem$(ropebwt3dir)
+incs = -I$(optIncDir) -isystem$(incdir) -isystem$(ropebwt3dir) -isystem$(kseqdir)
 
 developmentflags+= -Wall -Wpedantic -Wextra -pedantic-errors -Wold-style-cast
 cppflags+=$(developmentflags) -O3 -DNDEBUG

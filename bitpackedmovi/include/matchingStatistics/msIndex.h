@@ -3,8 +3,11 @@
 #include <optional>
 #include<sdsl/int_vector.hpp>
 #include"moveStructure/moveStructure.h"
+#include"util/util.h"
 
-#define STATS
+// #define STATS
+
+static constexpr const char* ms_index_extension = ".ms_index";
 
 class MSIndex {
     uint64_t totalLen;
@@ -275,6 +278,11 @@ class MSIndex {
     }
 
     #ifdef STATS
+    void reset_ms_stats() {
+        phi_steps = 0;
+        psi_steps = 0;
+    }
+
     void print_ms_stats() const {
         std::cout << "\t  Phi Steps: " << phi_steps << std::endl;
         std::cout << "\t  Psi Steps: " << psi_steps << std::endl;
@@ -342,11 +350,6 @@ private:
     #ifdef STATS
     size_t phi_steps;
     size_t psi_steps;
-
-    void init_ms_stats(const uint64_t m) {
-        phi_steps = 0;
-        psi_steps = 0;
-    }
     #endif
 
     // ================================ General helper functions ================================
@@ -502,10 +505,6 @@ private:
     // Used to define different MS algorithms by passing a different reposition function
     using RepositionFunction = std::function<void(MSState& state, const uint8_t c)>;
     std::pair<std::vector<uint64_t>, std::vector<uint64_t>> ms_loop(const char* pattern, const uint64_t m, RepositionFunction reposition) {
-        #ifdef STATS
-        init_ms_stats(m);
-        #endif
-
         // Initial state is the end of the BWT, end of pattern, length of 0
         MSState state(pattern, m, end_bwt_pos(), rlbwt_tail_to_phi(end_bwt_pos()));
 
