@@ -1,6 +1,7 @@
 #include "matchingStatistics/msIndex.h"
 #include "util/fasta.h"
 #include "util/util.h"
+#include <queue>
 
 static constexpr size_t DEFAULT_BUFFER_SIZE = 64ULL * 1024ULL * 1024ULL; // 64MB
 
@@ -18,6 +19,7 @@ void printUsage() {
         "    -o          FILE                       optional       base name of output file for matching statistics (writes to FILE.[len|pos]), otherwise QUERY.[len|pos] is used.\n"
         "  Behavior:\n"
         "    -m          [phi,psi,dual]             optional       matching statistics mode. one of 'phi', 'psi', or 'dual'. dual is default.\n"
+        "    -oracle     bool                       optional       output repositioning oracle. default is false.\n"
         "    -p          INT                        optional       Limit the program to (nonnegative) INT threads. By default uses maximum available. Maximum on this hardware is " << omp_get_max_threads() << "\n"
         "    -v          [quiet,time,verb]          optional       Verbosity, verb for most verbose output, time for timer info, and quiet for no output. time is default.\n"
         "    -h, --help                             optional       Print this help message.\n"
@@ -27,6 +29,7 @@ void printUsage() {
 struct options{
     std::string indexFile, patternFile, outputFile = "", mode = "dual";
     unsigned numThreads = omp_get_max_threads();
+    bool oracle = false;
     verbosity v = TIME;
 }o;
 
@@ -48,13 +51,14 @@ void processOptions(const int argc, const char* argv[]) {
         o.outputFile = o.patternFile;
     }
     s = getArgument(argc, argv, used, "-m", false, true);
-    if (s != "" && s != "phi" && s != "psi" && s != "dual") {
+    if (s != "" && s != "phi" && s != "psi" && s != "dual" && s != "oracle") {
         std::cout << "Invalid value passed to -m '" << s << "'\n";
         exit(1);
     }
     else if (s != "") {
         o.mode = s;
     }
+    o.oracle = getArgument(argc, argv, used, "-oracle", false, false) != ""; // Default is false
     s = getArgument(argc, argv, used, "-p", false, true);
     if (s != "")
         o.numThreads = std::stoul(s); 
@@ -75,6 +79,52 @@ void processOptions(const int argc, const char* argv[]) {
     testInFile(o.patternFile);
 }
 
+// Structure to hold data for writing
+struct WriteData {
+    std::string seq_name;
+    std::vector<uint64_t> len_data;
+    std::vector<uint64_t> pos_data;
+};
+
+// Thread-safe queue for write operations
+struct WriteQueue {
+    std::queue<WriteData> queue;
+    std::mutex mutex;
+    std::condition_variable cv;
+    std::atomic<bool> done{false};
+};
+
+// Write thread function
+void write_thread_func(WriteQueue& write_queue, FILE* out_len, FILE* out_pos, double& total_write_time) {
+    while (true) {
+        std::unique_lock<std::mutex> lock(write_queue.mutex);
+        write_queue.cv.wait(lock, [&] { return !write_queue.queue.empty() || write_queue.done.load(); });
+        
+        if (write_queue.queue.empty() && write_queue.done.load()) {
+            break;
+        }
+        
+        if (!write_queue.queue.empty()) {
+            WriteData data = std::move(write_queue.queue.front());
+            write_queue.queue.pop();
+            lock.unlock();
+            
+            auto start_time = std::chrono::high_resolution_clock::now();
+            fprintf(out_len, ">%s\n", data.seq_name.c_str());
+            fprintf(out_pos, ">%s\n", data.seq_name.c_str());
+            for (uint64_t i = 0; i < data.len_data.size(); ++i) {
+                fprintf(out_len, "%lu ", data.len_data[i]);
+                fprintf(out_pos, "%lu ", data.pos_data[i]);
+            }
+            fprintf(out_len, "\n");
+            fprintf(out_pos, "\n");
+            auto end_time = std::chrono::high_resolution_clock::now();
+            double duration = std::chrono::duration<double>(end_time - start_time).count();
+            total_write_time += duration;
+        }
+    }
+}
+
 int main(const int argc, const char*argv[]) {
 	processOptions(argc, argv);
 
@@ -84,6 +134,16 @@ int main(const int argc, const char*argv[]) {
         exit(1);
     }
     #endif
+    if (o.oracle) {
+        if (o.numThreads > 1) {
+            std::cout << "Oracle computation is enabled. This is not supported for multiple threads." << std::endl;
+            exit(1);
+        }
+        if (o.mode == "oracle") {
+            std::cout << "Oracle computation is enabled. This is not supported with the 'oracle' mode." << std::endl;
+            exit(1);
+        }
+    }
 
     omp_set_num_threads(o.numThreads);
 
@@ -93,6 +153,9 @@ int main(const int argc, const char*argv[]) {
 	std::ifstream in(o.indexFile);
 	MSIndex msIndex;
 	msIndex.load(in);
+    #ifdef WRITE_ORACLE
+    msIndex.set_oracle(o.oracle);
+    #endif
 	in.close();
 	if (o.v >= TIME) { Timer.stop(); } //Loading " + o.indexFile
 
@@ -127,8 +190,13 @@ int main(const int argc, const char*argv[]) {
     #endif
 
     auto total_ms_time = 0.0;
-    auto total_write_time = 0.0;
-    auto total_seq_len = 0;
+    double total_write_time = 0.0;
+    uint64_t total_seq_len = 0;
+    
+    // Create write queue and start write thread
+    WriteQueue write_queue;
+    std::thread write_thread(write_thread_func, std::ref(write_queue), out_len, out_pos, std::ref(total_write_time));
+    
     auto ms_step = [&](const SeqInfo& seq_info) {
         #pragma omp atomic
         total_seq_len += seq_info.seq_len;
@@ -142,6 +210,11 @@ int main(const int argc, const char*argv[]) {
             ms_result = msIndex.ms_psi(seq_info.seq_content, seq_info.seq_len);
         } else if (o.mode == "dual") {
             ms_result = msIndex.ms_dual(seq_info.seq_content, seq_info.seq_len);
+        } else if (o.mode == "oracle") {
+            std::ifstream in_oracle(o.patternFile + "." + seq_info.seq_name + ".oracle");
+            auto repositioning_oracle = msIndex.load_oracle(in_oracle);
+            in_oracle.close();
+            ms_result = msIndex.ms_oracle(seq_info.seq_content, seq_info.seq_len, repositioning_oracle);
         } else {
             std::cerr << "Invalid mode: " << o.mode << std::endl;
             exit(1);
@@ -150,33 +223,45 @@ int main(const int argc, const char*argv[]) {
         #pragma omp atomic
         total_ms_time += std::chrono::duration<double>(end_time - start_time).count();
 
-        start_time = std::chrono::high_resolution_clock::now();
-        #pragma omp critical(write_ms_result)
+        // Push result to write queue instead of writing directly
+        WriteData write_data;
+        write_data.seq_name = std::string(seq_info.seq_name);
+        write_data.len_data = ms_result.first;
+        write_data.pos_data = ms_result.second;
+        
         {
-            fprintf(out_len, ">%s\n", seq_info.seq_name);
-            fprintf(out_pos, ">%s\n", seq_info.seq_name);
-            for (uint64_t i = 0; i < ms_result.first.size(); ++i) {
-                fprintf(out_len, "%lu ", ms_result.first[i]);
-                fprintf(out_pos, "%lu ", ms_result.second[i]);
-            }
-            fprintf(out_len, "\n");
-            fprintf(out_pos, "\n");
+            std::lock_guard<std::mutex> lock(write_queue.mutex);
+            write_queue.queue.push(std::move(write_data));
         }
-        end_time = std::chrono::high_resolution_clock::now();
-        #pragma omp atomic
-        total_write_time += std::chrono::duration<double>(end_time - start_time).count();
+        write_queue.cv.notify_one();
+
+        #ifdef WRITE_ORACLE
+        if (o.oracle) {
+            std::ofstream out_oracle(o.patternFile + "." + seq_info.seq_name + ".oracle");
+            msIndex.serialize_oracle(out_oracle);
+            out_oracle.close();
+        }
+        #endif
     };
 
     Timer.start("Processing patterns");
     process_sequences(seq, o.numThreads, ms_step);
+    
+    // Signal write thread to finish and wait for it
+    write_queue.done = true;
+    write_queue.cv.notify_one();
+    write_thread.join();
     Timer.stop(); //Processing patterns
     
-    std::cout << "\tCPU query time: " << total_ms_time << " seconds" << std::endl;
-    std::cout << "\t\tTime per base: " << (total_ms_time / total_seq_len) * 1e9 << " nanoseconds" << std::endl;
-    std::cout << "\tCPU write time: " << total_write_time << " seconds" << std::endl << std::endl;
+    std::ofstream out_stats(o.outputFile + ".stats");
+    out_stats << "\tCPU query time: " << total_ms_time << " seconds" << std::endl;
+    out_stats << "\t\tTime per base: " << (total_ms_time / total_seq_len) * 1e9 << " nanoseconds" << std::endl;
+    out_stats << "\tCPU write time: " << total_write_time << " seconds" << std::endl << std::endl;
     #ifdef STATS
-    msIndex.print_ms_stats();
+    out_stats << "\tTotal bases: " << total_seq_len << std::endl;
+    msIndex.print_ms_stats(out_stats);
     #endif
+    out_stats.close();
 
     fclose(out_len);
     fclose(out_pos);

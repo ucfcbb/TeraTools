@@ -6,6 +6,7 @@
 #include"util/util.h"
 
 // #define STATS
+// #define WRITE_ORACLE
 
 static constexpr const char* ms_index_extension = ".ms_index";
 
@@ -281,14 +282,32 @@ class MSIndex {
     void reset_ms_stats() {
         phi_steps = 0;
         psi_steps = 0;
+        mismatches = 0;
     }
 
-    void print_ms_stats() const {
-        std::cout << "\t  Phi Steps: " << phi_steps << std::endl;
-        std::cout << "\t  Psi Steps: " << psi_steps << std::endl;
-        std::cout << "\tTotal Steps: " << phi_steps + psi_steps << std::endl;
+    void print_ms_stats(std::ostream& out) const {
+        out << "\t Mismatches: " << mismatches << std::endl;
+        out << "\t  Phi Steps: " << phi_steps << std::endl;
+        out << "\t  Psi Steps: " << psi_steps << std::endl;
+        out << "\tTotal Steps: " << phi_steps + psi_steps << std::endl;
     }
     #endif
+    
+    #ifdef WRITE_ORACLE
+    void set_oracle(bool oracle) {
+        this->write_oracle = oracle;
+    }
+
+    void serialize_oracle(std::ostream& out) const {
+        sdsl::serialize(repositioning_oracle, out);
+    }
+    #endif
+
+    std::vector<uint32_t> load_oracle(std::istream& in) {
+        std::vector<uint32_t> repositioning_oracle;
+        sdsl::load(repositioning_oracle, in);
+        return repositioning_oracle;
+    }
 
     //matching algorithms-----------------------
 
@@ -345,11 +364,42 @@ class MSIndex {
         });
     }
 
+    std::pair<std::vector<uint64_t>, std::vector<uint64_t>> ms_oracle(const char* pattern, const uint64_t m, std::vector<uint32_t>& repositioning_oracle) {
+        size_t curr_oracle_index = 0;
+        
+        // Initial state is the end of the BWT, end of pattern, length of 0
+        MSState state(pattern, m, end_bwt_pos(), rlbwt_tail_to_phi(end_bwt_pos()));
+
+        std::vector<uint64_t> ms_len(m);
+        std::vector<uint64_t> ms_pos(m);
+
+        for (state.i = 0; state.i < m; ++state.i) {
+            uint8_t c = charToBits(state.pattern[m - state.i - 1]);
+            if (c != rlbwt[state.rlbwt_pos.interval]) {
+                reposition_oracle(state, repositioning_oracle, curr_oracle_index);
+
+            }
+            ++state.length;
+            backward_step(state.rlbwt_pos, state.phi_pos);
+
+            ms_len[state.m - state.i - 1] = state.length;
+            ms_pos[state.m - state.i - 1] = state.phi_pos.position;
+        }
+        return std::make_pair(ms_len, ms_pos);
+    }
+
 private:
+    // ================================ Oracle ================================
+    #ifdef WRITE_ORACLE
+    bool write_oracle = false;
+    std::vector<uint32_t> repositioning_oracle;
+    #endif
+
     // ================================ MS Stats ================================
     #ifdef STATS
     size_t phi_steps;
     size_t psi_steps;
+    size_t mismatches;
     #endif
 
     // ================================ General helper functions ================================
@@ -505,6 +555,11 @@ private:
     // Used to define different MS algorithms by passing a different reposition function
     using RepositionFunction = std::function<void(MSState& state, const uint8_t c)>;
     std::pair<std::vector<uint64_t>, std::vector<uint64_t>> ms_loop(const char* pattern, const uint64_t m, RepositionFunction reposition) {
+        #ifdef WRITE_ORACLE
+        if (write_oracle) {
+            repositioning_oracle.clear();
+        }
+        #endif
         // Initial state is the end of the BWT, end of pattern, length of 0
         MSState state(pattern, m, end_bwt_pos(), rlbwt_tail_to_phi(end_bwt_pos()));
 
@@ -514,6 +569,9 @@ private:
         for (state.i = 0; state.i < m; ++state.i) {
             uint8_t c = charToBits(state.pattern[m - state.i - 1]);
             if (c != rlbwt[state.rlbwt_pos.interval]) {
+                #ifdef STATS
+                ++mismatches;
+                #endif
                 reposition(state, c);
             }
             ++state.length;
@@ -565,6 +623,27 @@ private:
             state.phi_pos = succ_phi_pos;
             state.length = std::min(succ_lce, state.length);
         }
+
+        #ifdef WRITE_ORACLE
+        if (write_oracle) {
+            repositioning_oracle.push_back(state.rlbwt_pos.interval);
+            repositioning_oracle.push_back(state.length);
+        }
+        #endif
+    }
+
+    void reposition_oracle(MSState& state, std::vector<uint32_t>& repositioning_oracle, size_t& curr_oracle_index) {
+        auto new_interval = repositioning_oracle[curr_oracle_index++];
+        auto new_length = repositioning_oracle[curr_oracle_index++];
+        if (new_interval < state.rlbwt_pos.interval) {
+            state.rlbwt_pos = LF_IntervalPoint(new_interval, LF.get_length(new_interval) - 1);
+            state.phi_pos = rlbwt_tail_to_phi(state.rlbwt_pos);
+        }
+        else {
+            state.rlbwt_pos = LF_IntervalPoint(new_interval, 0);
+            state.phi_pos = rlbwt_head_to_phi(state.rlbwt_pos);
+        }
+        state.length = new_length;
     }
 
     // void reposition_threshold(const uint8_t c, LF_IntervalPoint& pos, Phi_IntervalPoint& phi_pos, uint64_t& length, LCEFunction lce) {

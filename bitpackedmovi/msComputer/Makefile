@@ -39,7 +39,7 @@ incs = -I$(optIncDir) -isystem$(incdir) -isystem$(ropebwt3dir) -isystem$(kseqdir
 
 developmentflags+= -Wall -Wpedantic -Wextra -pedantic-errors -Wold-style-cast
 cppflags+=$(developmentflags) -O3 -DNDEBUG
-#cppflags+=$(developmentflags) -Wall -g
+#cppflags+=$(developmentflags) -Wall -g -fsanitize=thread
 
 ifneq ($(asan),)
 	cppflags+=-fsanitize=address
