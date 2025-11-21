@@ -1,4 +1,4 @@
-all: MEM
+all: TeraMEM
 
 .PHONY: all clean test msIndexBuilderTest
 
@@ -15,7 +15,7 @@ ropebwt3objs = $(shell grep -oPz "OBJS=.*\\\\\n.*\n" $(ropebwt3dir)/Makefile | t
 
 objs = $(foreach obj, $(ropebwt3objs), $(ropebwt3dir)/$(obj))
 
-MEMHeads = $(optIncDir)/util/util.h\
+TeraMEMHeads = $(optIncDir)/util/util.h\
            $(optIncDir)/matchingStatistics/msIndex.h\
            $(optIncDir)/moveStructure/moveStructure.h\
 
@@ -38,17 +38,17 @@ ifneq ($(omp),0)
 endif
 
 clean:
-	-rm MEM
+	-rm TeraMEM
 
 msIndexBuilderTest:
 	make -C ../msIndexBuilder/ test
 
-test: MEM msIndexBuilderTest
+test: TeraMEM msIndexBuilderTest
 	set -e && \
 	for testind in $(testinds); do \
-		./MEM -MEM SM -i $$testind.ms_index -o $$testind.SM.out; \
-		./MEM -MEM LM -i $$testind.ms_index -o $$testind.LM.out -L $(LEN); \
+		./TeraMEM -MEM SM -i $$testind.ms_index -o $$testind.SM.out; \
+		./TeraMEM -MEM LM -i $$testind.ms_index -o $$testind.LM.out -L $(LEN); \
 	done
 
-MEM: MEM.cpp $(MEMHeads) $(objs)
+TeraMEM: TeraMEM.cpp $(TeraMEMHeads) $(objs)
 	$(CXX) $(cppflags) $(incs) -L$(libdir) $(objs) $< -o $@ $(libs)

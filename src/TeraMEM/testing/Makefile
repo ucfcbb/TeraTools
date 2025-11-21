@@ -10,13 +10,13 @@ numIter=10
 ropebwt3 = ../../../ropebwt3/
 TeraLCP = ../../TeraLCP/
 msIndexBuilder = ../../msIndexBuilder/
-MEM = ../
+TeraMEM = ../
 brute_force_repeats = ../../../less_efficient_but_accurate_algos/Repeats/
 syntheticgen = ../../../data/generation/
 
-allprogs = ropebwt3 TeraLCP msIndexBuilder MEM brute_force_repeats syntheticgen
+allprogs = ropebwt3 TeraLCP msIndexBuilder TeraMEM brute_force_repeats syntheticgen
 
-.PHONY: all test ropebwt3 TeraLCP msIndexBuilder MEM brute_force_repeats syntheticgen
+.PHONY: all test ropebwt3 TeraLCP msIndexBuilder TeraMEM brute_force_repeats syntheticgen
 
 $(allprogs):
 	make -C $($@) $@

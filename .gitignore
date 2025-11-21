@@ -15,3 +15,7 @@ a.out
 *_StructTree.html
 *.rlcp
 TempData
+*.LM.out
+*.SM.out
+*.lcp_index
+*.ms_index
