@@ -1,4 +1,4 @@
-subdirs = bitpackedmovi data less_efficient_but_accurate_algos MoveDataStructureBenchmark
+subdirs = src data less_efficient_but_accurate_algos #MoveDataStructureBenchmark
 
 all: $(subdirs)
 
@@ -15,7 +15,7 @@ cleanours:
 		$(MAKE) -C $$dir cleanours; \
 	done
 
-bitpackedmovi: ropebwt3
+src: ropebwt3
 
 ropebwt3:
 	git clone https://github.com/lh3/ropebwt3

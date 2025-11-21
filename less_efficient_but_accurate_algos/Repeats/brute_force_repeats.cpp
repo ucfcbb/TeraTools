@@ -220,7 +220,7 @@ int main(int argc, char *argv[]) {
                         priority_queue<pair<int, int>, vector<pair<int, int>>, greater<pair<int, int>>> pq;
                         for (auto p : positions) {
                             if (p == pos) continue;
-                            pq.push({-ISA[p], p});
+                            pq.push({ISA[p], p});
                         }
                         while (!pq.empty()) {
                             auto [_, p] = pq.top();
@@ -236,7 +236,7 @@ int main(int argc, char *argv[]) {
     };
 
     uint64_t len = 1;
-    if (argc == 4)
+    if (argc == 3)
         len = atoi(argv[2]);
 
     if (strcmp(argv[1], "SM") == 0) {
