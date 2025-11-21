@@ -340,7 +340,7 @@ class MSIndex {
         }
     }
 
-    std::pair<std::vector<uint64_t>, std::vector<uint64_t>> ms_phi(const char* pattern, const uint64_t m) {
+    std::pair<std::vector<uint32_t>, std::vector<uint64_t>> ms_phi(const char* pattern, const uint64_t m) {
         return ms_loop(pattern, m, [this](MSState& state, const uint8_t c) {
             reposition_explicit(state, c, [this](const MSState& state, const PosDist& end, const uint64_t lower_lim) {
                 return phi_lce(state, end, lower_lim);
@@ -348,7 +348,7 @@ class MSIndex {
         });
     }
     
-    std::pair<std::vector<uint64_t>, std::vector<uint64_t>> ms_psi(const char* pattern, const uint64_t m) {
+    std::pair<std::vector<uint32_t>, std::vector<uint64_t>> ms_psi(const char* pattern, const uint64_t m) {
         return ms_loop(pattern, m, [this](MSState& state, const uint8_t c) {
             reposition_explicit(state, c, [this](const MSState& state, const PosDist& end, const uint64_t lower_lim) {
                 return psi_lce(state, end, lower_lim);
@@ -356,7 +356,7 @@ class MSIndex {
         });
     }
 
-    std::pair<std::vector<uint64_t>, std::vector<uint64_t>> ms_dual(const char* pattern, const uint64_t m) {
+    std::pair<std::vector<uint32_t>, std::vector<uint64_t>> ms_dual(const char* pattern, const uint64_t m) {
         return ms_loop(pattern, m, [this](MSState& state, const uint8_t c) {
             reposition_explicit(state, c, [this](const MSState& state, const PosDist& end, const uint64_t lower_lim) {
                 return dual_lce(state, end, lower_lim);
@@ -364,20 +364,19 @@ class MSIndex {
         });
     }
 
-    std::pair<std::vector<uint64_t>, std::vector<uint64_t>> ms_oracle(const char* pattern, const uint64_t m, std::vector<uint32_t>& repositioning_oracle) {
+    std::pair<std::vector<uint32_t>, std::vector<uint64_t>> ms_oracle(const char* pattern, const uint64_t m, std::vector<uint32_t>& repositioning_oracle) {
         size_t curr_oracle_index = 0;
         
         // Initial state is the end of the BWT, end of pattern, length of 0
         MSState state(pattern, m, end_bwt_pos(), rlbwt_tail_to_phi(end_bwt_pos()));
 
-        std::vector<uint64_t> ms_len(m);
+        std::vector<uint32_t> ms_len(m);
         std::vector<uint64_t> ms_pos(m);
 
         for (state.i = 0; state.i < m; ++state.i) {
             uint8_t c = charToBits(state.pattern[m - state.i - 1]);
             if (c != rlbwt[state.rlbwt_pos.interval]) {
                 reposition_oracle(state, repositioning_oracle, curr_oracle_index);
-
             }
             ++state.length;
             backward_step(state.rlbwt_pos, state.phi_pos);
@@ -406,8 +405,6 @@ private:
     // Make static contexpr, but this is probably fine
     static uint8_t charToBits(const char c) {
         switch (c) {
-            case '\0': return 0;
-            case  '$': return 0;
             case  'A': return 1;
             case  'C': return 2;
             case  'G': return 3;
@@ -554,7 +551,7 @@ private:
 
     // Used to define different MS algorithms by passing a different reposition function
     using RepositionFunction = std::function<void(MSState& state, const uint8_t c)>;
-    std::pair<std::vector<uint64_t>, std::vector<uint64_t>> ms_loop(const char* pattern, const uint64_t m, RepositionFunction reposition) {
+    std::pair<std::vector<uint32_t>, std::vector<uint64_t>> ms_loop(const char* pattern, const uint64_t m, RepositionFunction reposition) {
         #ifdef WRITE_ORACLE
         if (write_oracle) {
             repositioning_oracle.clear();
@@ -563,7 +560,7 @@ private:
         // Initial state is the end of the BWT, end of pattern, length of 0
         MSState state(pattern, m, end_bwt_pos(), rlbwt_tail_to_phi(end_bwt_pos()));
 
-        std::vector<uint64_t> ms_len(m);
+        std::vector<uint32_t> ms_len(m);
         std::vector<uint64_t> ms_pos(m);
 
         for (state.i = 0; state.i < m; ++state.i) {
@@ -645,8 +642,6 @@ private:
         }
         state.length = new_length;
     }
-
-    // void reposition_threshold(const uint8_t c, LF_IntervalPoint& pos, Phi_IntervalPoint& phi_pos, uint64_t& length, LCEFunction lce) {
 
     // ================================ LCE Functions ================================
     /**

@@ -68,11 +68,11 @@ void process_sequences(kseq_t* seq, uint16_t threads, ProcessFunc process_func) 
             }
 
             process_func(seq_info);
-        }
 
-        if (threads > 1) {
-            free(seq_info.seq_content);
-            free(seq_info.seq_name);
+            if (threads > 1) {
+                free(seq_info.seq_content);
+                free(seq_info.seq_name);
+            }
         }
     }
 }

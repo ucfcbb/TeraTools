@@ -1,6 +1,6 @@
 SHELL := /bin/bash 
 
-all: msComputer
+all: msComputer memStats
 
 .PHONY: all clean test
 

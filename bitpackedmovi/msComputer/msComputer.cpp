@@ -82,7 +82,7 @@ void processOptions(const int argc, const char* argv[]) {
 // Structure to hold data for writing
 struct WriteData {
     std::string seq_name;
-    std::vector<uint64_t> len_data;
+    std::vector<uint32_t> len_data;
     std::vector<uint64_t> pos_data;
 };
 
@@ -112,12 +112,14 @@ void write_thread_func(WriteQueue& write_queue, FILE* out_len, FILE* out_pos, do
             auto start_time = std::chrono::high_resolution_clock::now();
             fprintf(out_len, ">%s\n", data.seq_name.c_str());
             fprintf(out_pos, ">%s\n", data.seq_name.c_str());
-            for (uint64_t i = 0; i < data.len_data.size(); ++i) {
-                fprintf(out_len, "%lu ", data.len_data[i]);
-                fprintf(out_pos, "%lu ", data.pos_data[i]);
-            }
-            fprintf(out_len, "\n");
-            fprintf(out_pos, "\n");
+            size_t len_data_size = data.len_data.size();
+            fwrite(&len_data_size, sizeof(size_t), 1, out_len);
+            fwrite(data.len_data.data(), sizeof(uint32_t), len_data_size, out_len);
+            size_t pos_data_size = data.pos_data.size();
+            fwrite(&pos_data_size, sizeof(size_t), 1, out_pos);
+            fwrite(data.pos_data.data(), sizeof(uint64_t), pos_data_size, out_pos);
+            fputc('\n', out_len);
+            fputc('\n', out_pos);
             auto end_time = std::chrono::high_resolution_clock::now();
             double duration = std::chrono::duration<double>(end_time - start_time).count();
             total_write_time += duration;
@@ -143,6 +145,10 @@ int main(const int argc, const char*argv[]) {
             std::cout << "Oracle computation is enabled. This is not supported with the 'oracle' mode." << std::endl;
             exit(1);
         }
+        #ifndef WRITE_ORACLE
+        std::cout << "Oracle computation is enabled. This is not supported without compiling with the WRITE_ORACLE macro." << std::endl;
+        exit(1);
+        #endif
     }
 
     omp_set_num_threads(o.numThreads);
@@ -200,7 +206,16 @@ int main(const int argc, const char*argv[]) {
     auto ms_step = [&](const SeqInfo& seq_info) {
         #pragma omp atomic
         total_seq_len += seq_info.seq_len;
-        thread_local static std::pair<std::vector<uint64_t>, std::vector<uint64_t>> ms_result;
+        thread_local static std::pair<std::vector<uint32_t>, std::vector<uint64_t>> ms_result;
+
+        // Load repositioning oracle if needed
+        std::vector<uint32_t> repositioning_oracle;
+        if (o.mode == "oracle") {
+            std::ifstream in_oracle(o.patternFile + "." + seq_info.seq_name + ".oracle");
+            repositioning_oracle = msIndex.load_oracle(in_oracle);
+            in_oracle.close();
+        }
+
         auto start_time = std::chrono::high_resolution_clock::now();
         ms_result.first.clear();
         ms_result.second.clear();
@@ -211,9 +226,6 @@ int main(const int argc, const char*argv[]) {
         } else if (o.mode == "dual") {
             ms_result = msIndex.ms_dual(seq_info.seq_content, seq_info.seq_len);
         } else if (o.mode == "oracle") {
-            std::ifstream in_oracle(o.patternFile + "." + seq_info.seq_name + ".oracle");
-            auto repositioning_oracle = msIndex.load_oracle(in_oracle);
-            in_oracle.close();
             ms_result = msIndex.ms_oracle(seq_info.seq_content, seq_info.seq_len, repositioning_oracle);
         } else {
             std::cerr << "Invalid mode: " << o.mode << std::endl;
