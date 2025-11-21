@@ -1,18 +1,18 @@
 #include"util/util.h"
-#include"lcpComputer/lcpComputer.h"
+#include"TeraLCP/TeraLCP.h"
 
 static constexpr const char* rlcp_extension = ".rlcp";
 
 void printUsage() {
     std::cout << 
-        "lcpComputer computes the minimum LCP values in each run of the BWT of a text.\n"
+        "TeraLCP computes the minimum LCP values in each run of the BWT of a text.\n"
         "It does so by computing the Psi and Phi move data structures in compressed space.\n"
         "It can optionally output the computed index to avoid later recomputation or for downstream analysis.\n"
         "\n"
-        "Usage: lcpComputer <arguments>\n"
+        "Usage: TeraLCP <arguments>\n"
         "Options:\n"
         "  Input:\n"
-        "    -f          [text,bwt,rlbwt,fmd,lcp_index]  REQUIRED       Format of input. 'text' is the original text, 'bwt' is the bwt of the text, 'rlbwt' is the rlbwt of the text, 'fmd' is the rlbwt in the ropebwt3 fmd format of the text, and 'lcp_index' is the index outputted by lcpComputer -oindex\n"
+        "    -f          [text,bwt,rlbwt,fmd,lcp_index]  REQUIRED       Format of input. 'text' is the original text, 'bwt' is the bwt of the text, 'rlbwt' is the rlbwt of the text, 'fmd' is the rlbwt in the ropebwt3 fmd format of the text, and 'lcp_index' is the index outputted by TeraLCP -oindex\n"
         "    -i          FILE                            REQUIRED       File name of input file\n"
         "    -t          FILE                            REQUIRED       Name of a file this program can read and write to temporarily\n"
         "\n"
@@ -34,7 +34,7 @@ void printUsage() {
     //add sdsl::memory_monitor output option
     //add timer depth option? or remove many timer calls.
     //add move data structure output options?
-    //TODO: either fix minor bug in lcpcomputer when numthreads > max threads or limit num threads to at most max threads
+    //TODO: either fix minor bug in TeraLCP when numthreads > max threads or limit num threads to at most max threads
     //TODO: add more BENCHFASTONLY ifs
     //TODO: add DNDEBUG ifs
 }
@@ -118,7 +118,7 @@ int main(const int argc, const char*argv[]) {
     processOptions(argc, argv);
     omp_set_num_threads(o.numThreads);
     #ifndef BENCHFASTONLY
-    if (o.v >= TIME) { Timer.start("lcpComputer"); }
+    if (o.v >= TIME) { Timer.start("TeraLCP"); }
     if (o.v >= TIME) { Timer.start("Program Initialization"); }
     #endif
     rb3_fmi_t fmi;
@@ -148,7 +148,7 @@ int main(const int argc, const char*argv[]) {
             if (o.v >= TIME) { Timer.stop(); } //(o.mmap)? "Loading fmd with mmap" : "Loading fmd" 
             #endif
 
-            if (!LCPComputer::validateRB3(&fmi)) {
+            if (!TeraLCP::validateRB3(&fmi)) {
                 std::cerr << "ERROR: invalid ropebwt3 inputted!" << std::endl;
                 exit(1);
             }
@@ -158,12 +158,12 @@ int main(const int argc, const char*argv[]) {
     if (o.v >= TIME) { Timer.stop(); } //Program Initialization 
     #endif
 
-    LCPComputer ourIndex;
+    TeraLCP ourIndex;
     if (o.inputFormat == options::fmd) {
         #ifndef BENCHFASTONLY
         if (o.v >= TIME) { Timer.start("LCP index construction"); }
         #endif
-        ourIndex = LCPComputer(&fmi, o.tempFile
+        ourIndex = TeraLCP(&fmi, o.tempFile
                 #ifndef BENCHFASTONLY
                 , o.v
                 #endif
@@ -173,7 +173,7 @@ int main(const int argc, const char*argv[]) {
         #endif
     }
     else if (o.inputFormat == options::lcp_index) {
-        ourIndex = LCPComputer(o.inputFile, o.v);
+        ourIndex = TeraLCP(o.inputFile, o.v);
     }
 
 
@@ -240,6 +240,6 @@ int main(const int argc, const char*argv[]) {
     */
 
     #ifndef BENCHFASTONLY
-    if (o.v >= TIME) { Timer.stop(); } //lcpComputer 
+    if (o.v >= TIME) { Timer.stop(); } //TeraLCP 
     #endif
 }

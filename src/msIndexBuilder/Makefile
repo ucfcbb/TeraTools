@@ -2,7 +2,7 @@ SHELL := /bin/bash
 
 all: msIndexBuilder
 
-.PHONY: all clean test lcpComputerTest
+.PHONY: all clean test TeraLCPTest
 
 numIterRand=10
 
@@ -18,7 +18,7 @@ ropebwt3objs = $(shell grep -oPz "OBJS=.*\\\\\n.*\n" $(ropebwt3dir)/Makefile | t
 objs = $(foreach obj, $(ropebwt3objs), $(ropebwt3dir)/$(obj))
 
 msHeads = $(optIncDir)/util/util.h\
-		  $(optIncDir)/lcpComputer/lcpComputer.h\
+		  $(optIncDir)/TeraLCP/TeraLCP.h\
 		  $(optIncDir)/matchingStatistics/msIndex.h\
 		  $(optIncDir)/moveStructure/moveStructure.h
 
@@ -43,13 +43,13 @@ endif
 clean:
 	-rm msIndexBuilder
 
-lcpComputerTest:
-	make -C ../lcpComputer/ testIndexOnly
+TeraLCPTest:
+	make -C ../TeraLCP/ testIndexOnly
 
-test: msIndexBuilder lcpComputerTest
+test: msIndexBuilder TeraLCPTest
 	set -e && \
 	for testind in $(testinds); do \
-		./msIndexBuilder -i ../lcpComputer/$$testind.lcp_index -o $$testind; \
+		./msIndexBuilder -i ../TeraLCP/$$testind.lcp_index -o $$testind; \
 	done
 
 msIndexBuilder: msIndexBuilder.cpp $(msHeads) $(objs)

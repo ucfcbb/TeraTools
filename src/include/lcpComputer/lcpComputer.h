@@ -1,5 +1,5 @@
-#ifndef R_SA_LCP_LCPCOMPUTER_H
-#define R_SA_LCP_LCPCOMPUTER_H
+#ifndef R_SA_LCP_TeraLCP_H
+#define R_SA_LCP_TeraLCP_H
 
 #include"util/util.h"
 #include"moveStructure/moveStructure.h"
@@ -11,7 +11,7 @@
 
 static constexpr const char* lcp_index_extension = ".lcp_index";
 
-class LCPComputer {
+class TeraLCP {
     uint64_t totalLen;
 
     sdsl::int_vector<> F;
@@ -932,10 +932,10 @@ class LCPComputer {
     public:
     typedef uint64_t size_type;
 
-    LCPComputer() = default;
+    TeraLCP() = default;
 
 	// Constructor to assist with matching statistic computation
-	LCPComputer(const std::string& inFile
+	TeraLCP(const std::string& inFile
             #ifndef BENCHFASTONLY
             , verbosity v = QUIET
             #endif
@@ -954,7 +954,7 @@ class LCPComputer {
     //input: a run length encoding of a multidollar BWT where all dollars are represented by 0
     //All characters between (and including) 0 and max_char are assumed to have more than 0 occurrences
     //in the text. max_char is ththe text
-    LCPComputer(rb3_fmi_t * rb3, const std::string& safeTempName
+    TeraLCP(rb3_fmi_t * rb3, const std::string& safeTempName
             #ifndef BENCHFASTONLY
             , verbosity v = QUIET
             #endif
@@ -1299,10 +1299,10 @@ class LCPComputer {
 
         /*
         needs to be rewritten, affects bench
-        std::ofstream outpsi("lcpcomputer.psi");
+        std::ofstream outpsi("TeraLCP.psi");
         //Flens.serialize(outpsi);
         Psi.serialize(outpsi);
-        std::ofstream outphi("lcpcomputer.phi");
+        std::ofstream outphi("TeraLCP.phi");
         (*Phi.intLens).serialize(outphi);
         Phi.serialize(outphi);
         */
@@ -1594,7 +1594,7 @@ class LCPComputer {
     }
 };
 
-bool LCPComputer::validateRB3(const rb3_fmi_t* rb3){
+bool TeraLCP::validateRB3(const rb3_fmi_t* rb3){
     if (!rb3->e) {
         std::cerr << "ERROR: fmd is a multirope (mrope)? I don't know what that is." << std::endl;
         return false;
@@ -1602,4 +1602,4 @@ bool LCPComputer::validateRB3(const rb3_fmi_t* rb3){
     return true;
 }
 
-#endif //#ifndef R_SA_LCP_LCPCOMPUTER_H
+#endif //#ifndef R_SA_LCP_TeraLCP_H

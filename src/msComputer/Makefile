@@ -18,7 +18,7 @@ ropebwt3objs = $(shell grep -oPz "OBJS=.*\\\\\n.*\n" $(ropebwt3dir)/Makefile | t
 objs = $(foreach obj, $(ropebwt3objs), $(ropebwt3dir)/$(obj))
 
 msHeads = $(optIncDir)/util/util.h\
-           $(optIncDir)/lcpComputer/lcpComputer.h\
+           $(optIncDir)/TeraLCP/TeraLCP.h\
            $(optIncDir)/matchingStatistics/msIndex.h\
            $(optIncDir)/moveStructure/moveStructure.h\
 
@@ -46,7 +46,7 @@ clean:
 #test: msComputer
 #	set -e && \
 #	for testind in $(testinds); do \
-#		./lcpComputer -f fmd -i $$testind -orlcp test.rlcp -t testTEMPFILE; \
+#		./TeraLCP -f fmd -i $$testind -orlcp test.rlcp -t testTEMPFILE; \
 #	done
 
 msComputer: msComputer.cpp $(msHeads) $(objs)

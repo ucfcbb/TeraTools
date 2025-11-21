@@ -1,4 +1,4 @@
-#include "lcpComputer/lcpComputer.h"
+#include "TeraLCP/TeraLCP.h"
 #include "matchingStatistics/msIndex.h"
 #include "moveStructure/moveStructure.h"
 #include <chrono>
@@ -12,7 +12,7 @@
 //      * RLBWT[x]
 // 	 */
     
-//     // LCPComputer lcp_comp(inputOptbwtrl);
+//     // TeraLCP lcp_comp(inputOptbwtrl);
 	
 // 	MSIndex msIndex;
 // 	std::ifstream in(inpMSIndex);

@@ -1,6 +1,6 @@
 SHELL := /bin/bash
 
-all: lcpComputer
+all: TeraLCP
 
 .PHONY: all clean test testIndexOnly
 
@@ -18,7 +18,7 @@ ropebwt3objs = $(shell grep -oPz "OBJS=.*\\\\\n.*\n" $(ropebwt3dir)/Makefile | t
 objs = $(foreach obj, $(ropebwt3objs), $(ropebwt3dir)/$(obj))
 
 lcpHeads = $(optIncDir)/util/util.h\
-           $(optIncDir)/lcpComputer/lcpComputer.h\
+           $(optIncDir)/TeraLCP/TeraLCP.h\
            $(optIncDir)/moveStructure/moveStructure.h\
 
 libs = -lsdsl -lpthread -lz -lm -latomic
@@ -40,21 +40,21 @@ ifneq ($(omp),0)
 endif
 
 clean:
-	-rm lcpComputer
+	-rm TeraLCP
 
-testIndexOnly: lcpComputer
+testIndexOnly: TeraLCP
 	set -e && \
 	for testind in $(testinds); do \
-		./lcpComputer -f fmd -i $$testind -oindex $$testind -t testTEMPFILE; \
+		./TeraLCP -f fmd -i $$testind -oindex $$testind -t testTEMPFILE; \
         rm testTEMPFILE; \
 	done
 
-test: lcpComputer
+test: TeraLCP
 	set -e && \
 	for testind in $(testinds); do \
-		./lcpComputer -f fmd -i $$testind -orlcp test -t testTEMPFILE; \
+		./TeraLCP -f fmd -i $$testind -orlcp test -t testTEMPFILE; \
         rm testTEMPFILE; \
 	done
 
-lcpComputer: lcpComputer.cpp $(lcpHeads) $(objs)
+TeraLCP: TeraLCP.cpp $(lcpHeads) $(objs)
 	$(CXX) $(cppflags) $(incs) -L$(libdir) $(objs) $< -o $@ $(libs)

@@ -5,12 +5,12 @@
 set -e
 
 if [[ $# -lt 9 ]]; then
-    echo "please specify exactly 9 command line arguments: ropebwt3, lcpComputer, msIndexBuilder, MEM, bruteForceRepeats, generator, syngenparams, mode:[SM,LM], lengthThreshold"
+    echo "please specify exactly 9 command line arguments: ropebwt3, TeraLCP, msIndexBuilder, MEM, bruteForceRepeats, generator, syngenparams, mode:[SM,LM], lengthThreshold"
     exit 1
 fi
 
 ropebwt3=$1
-lcpComputer=$2
+TeraLCP=$2
 msIndexBuilder=$3
 MEM=$4
 MEM_BRUTE=$5
@@ -42,8 +42,8 @@ $ropebwt3 build -L -d -o temp/a.fmd generated/strings
 MEM_OUT="computedOutputs/MEM.out"
 BRUTE_OUT="computedOutputs/bruteMEM.out"
 
-echo "Running lcpComputer on temp/a.fmd"
-$lcpComputer -f fmd -i temp/a.fmd -t temp/temp -oindex temp/a -v quiet
+echo "Running TeraLCP on temp/a.fmd"
+$TeraLCP -f fmd -i temp/a.fmd -t temp/temp -oindex temp/a -v quiet
 
 echo "Running msIndexBuilder on temp/a.lcp_index"
 $msIndexBuilder -i temp/a.lcp_index -o temp/a -v quiet
