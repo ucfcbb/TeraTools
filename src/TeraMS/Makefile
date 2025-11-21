@@ -1,6 +1,6 @@
 SHELL := /bin/bash 
 
-all: msComputer
+all: TeraMS
 
 .PHONY: all clean test
 
@@ -41,13 +41,13 @@ ifneq ($(omp),0)
 endif
 
 clean:
-	-rm msComputer
+	-rm TeraMS
 
-#test: msComputer
+#test: TeraMS
 #	set -e && \
 #	for testind in $(testinds); do \
 #		./TeraLCP -f fmd -i $$testind -orlcp test.rlcp -t testTEMPFILE; \
 #	done
 
-msComputer: msComputer.cpp $(msHeads) $(objs)
+TeraMS: TeraMS.cpp $(msHeads) $(objs)
 	$(CXX) $(cppflags) $(incs) -L$(libdir) $(objs) $< -o $@ $(libs)

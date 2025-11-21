@@ -49,7 +49,7 @@
 
 int main(int argc, char*argv[]) {
     if (argc != 3) {
-		std::cout << "msComputer <path/to/msIndex/file> <path/to/pattern/file>" << std::endl;
+		std::cout << "TeraMS <path/to/msIndex/file> <path/to/pattern/file>" << std::endl;
         exit(1);
     }
 

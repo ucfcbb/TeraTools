@@ -1,4 +1,4 @@
-ourdirs = TeraLCP msComputer msIndexBuilder TeraMEM #repeats stats extract loader 
+ourdirs = TeraLCP TeraMS msIndexBuilder TeraMEM #repeats stats extract loader 
 subdirs = $(ourdirs) thirdparty
 
 all: $(subdirs)
