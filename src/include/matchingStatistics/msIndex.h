@@ -1263,6 +1263,4 @@ private:
     }
 };
 
-static constexpr const char* ms_index_extension = ".ms_index";
-
 #endif //#ifndef R_SA_LCP_MSINDEX_H
