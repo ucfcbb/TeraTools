@@ -1,6 +1,6 @@
 SHELL := /bin/bash
 
-all: msIndexBuilder
+all: TeraIndex
 
 .PHONY: all clean test TeraLCPTest
 
@@ -41,16 +41,16 @@ ifneq ($(omp),0)
 endif
 
 clean:
-	-rm msIndexBuilder
+	-rm TeraIndex
 
 TeraLCPTest:
 	make -C ../TeraLCP/ testIndexOnly
 
-test: msIndexBuilder TeraLCPTest
+test: TeraIndex TeraLCPTest
 	set -e && \
 	for testind in $(testinds); do \
-		./msIndexBuilder -i ../TeraLCP/$$testind.lcp_index -o $$testind; \
+		./TeraIndex -i ../TeraLCP/$$testind.lcp_index -o $$testind; \
 	done
 
-msIndexBuilder: msIndexBuilder.cpp $(msHeads) $(objs)
+TeraIndex: TeraIndex.cpp $(msHeads) $(objs)
 	$(CXX) $(cppflags) $(incs) -L$(libdir) $(objs) $< -o $@ $(libs)

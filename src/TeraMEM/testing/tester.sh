@@ -5,13 +5,13 @@
 set -e
 
 if [[ $# -lt 9 ]]; then
-    echo "please specify exactly 9 command line arguments: ropebwt3, TeraLCP, msIndexBuilder, TeraMEM, bruteForceRepeats, generator, syngenparams, mode:[SM,LM], lengthThreshold"
+    echo "please specify exactly 9 command line arguments: ropebwt3, TeraLCP, TeraIndex, TeraMEM, bruteForceRepeats, generator, syngenparams, mode:[SM,LM], lengthThreshold"
     exit 1
 fi
 
 ropebwt3=$1
 TeraLCP=$2
-msIndexBuilder=$3
+TeraIndex=$3
 TeraMEM=$4
 MEM_BRUTE=$5
 generator=$6
@@ -45,8 +45,8 @@ BRUTE_OUT="computedOutputs/bruteMEM.out"
 echo "Running TeraLCP on temp/a.fmd"
 $TeraLCP -f fmd -i temp/a.fmd -t temp/temp -oindex temp/a -v quiet
 
-echo "Running msIndexBuilder on temp/a.lcp_index"
-$msIndexBuilder -i temp/a.lcp_index -o temp/a -v quiet
+echo "Running TeraIndex on temp/a.lcp_index"
+$TeraIndex -i temp/a.lcp_index -o temp/a -v quiet
 
 echo "Running TeraMEM on temp/a.ms_index"
 $TeraMEM -MEM $MODE -i "temp/a.ms_index" -L $LEN -o $TeraMEM_OUT -v quiet

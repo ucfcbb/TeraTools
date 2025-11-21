@@ -1,6 +1,6 @@
 all: TeraMEM
 
-.PHONY: all clean test msIndexBuilderTest
+.PHONY: all clean test TeraIndexTest
 
 testinds = ../../data/testing/idx.fmd ../../data/testing/mtb152.fmd
 
@@ -40,10 +40,10 @@ endif
 clean:
 	-rm TeraMEM
 
-msIndexBuilderTest:
-	make -C ../msIndexBuilder/ test
+TeraIndexTest:
+	make -C ../TeraIndex/ test
 
-test: TeraMEM msIndexBuilderTest
+test: TeraMEM TeraIndexTest
 	set -e && \
 	for testind in $(testinds); do \
 		./TeraMEM -MEM SM -i $$testind.ms_index -o $$testind.SM.out; \
