@@ -1,14 +1,12 @@
 # TeraTools
 
-TeraTools is a software suite for constructing and analyzing compressed full-text indexes on terabase-scale pangenomic datasets. It implements the algorithms described in the paper:
-
-> "RLBWT-Based Index Construction in Compressed Space for Terabase-Scale Pangenome Analysis" (RECOMB 2026)
+TeraTools is a software suite for constructing and analyzing compressed full-text indexes on terabase-scale pangenomic datasets. 
 
 TeraTools enables efficient construction of run-length Burrows-Wheeler transform (RLBWT)-based indexes and their supporting data structures in $O(r)$ space and $O(n)$ time for repetitive datasets, where $r$ is the number of runs in the BWT and $n$ is the text length. This allows scalable analysis of massive, repetitive biological datasets such as human pangenomes and large bacterial collections.
 
 ## Scientific Motivation
 
-The decreasing cost of DNA sequencing has led to exponentially larger and more repetitive genomic datasets. Traditional full-text indexes become infeasible at this scale due to memory requirements. Compressed indexes, especially those based on the RLBWT, enable fast substring queries using space proportional to the nonredundant content of the data. However, constructing these indexes and their support structures (such as LCP arrays) efficiently has remained a major challenge. TeraTools addresses this by providing algorithms that build RLBWT-based indexes and all supporting structures in optimal time and space for large, repetitive datasets.
+Traditional full-text indexes become infeasible for terabase-scale pangenomic datasets due to memory requirements. Compressed indexes, especially those based on the RLBWT, enable fast substring queries using space proportional to the nonredundant content of the data. However, constructing these indexes and their support structures (such as LCP arrays) efficiently has remained a major challenge. TeraTools addresses this by providing algorithms that build RLBWT-based indexes and all supporting structures in optimal time and space for large, repetitive datasets.
 
 ## Main Features
 
@@ -79,10 +77,7 @@ Each module can be run independently. See module documentation and comments for 
 
 ## Reference
 
-If you use TeraTools in your research, please cite:
-
-> "RLBWT-Based Index Construction in Compressed Space for Terabase-Scale Pangenome Analysis"
-> Ahsan Sanaullah, Nathaniel K. Brown, Pramesh Shakya, Arun Deegutla, Ardalan Naseri, Ben Langmead, Degui Zhi, Shaojie Zhang. RECOMB 2026.
+If you use TeraTools in your research, please cite: TBA.
 
 ## Dependencies
 
