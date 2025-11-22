@@ -1,5 +1,5 @@
-#ifndef R_SA_LCP_MSINDEX_H
-#define R_SA_LCP_MSINDEX_H
+#ifndef R_SA_LCP_TeraIndex_H
+#define R_SA_LCP_TeraIndex_H
 #include<optional>
 #include<sdsl/int_vector.hpp>
 #include"moveStructure/moveStructure.h"
@@ -12,7 +12,7 @@
 
 static constexpr const char* ms_index_extension = ".ms_index";
 
-class MSIndex {
+class TeraIndex {
     uint64_t totalLen;
     sdsl::int_vector<> F, rlbwt;
 
@@ -1263,4 +1263,4 @@ private:
     }
 };
 
-#endif //#ifndef R_SA_LCP_MSINDEX_H
+#endif //#ifndef R_SA_LCP_TeraIndex_H

@@ -1,5 +1,5 @@
 #include"util/util.h"
-#include"TeraIndex/msIndex.h"
+#include"TeraIndex/TeraIndex.h"
 #include"TeraLCP/TeraLCP.h"
 
 void printUsage() {
@@ -84,6 +84,6 @@ int main(const int argc, const char*argv[]) {
         std::cerr << "Output file '" << o.oindex << "' failed to open for reading!\n";
         exit(1);
     }
-    MSIndex().constructFromLCPIndexFileWriteAndClear(in, out, o.v,  o.vLF, o.vPsi, o.vText, o.vPhi, o.vInvPhi);
+    TeraIndex().constructFromLCPIndexFileWriteAndClear(in, out, o.v,  o.vLF, o.vPsi, o.vText, o.vPhi, o.vInvPhi);
     if (o.v >= TIME) { Timer.stop(); } //TeraIndex
 }

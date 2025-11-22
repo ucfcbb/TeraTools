@@ -1,5 +1,5 @@
 #include"util/util.h"
-#include"TeraIndex/msIndex.h"
+#include"TeraIndex/TeraIndex.h"
 
 void printUsage() {
     std::cout << 
@@ -99,7 +99,7 @@ int main(const int argc, const char *argv[]) {
     std::ofstream out = safeOpenFile<std::ofstream>(o.oMEMs);
 
     if (o.v >= TIME) { Timer.start("Loading index"); }
-    MSIndex ind;
+    TeraIndex ind;
     ind.load(in);
     if (o.v >= TIME) { Timer.stop(); }
 

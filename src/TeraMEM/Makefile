@@ -16,7 +16,7 @@ ropebwt3objs = $(shell grep -oPz "OBJS=.*\\\\\n.*\n" $(ropebwt3dir)/Makefile | t
 objs = $(foreach obj, $(ropebwt3objs), $(ropebwt3dir)/$(obj))
 
 TeraMEMHeads = $(optIncDir)/util/util.h\
-           $(optIncDir)/TeraIndex/msIndex.h\
+           $(optIncDir)/TeraIndex/TeraIndex.h\
            $(optIncDir)/moveStructure/moveStructure.h\
 
 libs = -lsdsl -lpthread -lz -lm
