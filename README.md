@@ -1,6 +1,6 @@
 # TeraTools
 
-TeraTools is a software suite for constructing and analyzing compressed full-text indexes on terabase-scale pangenomic datasets. 
+TeraTools is a software suite for constructing and analyzing compressed full-text indexes on terabase-scale pangenomic datasets.
 
 TeraTools enables efficient construction of run-length Burrows-Wheeler transform (RLBWT)-based indexes and their supporting data structures in $O(r)$ space and $O(n)$ time for repetitive datasets, where $r$ is the number of runs in the BWT and $n$ is the text length. This allows scalable analysis of massive, repetitive biological datasets such as human pangenomes and large bacterial collections.
 
@@ -46,6 +46,16 @@ RLBWT generation with sequential grlbwt had a lower memory consumption that all 
   - `thirdparty/` — External dependencies (e.g., kseq.h for FASTA parsing)
 - `data/` — Datasets, synthetic data generation scripts, and testing files
 - `less_efficient_but_accurate_algos/` — Reference and baseline implementations for accuracy
+
+## Test Data
+
+The repository includes a set of test data files to help verify the functionality of TeraTools modules. These files are located in `data/testing/` and include:
+
+- Example `.fmd` files and their corresponding `.len` files for various crop and single datasets
+- Index files (`idx.fmd`, `idx.input`, `idx.len`)
+- Reference files for MTB152 and other datasets (`mtb152.fmd`, `mtb152.fmd.ssa`, `mtb152.fmr`)
+
+These files allow you to quickly test the construction and analysis features of TeraTools without needing to generate large datasets. Use them to validate installation, run example workflows, and ensure correct output from each module.
 
 ## Installation
 
