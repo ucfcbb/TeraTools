@@ -19,3 +19,4 @@ TempData
 *.SM.out
 *.lcp_index
 *.ms_index
+.DS_Store
