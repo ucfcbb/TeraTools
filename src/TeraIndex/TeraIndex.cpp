@@ -1,5 +1,5 @@
 #include"util/util.h"
-#include"matchingStatistics/msIndex.h"
+#include"TeraIndex/msIndex.h"
 #include"TeraLCP/TeraLCP.h"
 
 void printUsage() {

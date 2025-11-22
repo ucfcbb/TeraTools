@@ -19,7 +19,7 @@ objs = $(foreach obj, $(ropebwt3objs), $(ropebwt3dir)/$(obj))
 
 msHeads = $(optIncDir)/util/util.h\
 		  $(optIncDir)/TeraLCP/TeraLCP.h\
-		  $(optIncDir)/matchingStatistics/msIndex.h\
+		  $(optIncDir)/TeraIndex/msIndex.h\
 		  $(optIncDir)/moveStructure/moveStructure.h
 
 libs = -lsdsl -lpthread -lz -lm -latomic

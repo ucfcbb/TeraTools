@@ -1,4 +1,4 @@
-#include "matchingStatistics/msIndex.h"
+#include "TeraIndex/msIndex.h"
 #include "util/fasta.h"
 #include "util/util.h"
 #include <queue>
