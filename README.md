@@ -30,8 +30,8 @@ TeraTools scales to terabase-sized datasets like CommonBacteria and human472.
 |                                                                | mtb152 | chr19.1000 | human100      | human472        | CommonBacteria  |
 | --------------                                                 | ------ | ---------- | ------------- | --------------- | --------------- |
 | [rlbwt2lcp](https://github.com/nicolaprezza/rlbwt2lcp)         | 0.92   | 76.00      | (est.) 460.18 | (est.) 1,947.93 | (est.) 9,901.64 |
-| [pfp-thresholds](https://github.com/maxrossi91/pfp-thresholds) | 0.70   | 40.66      | -             | 2,134.90        | -               |
-| [TeraLCP](src/TeraLCP)                                         | 0.16   | 2.83       | 136.99        | 172.16          | 613.65          |
+| [pfp-thresholds](https://github.com/maxrossi91/pfp-thresholds) | 0.70   | 40.66      | 791.92        | 2,134.90        | -               |
+| [TeraLCP](src/TeraLCP)                                         | 0.16   | 2.83       | 137.01        | 172.16          | 613.65          |
 
 ## Project Structure
 
