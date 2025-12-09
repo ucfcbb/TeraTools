@@ -40,4 +40,4 @@ echo "Cleaning up files"
 rm generated/stringsAndReverseRaw generated/stringsAndReverse generated/strings
 rm temp/a consoleOutputs/ropebwt3
 rm computedOutputs/minlcpTeraLCP.rlcp computedOutputs/minlcpKactl
-rm construction.html
+#rm construction.html

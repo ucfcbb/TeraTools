@@ -73,6 +73,7 @@ diff -u $TeraMEM_OUT.sorted $BRUTE_OUT.sorted
 
 echo "Cleaning up files"
 rm generated/stringsAndReverseRaw generated/stringsAndReverse generated/strings
-rm temp/a.fmd temp/a.lcp_index temp/temp construction.html temp/a.ms_index
+rm temp/a.fmd temp/a.lcp_index temp/temp temp/a.ms_index
+#rm construction.html
 rm $TeraMEM_OUT $BRUTE_OUT
 rm $TeraMEM_OUT.sorted $BRUTE_OUT.sorted 
