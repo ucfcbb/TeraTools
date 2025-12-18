@@ -846,7 +846,11 @@ class TeraLCP {
                 //In our application, LCP can be less than the interval length when Ns are present in the interval
                 //since we don't allow matches to include Ns. If this wasn't the case, the currLCP could be initialized to at least (*Phi.intLens)[phiInt] - 1
 
-                while (F[suffMatchEndIntPoint.interval] != 0 && F[suffMatchEndIntPoint.interval] != 5 &&
+                //while (F[suffMatchEndIntPoint.interval] != 0 && F[suffMatchEndIntPoint.interval] != 5 &&
+                //
+                //removed N not matching special case for DNA/RNA.
+                //TODO later: slightly optimize by starting at end of phi interval instead of beginning.
+                while (F[suffMatchEndIntPoint.interval] != 0 &&
                         F[suffMatchEndIntPoint.interval] == F[coordAbove.interval]) {
                     suffMatchEndIntPoint = Psi.map(suffMatchEndIntPoint);
                     coordAbove = Psi.map(coordAbove);
