@@ -11,7 +11,8 @@ incdir = ../thirdparty/include
 libdir = ../thirdparty/lib
 ropebwt3dir = ../../ropebwt3
 
-ropebwt3objs = $(shell grep -oPz "OBJS=.*\\\\\n.*\n" $(ropebwt3dir)/Makefile | tail -c +6 | tr -d "\\\\")
+ropebwt3objs = $(shell if [ ! -d $(ropebwt3dir) ]; then git clone https://github.com/lh3/ropebwt3 $(ropebwt3dir); fi &&\
+	grep -oPz "OBJS=.*\\\\\n.*\n" $(ropebwt3dir)/Makefile | tail -c +6 | tr -d "\\\\")
 
 objs = $(foreach obj, $(ropebwt3objs), $(ropebwt3dir)/$(obj))
 
@@ -50,5 +51,11 @@ test: TeraMEM TeraIndexTest
 		./TeraMEM -MEM LM -i $$testind.ms_index -o $$testind.LM.out -L $(LEN); \
 	done
 
-TeraMEM: TeraMEM.cpp $(TeraMEMHeads) $(objs)
+$(objs): 
+	make -C $(ropebwt3dir)
+
+$(libdir) $(incdir):
+	make -C ../thirdparty/
+
+TeraMEM: TeraMEM.cpp $(TeraMEMHeads) $(objs) $(libdir) $(incdir)
 	$(CXX) $(cppflags) $(incs) -L$(libdir) $(objs) $< -o $@ $(libs)
