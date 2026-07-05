@@ -47,18 +47,20 @@ for spec in "${CASES[@]}"; do
     "$RB3" build -R -d -o "${tmp}/index.fmd" "$fa_path" 2>/dev/null \
         || { echo "FAIL ${dir}: ropebwt3 build failed"; failures=$((failures+1)); rm -rf "$tmp"; continue; }
 
-    # (1) parallel/default path vs pfp goldens
-    "$TERALCP" -f fmd -i "${tmp}/index.fmd" -t "${tmp}/t" -othresholds "${tmp}/A" -v quiet 2>/dev/null
+    # (1) pfp-thresholds-style 5-byte output (parallel path) vs pfp goldens. The default
+    #     -othresholds format is the self-describing TLTHR v1; --thr-pfp emits the
+    #     pfp-thresholds-style 5-byte records the committed goldens use.
+    "$TERALCP" -f fmd -i "${tmp}/index.fmd" -t "${tmp}/t" -othresholds "${tmp}/A" --thr-pfp -v quiet 2>/dev/null
     cmp -s "${tmp}/A.thr"     "$gthr" || { echo "FAIL ${dir}: .thr differs from golden";     ok=0; }
     cmp -s "${tmp}/A.thr_pos" "$gpos" || { echo "FAIL ${dir}: .thr_pos differs from golden"; ok=0; }
 
     # (2) phi-walk path (forced by also requesting -orlcp) must equal the parallel path
-    "$TERALCP" -f fmd -i "${tmp}/index.fmd" -t "${tmp}/t" -othresholds "${tmp}/B" -orlcp "${tmp}/junk" -v quiet 2>/dev/null
+    "$TERALCP" -f fmd -i "${tmp}/index.fmd" -t "${tmp}/t" -othresholds "${tmp}/B" --thr-pfp -orlcp "${tmp}/junk" -v quiet 2>/dev/null
     cmp -s "${tmp}/A.thr"     "${tmp}/B.thr"     || { echo "FAIL ${dir}: parallel vs phi-walk .thr";     ok=0; }
     cmp -s "${tmp}/A.thr_pos" "${tmp}/B.thr_pos" || { echo "FAIL ${dir}: parallel vs phi-walk .thr_pos"; ok=0; }
 
     # (3) -f rlbwt round-trip: TeraLCP's own heads/len reproduce the thresholds
-    "$TERALCP" -f rlbwt -i "${tmp}/A" -t "${tmp}/t" -othresholds "${tmp}/C" -v quiet 2>/dev/null
+    "$TERALCP" -f rlbwt -i "${tmp}/A" -t "${tmp}/t" -othresholds "${tmp}/C" --thr-pfp -v quiet 2>/dev/null
     cmp -s "${tmp}/A.thr"     "${tmp}/C.thr"     || { echo "FAIL ${dir}: -f rlbwt round-trip .thr";     ok=0; }
     cmp -s "${tmp}/A.thr_pos" "${tmp}/C.thr_pos" || { echo "FAIL ${dir}: -f rlbwt round-trip .thr_pos"; ok=0; }
 

@@ -23,6 +23,8 @@ void printUsage() {
         "    -othresholds BASE                           optional       Output pfp-thresholds-style thresholds to BASE.thr and BASE.thr_pos,\n"
         "                                                              plus run-length BWT files BASE.bwt.heads and BASE.bwt.len\n"
         "    -threshbound                                optional       (-othresholds) prefer a run-boundary row for thr_pos within the min range\n"
+        "    --thr-pfp                                   optional       (-othresholds) write pfp-thresholds-style headerless 5-byte threshold files (requires n < 2^40)\n"
+        "    --thr-width N                               optional       (-othresholds) force threshold field width in bytes (default: auto from n)\n"
         "    --fmd       FILE                            optional       (-othresholds with -f lcp_index) FMD matching the index, for run metadata\n"
         "    --rlbwt-meta BASE                           optional       (-othresholds with -f lcp_index) grlBWT/rlbwt heads/len (BASE.bwt.heads/.bwt.len)\n"
         "                                                              for run metadata; use instead of --fmd to resume the separator pipeline\n"
@@ -50,6 +52,8 @@ struct options{
     enum inputFormat { text, bwt, rlbwt, fmd, lcp_index }inputFormat;
     std::string inputFile, tempFile, oindex="", orlcp="", othresholds="", fmdFile="", rlbwtMeta="";
     bool threshbound = false;
+    bool thrLegacy = false;      // --thr-pfp: emit old headerless 5-byte thresholds
+    unsigned thrWidth = 0;       // --thr-width N: force field width (0 = auto from n)
     unsigned numThreads = omp_get_max_threads();
     bool mmap;
     #ifndef BENCHFASTONLY
@@ -89,6 +93,8 @@ void processOptions(const int argc, const char* argv[]) {
         o.orlcp += rlcp_extension;
     o.othresholds = getArg("-othresholds", false, true);
     o.threshbound = (getArg("-threshbound", false, false) != "");
+    o.thrLegacy = (getArg("--thr-pfp", false, false) != "");
+    { std::string tw = getArg("--thr-width", false, true); o.thrWidth = tw.empty() ? 0u : static_cast<unsigned>(std::stoul(tw)); }
     o.fmdFile = getArg("--fmd", false, true);
     // Run metadata for the -f lcp_index resume can instead come from grlBWT/rlbwt
     // companion files (BASE.bwt.heads/.bwt.len), so the rlbwt (separator) pipeline
@@ -304,9 +310,9 @@ int main(const int argc, const char*argv[]) {
         const bool needIndexLater = (o.oindex != "" || o.orlcp != "");
         try {
             if (needIndexLater)
-                ourIndex.writeThresholds(o.othresholds, o.threshbound, runInfo);
+                ourIndex.writeThresholds(o.othresholds, o.threshbound, runInfo, o.thrLegacy, o.thrWidth);
             else
-                ourIndex.writeThresholdsParallel(o.othresholds, o.threshbound, runInfo, o.v);
+                ourIndex.writeThresholdsParallel(o.othresholds, o.threshbound, runInfo, o.v, o.thrLegacy, o.thrWidth);
             // Emit the run-length BWT companion files too, except when the run
             // metadata came from rlbwt heads/len (-f rlbwt or --rlbwt-meta): those
             // files already exist, and writeBwtHeadsLen's DNA code->ASCII map would

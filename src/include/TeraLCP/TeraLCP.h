@@ -1684,6 +1684,53 @@ class TeraLCP {
     }
 
 private:
+    // Self-describing threshold-file format ("TLTHR v1"): a 32-byte header
+    //   [0..7]  magic 93 'T' 'L' 'T' 'H' 'R' 00 01(version)
+    //   [8]     field width (bytes per record), [9] flags (bit0 = little-endian),
+    //   [10..11] reserved, [12..19] record count (uint64 LE), [20..31] reserved
+    // followed by `count` little-endian records of `width` bytes each. The reader
+    // autodetects this header; --thr-pfp emits the old headerless 5-byte
+    // records instead. Format is specified in BenLangmead/thresh-tools (SPEC.md).
+    struct ThrFileWriter {
+        std::ofstream thrOut, thrPosOut;
+        std::vector<char> buf1, buf2;
+        unsigned width;
+        ThrFileWriter(const std::string& basePath, uint64_t count, unsigned width_, bool legacy)
+            : buf1(4 << 20), buf2(4 << 20), width(width_) {
+            thrOut.open(basePath + ".thr", std::ios::binary);
+            thrPosOut.open(basePath + ".thr_pos", std::ios::binary);
+            if (!thrOut.is_open() || !thrPosOut.is_open())
+                throw std::runtime_error("writeThresholds: failed to open output files");
+            thrOut.rdbuf()->pubsetbuf(buf1.data(), buf1.size());
+            thrPosOut.rdbuf()->pubsetbuf(buf2.data(), buf2.size());
+            if (!legacy) { writeHeader(thrOut, width, count); writeHeader(thrPosOut, width, count); }
+        }
+        static void writeHeader(std::ofstream& o, unsigned width, uint64_t count) {
+            char h[32] = {0};
+            static const unsigned char MAGIC[8] = {0x93, 'T', 'L', 'T', 'H', 'R', 0x00, 0x01};
+            std::memcpy(h, MAGIC, 8);
+            h[8] = static_cast<char>(width);
+            h[9] = 1;                          // flags: bit0 = little-endian
+            std::memcpy(h + 12, &count, 8);    // record count (LE)
+            o.write(h, 32);
+        }
+        void writeOne(uint64_t thr, uint64_t pos) {
+            char b[8];
+            std::memcpy(b, &thr, 8); thrOut.write(b, width);   // low `width` LE bytes
+            std::memcpy(b, &pos, 8); thrPosOut.write(b, width);
+        }
+    };
+
+    // Bytes per threshold field: 5 for --thr-pfp, an explicit override, or the
+    // minimum width that holds the BWT length totalLen (positions/values are <= n).
+    unsigned thrFieldWidth(bool legacy, unsigned widthOverride) const {
+        if (legacy) return 5;
+        if (widthOverride) return widthOverride;
+        unsigned b = 1;
+        while (b < 8 && totalLen >= (1ULL << (8 * b))) ++b;
+        return b;
+    }
+
     /**
      * Shared O(r)/O(sigma) sticky-register sweep that turns a per-run LCP summary
      * into .thr/.thr_pos. Generic over the array types so both the phi-walk
@@ -1695,8 +1742,8 @@ private:
     void writeThresholdsSweep(const std::string& basePath, bool boundaryMode,
                               const SymArr& symbols, const StartArr& runStarts,
                               const TopArr& topLCP, const MinArr& minLCP,
-                              const PosArr& firstMinPos, const PosArr& lastMinPos) const {
-        constexpr size_t THRBYTES = 5;
+                              const PosArr& firstMinPos, const PosArr& lastMinPos,
+                              unsigned width, bool legacy) const {
         const uint64_t runs = symbols.size();
         if (runs == 0) return;
         const uint64_t SENT = static_cast<uint64_t>(-1);
@@ -1709,20 +1756,8 @@ private:
                               regFirst(maxSym + 1, 0), regLast(maxSym + 1, 0);
         std::vector<char> seenChar(maxSym + 1, 0);
 
-        std::ofstream thrOut(basePath + ".thr", std::ios::binary);
-        std::ofstream thrPosOut(basePath + ".thr_pos", std::ios::binary);
-        if (!thrOut.is_open() || !thrPosOut.is_open())
-            throw std::runtime_error("writeThresholds: failed to open output files");
-        constexpr size_t FILEBUF = 4 * 1024 * 1024;
-        std::vector<char> outBuf1(FILEBUF), outBuf2(FILEBUF);
-        thrOut.rdbuf()->pubsetbuf(outBuf1.data(), outBuf1.size());
-        thrPosOut.rdbuf()->pubsetbuf(outBuf2.data(), outBuf2.size());
-
-        char buf[THRBYTES];
-        auto writeOne = [&](uint64_t thr, uint64_t pos) {
-            std::memcpy(buf, &thr, THRBYTES); thrOut.write(buf, THRBYTES);
-            std::memcpy(buf, &pos, THRBYTES); thrPosOut.write(buf, THRBYTES);
-        };
+        ThrFileWriter w(basePath, runs, width, legacy);
+        auto writeOne = [&](uint64_t thr, uint64_t pos) { w.writeOne(thr, pos); };
 
         for (uint64_t i = 0; i < runs; ++i) {
             uint64_t c = symbols[i];
@@ -1791,8 +1826,8 @@ private:
      */
     template<typename SymArr>
     void writeThresholdsSweepSpilled(const std::string& basePath, const SymArr& symbols,
-                                     uint64_t runs, const std::string& spillPath) const {
-        constexpr size_t THRBYTES = 5;
+                                     uint64_t runs, const std::string& spillPath,
+                                     unsigned width, bool legacy) const {
         if (runs == 0) return;
         const uint64_t SENT = static_cast<uint64_t>(-1);
 
@@ -1802,19 +1837,8 @@ private:
                               regFirst(maxSym + 1, 0), regLast(maxSym + 1, 0);
         std::vector<char> seenChar(maxSym + 1, 0);
 
-        std::ofstream thrOut(basePath + ".thr", std::ios::binary);
-        std::ofstream thrPosOut(basePath + ".thr_pos", std::ios::binary);
-        if (!thrOut.is_open() || !thrPosOut.is_open())
-            throw std::runtime_error("writeThresholds: failed to open output files");
-        constexpr size_t FILEBUF = 4 * 1024 * 1024;
-        std::vector<char> outBuf1(FILEBUF), outBuf2(FILEBUF);
-        thrOut.rdbuf()->pubsetbuf(outBuf1.data(), outBuf1.size());
-        thrPosOut.rdbuf()->pubsetbuf(outBuf2.data(), outBuf2.size());
-        char buf[THRBYTES];
-        auto writeOne = [&](uint64_t thr, uint64_t pos) {
-            std::memcpy(buf, &thr, THRBYTES); thrOut.write(buf, THRBYTES);
-            std::memcpy(buf, &pos, THRBYTES); thrPosOut.write(buf, THRBYTES);
-        };
+        ThrFileWriter w(basePath, runs, width, legacy);
+        auto writeOne = [&](uint64_t thr, uint64_t pos) { w.writeOne(thr, pos); };
 
         // Backward block reader: records are in reverse run order, so we load blocks
         // from the end of the file and, within a block, consume highest file index
@@ -1881,7 +1905,8 @@ private:
      * of c, up to and including run i's first row); that range-minimum decomposes
      * into the per-run minima this gathers.
      */
-    void writeThresholdsImpl(const std::string& basePath, bool boundaryMode, const RunInfo& runInfo) const {
+    void writeThresholdsImpl(const std::string& basePath, bool boundaryMode, const RunInfo& runInfo,
+                             unsigned width, bool legacy) const {
         const uint64_t runs = F.size();
         if (runs == 0) return;
 
@@ -1924,12 +1949,12 @@ private:
         }
 
         writeThresholdsSweep(basePath, boundaryMode, symbols, runStarts,
-                             topLCP, minLCP, firstMinPos, lastMinPos);
+                             topLCP, minLCP, firstMinPos, lastMinPos, width, legacy);
     }
 
 public:
     /**
-     * Writes .thr and .thr_pos binary files (format per thr_spec.md) at
+     * Writes .thr and .thr_pos binary files (format per BenLangmead/thresh-tools) at
      * basePath.thr and basePath.thr_pos. For each run i of character c, thr[i] is
      * the minimum LCP in the gap between the previous run of c and run i, and
      * thr_pos[i] is a BWT row achieving it; the first-ever run of c writes 0,0.
@@ -1940,7 +1965,8 @@ public:
      * runInfo must come from runInfoFromFMD() on the FMD matching this index. This
      * is the non-destructive phi-walk path; writeThresholdsParallel is faster.
      */
-    void writeThresholds(const std::string& basePath, bool boundaryMode, const RunInfo& runInfo) const {
+    void writeThresholds(const std::string& basePath, bool boundaryMode, const RunInfo& runInfo,
+                         bool legacy, unsigned widthOverride) const {
         if (runInfo.lengths.size() != F.size()) {
             throw std::runtime_error("writeThresholds: FMD run count (" + std::to_string(runInfo.lengths.size())
                 + ") != lcp_index run count (" + std::to_string(F.size())
@@ -1952,7 +1978,10 @@ public:
                 + ") != lcp_index total length (" + std::to_string(totalLen)
                 + "). FMD and lcp_index may be from different inputs.");
         }
-        writeThresholdsImpl(basePath, boundaryMode, runInfo);
+        if (legacy && totalLen >= (1ULL << 40))
+            throw std::runtime_error("pfp-thresholds-style 5-byte thresholds cannot represent BWT length >= 2^40 ("
+                + std::to_string(totalLen) + "); omit --thr-pfp for the wide self-describing format");
+        writeThresholdsImpl(basePath, boundaryMode, runInfo, thrFieldWidth(legacy, widthOverride), legacy);
     }
 
     /**
@@ -1967,11 +1996,15 @@ public:
                                  #ifndef BENCHFASTONLY
                                  , const verbosity v
                                  #endif
-                                 ) {
+                                 , bool legacy, unsigned widthOverride) {
         const uint64_t runs = F.size();
         if (runs == 0) return;
         if (runInfo.symbols.size() != runs || runInfo.lengths.size() != runs)
             throw std::runtime_error("writeThresholds: run info size mismatch");
+        if (legacy && totalLen >= (1ULL << 40))
+            throw std::runtime_error("pfp-thresholds-style 5-byte thresholds cannot represent BWT length >= 2^40 ("
+                + std::to_string(totalLen) + "); omit --thr-pfp for the wide self-describing format");
+        const unsigned width = thrFieldWidth(legacy, widthOverride);
         if (boundaryMode) {
             // Boundary mode needs random access to runStarts (binary search in the
             // sweep); keep the proven RAM-summary path for it.
@@ -1983,7 +2016,7 @@ public:
                 &summary);
             writeThresholdsSweep(basePath, true, runInfo.symbols, summary.runStarts,
                                  summary.topLCP, summary.minLCP,
-                                 summary.firstMinPos, summary.lastMinPos);
+                                 summary.firstMinPos, summary.lastMinPos, width, legacy);
             return;
         }
         // [Tier B] Default mode: spill the per-run summary to disk during the
@@ -2003,7 +2036,7 @@ public:
                 #endif
                 nullptr, &spill);
         }
-        writeThresholdsSweepSpilled(basePath, runInfo.symbols, runs, spillPath);
+        writeThresholdsSweepSpilled(basePath, runInfo.symbols, runs, spillPath, width, legacy);
         std::remove(spillPath.c_str());
     }
 
