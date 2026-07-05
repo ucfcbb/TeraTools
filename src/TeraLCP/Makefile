@@ -2,7 +2,7 @@ SHELL := /bin/bash
 
 all: TeraLCP
 
-.PHONY: all clean test testIndexOnly
+.PHONY: all clean test testIndexOnly test-thresholds
 
 numIterRand=10
 
@@ -56,6 +56,10 @@ test: TeraLCP
 		./TeraLCP -f fmd -i $$testind -orlcp test -t testTEMPFILE; \
         rm testTEMPFILE; \
 	done
+
+# Self-contained threshold tests (needs only TeraLCP + ropebwt3, both built here).
+test-thresholds: TeraLCP
+	bash ../../test/run_threshold_tests.sh
 
 $(objs): 
 	make -C $(ropebwt3dir)
