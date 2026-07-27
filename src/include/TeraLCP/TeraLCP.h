@@ -1042,8 +1042,8 @@ class TeraLCP {
           sdsl::serialize(totalLen, o);
           sdsl::serialize(numSequences, o);
           sdsl::serialize(maxPhiIntLen, o);
-          cpWriteU64Vec(o, numTopRuns);
-          cpWriteU64Vec(o, seqLens);
+          cpWriteU64Vec(o, numTopRuns); //replace with sdsl::serialize?
+          cpWriteU64Vec(o, seqLens); //replace with sdsl::serialize?
           sdsl::serialize(PhiIntLen, o);
           o.close(); cpCommit(dir, "aux.bin"); }
     }
@@ -1057,8 +1057,8 @@ class TeraLCP {
           sdsl::load(totalLen, i);
           sdsl::load(numSequences, i);
           sdsl::load(maxPhiIntLen, i);
-          cpReadU64Vec(i, numTopRuns);
-          cpReadU64Vec(i, seqLens);
+          cpReadU64Vec(i, numTopRuns); //replace with sdsl::load?
+          cpReadU64Vec(i, seqLens); //replace with sdsl::load?
           sdsl::load(PhiIntLen, i); }
     }
     // Boundary B: persist the Phi-and-samples outputs. F/Psi/intAtTop/intAtEnd/aux
