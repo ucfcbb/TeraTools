@@ -8,6 +8,14 @@
 #include<omp.h>
 #include<atomic>
 #include<mutex>
+#include<stdexcept>
+#include<string>
+#include<fstream>
+#include<cstring>
+#include<cstdio>
+#include<cerrno>
+#include<numeric>
+#include<algorithm>
 
 static constexpr const char* lcp_index_extension = ".lcp_index";
 
@@ -936,6 +944,162 @@ class TeraLCP {
     public:
     typedef uint64_t size_type;
 
+    // True once a complete lcp_index has been built. It is set false when the
+    // constructor returns early after writing a -stop-after checkpoint, so the
+    // driver knows not to emit a (partial) index. Not serialized; it is purely a
+    // runtime status and survives the move-assignment used in main().
+    bool complete = false;
+
+    // Which slow construct phase to stop after, so a multi-week build can be
+    // chunked across successive <=7-day jobs. NONE runs straight through.
+    //   A: after endmarker repair (ComputeAuxAndRepairPsi)
+    //   B: after Phi + samples (ConstructPhiAndSamples)
+    // (Phase C -- LCP computation -- is the existing .lcp_index checkpoint.)
+    enum class StopAfter { NONE, A, B };
+
+    // ---- Checkpoint/resume plumbing ------------------------------------------
+    // With -checkpoint <dir>, construct durably serializes each phase's outputs
+    // into <dir> (one file per structure, via the same sdsl::serialize calls used
+    // for the in-process spill and the final index). Each file is written to
+    // <name>.tmp then renamed into place (atomic), and the manifest -- recording
+    // the last completed phase plus the input identity (r, totalLen) -- is written
+    // last, so a job killed mid-write leaves the previous checkpoint intact. On
+    // startup construct reads the manifest and jumps to the first incomplete phase,
+    // reloading that phase's inputs instead of recomputing the completed ones.
+
+    struct CpManifest { int version = 0, phase = 0; uint64_t r = 0, totalLen = 0, numSequences = 0; bool found = false; };
+
+    static void cpWriteU64Vec(std::ostream& out, const std::vector<uint64_t>& v) {
+        uint64_t n = v.size();
+        out.write(reinterpret_cast<const char*>(&n), sizeof(n));
+        if (n) out.write(reinterpret_cast<const char*>(v.data()), n * sizeof(uint64_t));
+    }
+    static void cpReadU64Vec(std::istream& in, std::vector<uint64_t>& v) {
+        uint64_t n = 0;
+        in.read(reinterpret_cast<char*>(&n), sizeof(n));
+        v.resize(n);
+        if (n) in.read(reinterpret_cast<char*>(v.data()), n * sizeof(uint64_t));
+    }
+    // Open a checkpoint component on its .tmp path; pair with cpCommit once written.
+    static std::ofstream cpOpen(const std::string& dir, const std::string& name) {
+        std::ofstream out(dir + "/" + name + ".tmp", std::ios::binary | std::ios::trunc);
+        if (!out.is_open()) {
+            std::cerr << "ERROR: cannot open checkpoint file '" << dir << "/" << name << ".tmp' for writing: " << std::strerror(errno) << "\n";
+            exit(1);
+        }
+        return out;
+    }
+    // Atomically publish a component written via cpOpen (rename .tmp -> name).
+    static void cpCommit(const std::string& dir, const std::string& name) {
+        const std::string tmp = dir + "/" + name + ".tmp", fin = dir + "/" + name;
+        if (std::rename(tmp.c_str(), fin.c_str()) != 0) {
+            std::cerr << "ERROR: cannot commit checkpoint '" << tmp << "' -> '" << fin << "': " << std::strerror(errno) << "\n";
+            exit(1);
+        }
+    }
+    static std::ifstream cpOpenIn(const std::string& dir, const std::string& name) {
+        std::ifstream in(dir + "/" + name, std::ios::binary);
+        if (!in.is_open()) {
+            std::cerr << "ERROR: cannot open checkpoint file '" << dir << "/" << name << "' for reading: " << std::strerror(errno) << "\n";
+            exit(1);
+        }
+        return in;
+    }
+    static CpManifest cpReadManifest(const std::string& dir) {
+        CpManifest m;
+        std::ifstream in(dir + "/manifest.txt");
+        if (!in.is_open()) return m;
+        m.found = true;
+        std::string k;
+        while (in >> k) {
+            if (k == "version") in >> m.version;
+            else if (k == "phase") in >> m.phase;
+            else if (k == "r") in >> m.r;
+            else if (k == "totalLen") in >> m.totalLen;
+            else if (k == "numSequences") in >> m.numSequences;
+        }
+        return m;
+    }
+    // Written last; its rename commits the checkpoint at phase `phase` (1=A, 2=B).
+    static void cpWriteManifest(const std::string& dir, int phase, uint64_t r, uint64_t totalLen, uint64_t numSequences) {
+        std::ofstream out = cpOpen(dir, "manifest.txt");
+        out << "version 1\n" << "phase " << phase << "\n" << "r " << r << "\n"
+            << "totalLen " << totalLen << "\n" << "numSequences " << numSequences << "\n";
+        out.close();
+        cpCommit(dir, "manifest.txt");
+    }
+
+    // Boundary A: persist the endmarker-repair outputs (everything phases B and C
+    // need that is not recomputed). Psi is const across B and C, so this single
+    // snapshot serves both an A-resume and a B-resume.
+    void cpWriteCheckpointA(const std::string& dir, uint64_t numSequences,
+            const std::vector<uint64_t>& numTopRuns, const std::vector<uint64_t>& seqLens,
+            uint64_t maxPhiIntLen, const sdsl::int_vector<>& PhiIntLen) const {
+        { std::ofstream o = cpOpen(dir, "F.sdsl");        sdsl::serialize(F, o);        o.close(); cpCommit(dir, "F.sdsl"); }
+        { std::ofstream o = cpOpen(dir, "Psi.sdsl");      sdsl::serialize(Psi, o);      o.close(); cpCommit(dir, "Psi.sdsl"); }
+        { std::ofstream o = cpOpen(dir, "intAtTop.sdsl"); sdsl::serialize(intAtTop, o); o.close(); cpCommit(dir, "intAtTop.sdsl"); }
+        { std::ofstream o = cpOpen(dir, "aux.bin");
+          sdsl::serialize(totalLen, o);
+          sdsl::serialize(numSequences, o);
+          sdsl::serialize(maxPhiIntLen, o);
+          cpWriteU64Vec(o, numTopRuns);
+          cpWriteU64Vec(o, seqLens);
+          sdsl::serialize(PhiIntLen, o);
+          o.close(); cpCommit(dir, "aux.bin"); }
+    }
+    void cpLoadCheckpointA(const std::string& dir, uint64_t& numSequences,
+            std::vector<uint64_t>& numTopRuns, std::vector<uint64_t>& seqLens,
+            uint64_t& maxPhiIntLen, sdsl::int_vector<>& PhiIntLen) {
+        { std::ifstream i = cpOpenIn(dir, "F.sdsl");        sdsl::load(F, i); }
+        { std::ifstream i = cpOpenIn(dir, "Psi.sdsl");      sdsl::load(Psi, i); }
+        { std::ifstream i = cpOpenIn(dir, "intAtTop.sdsl"); sdsl::load(intAtTop, i); }
+        { std::ifstream i = cpOpenIn(dir, "aux.bin");
+          sdsl::load(totalLen, i);
+          sdsl::load(numSequences, i);
+          sdsl::load(maxPhiIntLen, i);
+          cpReadU64Vec(i, numTopRuns);
+          cpReadU64Vec(i, seqLens);
+          sdsl::load(PhiIntLen, i); }
+    }
+    // Boundary B: persist the Phi-and-samples outputs. F/Psi/intAtTop/intAtEnd/aux
+    // are already durable from boundary A and the spill block.
+    void cpWriteCheckpointB(const std::string& dir, uint64_t sampleInterval,
+            const sdsl::int_vector<>& Psi_Index_Samples, const sdsl::int_vector<>& Psi_Offset_Samples) const {
+        { std::ofstream o = cpOpen(dir, "Phi.sdsl"); sdsl::serialize(Phi, o); o.close(); cpCommit(dir, "Phi.sdsl"); }
+        { std::ofstream o = cpOpen(dir, "samples.bin");
+          sdsl::serialize(sampleInterval, o);
+          sdsl::serialize(Psi_Index_Samples, o);
+          sdsl::serialize(Psi_Offset_Samples, o);
+          o.close(); cpCommit(dir, "samples.bin"); }
+    }
+    // Load everything phase C (ComputePLCPSamples) needs. intAtTop is intentionally
+    // NOT loaded here -- like the straight-through path, it is reloaded only after
+    // phase C (cpLoadIntAtTop) to keep peak memory the same.
+    void cpLoadCheckpointB(const std::string& dir, uint64_t& numSequences,
+            std::vector<uint64_t>& numTopRuns, std::vector<uint64_t>& seqLens,
+            uint64_t& sampleInterval, sdsl::int_vector<>& Psi_Index_Samples,
+            sdsl::int_vector<>& Psi_Offset_Samples, sdsl::int_vector<>& intAtEnd) {
+        { std::ifstream i = cpOpenIn(dir, "F.sdsl");        sdsl::load(F, i); }
+        { std::ifstream i = cpOpenIn(dir, "Psi.sdsl");      sdsl::load(Psi, i); }
+        { std::ifstream i = cpOpenIn(dir, "intAtEnd.sdsl"); sdsl::load(intAtEnd, i); }
+        { std::ifstream i = cpOpenIn(dir, "Phi.sdsl");      sdsl::load(Phi, i); }
+        { std::ifstream i = cpOpenIn(dir, "samples.bin");
+          sdsl::load(sampleInterval, i);
+          sdsl::load(Psi_Index_Samples, i);
+          sdsl::load(Psi_Offset_Samples, i); }
+        { std::ifstream i = cpOpenIn(dir, "aux.bin");
+          uint64_t maxPhiIntLen; // unused for phase C
+          sdsl::load(totalLen, i);
+          sdsl::load(numSequences, i);
+          sdsl::load(maxPhiIntLen, i);
+          cpReadU64Vec(i, numTopRuns);
+          cpReadU64Vec(i, seqLens); }
+    }
+    void cpLoadIntAtTop(const std::string& dir) {
+        std::ifstream i = cpOpenIn(dir, "intAtTop.sdsl");
+        sdsl::load(intAtTop, i);
+    }
+
     TeraLCP() = default;
 
 	// Constructor to assist with matching statistic computation
@@ -950,8 +1114,9 @@ class TeraLCP {
 		std::ifstream in = safeOpenFile<std::ifstream>(inFile);
         load(in);
         in.close();
+        complete = true;
         #ifndef BENCHFASTONLY
-        if (v >= TIME) { Timer.stop(); } //LCP index loading from file 
+        if (v >= TIME) { Timer.stop(); } //LCP index loading from file
         #endif
 	}
 
@@ -962,34 +1127,67 @@ class TeraLCP {
             #ifndef BENCHFASTONLY
             , verbosity v = QUIET
             #endif
+            , const std::string& checkpointDir = ""
+            , StopAfter stopAfter = StopAfter::NONE
             ) {
         #ifndef BENCHFASTONLY
         if (v >= VERB) { std::cout << "Number of threads: " << omp_get_max_threads() << "\n"; }
         #endif
-        std::ofstream tempOutFile(safeTempName);
-        if (!tempOutFile.is_open()) {
-            std::cerr << "ERROR: File provided for temporary writing/reading, '" << safeTempName << "' failed to open for writing!" << std::endl;
-            exit(1);
+
+        // Checkpoint/resume: when a checkpoint dir already holds a manifest, jump to
+        // the first incomplete phase and reload the completed phases' outputs.
+        const bool useCp = !checkpointDir.empty();
+        int resumeFrom = 0; // 0 = fresh, 1 = phase A done, 2 = phase B done
+        if (useCp) {
+            CpManifest m = cpReadManifest(checkpointDir);
+            resumeFrom = m.found ? m.phase : 0;
+            #ifndef BENCHFASTONLY
+            if (v >= TIME && resumeFrom > 0)
+                std::cout << "Resuming construct from checkpoint phase " << resumeFrom << " in '" << checkpointDir << "'\n";
+            #endif
         }
+
+        // State shared across phases (constructor locals in the straight-through
+        // path; loaded from the checkpoint on a resume).
+        uint64_t numSequences = 0;
+        std::vector<uint64_t> numTopRuns, seqLens;
+        uint64_t maxPhiIntLen = 0;
+        sdsl::int_vector<> PhiIntLen;
+        uint64_t sampleInterval = 0;
+        sdsl::int_vector<> Psi_Index_Samples, Psi_Offset_Samples;
+        sdsl::int_vector<> intAtEnd;
+        std::ofstream tempOutFile;
+        std::ifstream tempInFile;
+        uint64_t rCount = 0; // run count (F.size()) captured before F is spilled
 
         #ifndef BENCHFASTONLY
         //sdsl::memory_monitor::granularity(std::chrono::milliseconds(1));
         //sdsl::memory_monitor::start();
         #endif
 
-        //Psi.intLens = &Flens;
-        uint64_t numSequences;
-        {
-            #ifndef BENCHFASTONLY
-            //auto event = sdsl::memory_monitor::event("Construct Psi");
-            #endif
-            ConstructPsi(rb3, F, Psi, numSequences
-                    #ifndef BENCHFASTONLY
-                    , v
-                    #endif
-                    );
-            rb3_fmi_free(rb3);
+        // Open the temp spill file up front (fail fast on a bad path) whenever we
+        // will run the spill block -- i.e. unless we are resuming past phase B.
+        if (resumeFrom < 2) {
+            tempOutFile.open(safeTempName);
+            if (!tempOutFile.is_open()) {
+                std::cerr << "ERROR: File provided for temporary writing/reading, '" << safeTempName << "' failed to open for writing!" << std::endl;
+                exit(1);
+            }
         }
+
+        //Psi.intLens = &Flens;
+        if (resumeFrom < 1) {
+            {
+                #ifndef BENCHFASTONLY
+                //auto event = sdsl::memory_monitor::event("Construct Psi");
+                #endif
+                ConstructPsi(rb3, F, Psi, numSequences
+                        #ifndef BENCHFASTONLY
+                        , v
+                        #endif
+                        );
+                rb3_fmi_free(rb3);
+            }
 
         /*
         for (uint64_t i = 0; i < Psi.D_index.size(); ++i) {
@@ -1014,61 +1212,105 @@ class TeraLCP {
         }
         */
 
-        //numTopRuns and seqLens are vectors of length equal to the number of sequences+1
-        //the i+1-th value of numTopRuns is the number of times suffixes of sequence i
-        //are at the (SA position corresponding to the) top of a run in the BWT. 
-        //(includes the termination symbol at the end of sequence i, $_i)
-        //the i+1-th value of seqLens is the length of seq i,
-        //(includes the termination symbol) 
-        std::vector<uint64_t> numTopRuns, seqLens;
-        //for every suffix x at the top of a run in the BWT, 
-        //there is an input interval of psi, j, where 
-        //suffix x-1 is at the top of the input interval
-        //intAtTop stores, for every input interval of psi
-        //with suffix x-1 at the top of the input interval,
-        //how many suffixes < x - 1 are at the top of a run in the BWT
-        uint64_t maxPhiIntLen;
-        sdsl::int_vector<> PhiIntLen;
-        {
-            #ifndef BENCHFASTONLY
-            //auto event = sdsl::memory_monitor::event("Compute Auxiliary Data and Repair Endmarker Psis");
-            #endif
-            ComputeAuxAndRepairPsi(maxPhiIntLen, numTopRuns, seqLens, intAtTop, F, Psi, PhiIntLen, numSequences
+            //numTopRuns and seqLens are vectors of length equal to the number of sequences+1
+            //the i+1-th value of numTopRuns is the number of times suffixes of sequence i
+            //are at the (SA position corresponding to the) top of a run in the BWT.
+            //(includes the termination symbol at the end of sequence i, $_i)
+            //the i+1-th value of seqLens is the length of seq i,
+            //(includes the termination symbol)
+            //for every suffix x at the top of a run in the BWT,
+            //there is an input interval of psi, j, where
+            //suffix x-1 is at the top of the input interval
+            //intAtTop stores, for every input interval of psi
+            //with suffix x-1 at the top of the input interval,
+            //how many suffixes < x - 1 are at the top of a run in the BWT
+            {
+                #ifndef BENCHFASTONLY
+                //auto event = sdsl::memory_monitor::event("Compute Auxiliary Data and Repair Endmarker Psis");
+                #endif
+                ComputeAuxAndRepairPsi(maxPhiIntLen, numTopRuns, seqLens, intAtTop, F, Psi, PhiIntLen, numSequences
+                        #ifndef BENCHFASTONLY
+                        , v
+                        #endif
+                        );
+            }
+            rCount = F.size();
+
+            // ---- Checkpoint boundary A (after endmarker repair) ----
+            if (useCp) {
+                #ifndef BENCHFASTONLY
+                if (v >= TIME) { Timer.start("Checkpoint write (phase A)"); }
+                #endif
+                cpWriteCheckpointA(checkpointDir, numSequences, numTopRuns, seqLens, maxPhiIntLen, PhiIntLen);
+                cpWriteManifest(checkpointDir, 1, rCount, totalLen, numSequences);
+                #ifndef BENCHFASTONLY
+                if (v >= TIME) { Timer.stop(); } //Checkpoint write (phase A)
+                #endif
+                if (stopAfter == StopAfter::A) {
                     #ifndef BENCHFASTONLY
-                    , v
+                    if (v >= TIME) { std::cout << "Stopping after phase A as requested; checkpoint written to '" << checkpointDir << "'\n"; }
                     #endif
-                    );
+                    complete = false;
+                    return;
+                }
+            }
+        }
+        else {
+            // Resume: phase A already complete, so the input FMD is not needed.
+            rb3_fmi_free(rb3);
+            // Only reload phase A's outputs when phase B has NOT yet run; on a
+            // phase-B resume, cpLoadCheckpointB below loads everything phase C
+            // needs (and intAtTop is reloaded after phase C), so loading A here
+            // would be redundant I/O and would inflate peak memory.
+            if (resumeFrom == 1) {
+                #ifndef BENCHFASTONLY
+                if (v >= TIME) { Timer.start("Checkpoint load (phase A)"); }
+                #endif
+                cpLoadCheckpointA(checkpointDir, numSequences, numTopRuns, seqLens, maxPhiIntLen, PhiIntLen);
+                rCount = F.size();
+                #ifndef BENCHFASTONLY
+                if (v >= TIME) { Timer.stop(); } //Checkpoint load (phase A)
+                #endif
+            }
         }
 
-        {
-            #ifndef BENCHFASTONLY
-            //auto event = sdsl::memory_monitor::event("Computing and storing intAtEnd and F");
-            if (v >= TIME) { Timer.start("Computing and storing intAtEnd"); }
-            #endif
-            sdsl::int_vector<> intAtEnd(F.size(), 0, sdsl::bits::hi(F.size() - 1) + 1);
-            //intAtEnd[j] is the input interval of Psi where the suffix at the end of input interval j of Phi occurs
-            //(at the top of, necessarily)
-            for (uint64_t i = 0; i < F.size(); ++i)
-                intAtEnd[intAtTop[i]] = i;
-            sdsl::serialize(intAtEnd, tempOutFile);
-            #ifndef BENCHFASTONLY
-            if (v >= TIME) { Timer.stop(); } //Computing and storing intAtEnd
-            if (v >= TIME) { Timer.start("Storing F"); }
-            #endif
-            sdsl::serialize(F, tempOutFile);
-            #ifndef BENCHFASTONLY
-            if (v >= TIME) { Timer.stop(); }
-            #endif
-            F = sdsl::int_vector<>();
-            #ifndef BENCHFASTONLY
-            if (v >= TIME) { Timer.start("Storing intAtTop"); }
-            #endif
-            sdsl::serialize(intAtTop, tempOutFile);
-            tempOutFile.close();
-            #ifndef BENCHFASTONLY
-            if (v >= TIME) { Timer.stop(); }
-            #endif
-        }
+        // ---- Spill block + phase B (Construct Phi and Samples) ----
+        // Run when phase B has not yet completed (fresh run or an A-resume).
+        if (resumeFrom < 2) {
+            {
+                #ifndef BENCHFASTONLY
+                //auto event = sdsl::memory_monitor::event("Computing and storing intAtEnd and F");
+                if (v >= TIME) { Timer.start("Computing and storing intAtEnd"); }
+                #endif
+                intAtEnd = sdsl::int_vector<>(F.size(), 0, sdsl::bits::hi(F.size() - 1) + 1);
+                //intAtEnd[j] is the input interval of Psi where the suffix at the end of input interval j of Phi occurs
+                //(at the top of, necessarily)
+                for (uint64_t i = 0; i < F.size(); ++i)
+                    intAtEnd[intAtTop[i]] = i;
+                // Durably persist intAtEnd for a phase-B resume (F and intAtTop are
+                // already durable from boundary A); the temp spill below is the
+                // in-process copy used by the straight-through recovery.
+                if (useCp) { std::ofstream o = cpOpen(checkpointDir, "intAtEnd.sdsl"); sdsl::serialize(intAtEnd, o); o.close(); cpCommit(checkpointDir, "intAtEnd.sdsl"); }
+                sdsl::serialize(intAtEnd, tempOutFile);
+                intAtEnd = sdsl::int_vector<>();
+                #ifndef BENCHFASTONLY
+                if (v >= TIME) { Timer.stop(); } //Computing and storing intAtEnd
+                if (v >= TIME) { Timer.start("Storing F"); }
+                #endif
+                sdsl::serialize(F, tempOutFile);
+                #ifndef BENCHFASTONLY
+                if (v >= TIME) { Timer.stop(); }
+                #endif
+                F = sdsl::int_vector<>();
+                #ifndef BENCHFASTONLY
+                if (v >= TIME) { Timer.start("Storing intAtTop"); }
+                #endif
+                sdsl::serialize(intAtTop, tempOutFile);
+                tempOutFile.close();
+                #ifndef BENCHFASTONLY
+                if (v >= TIME) { Timer.stop(); }
+                #endif
+            }
         /*
         {
             std::cout << "Checking if intAtTop is a permutation of [0,r-1]" << std::endl;
@@ -1119,18 +1361,35 @@ class TeraLCP {
         Timer.stop(); //Verifying Psi
         */
 
-        uint64_t sampleInterval;
-        sdsl::int_vector<> Psi_Index_Samples, Psi_Offset_Samples;
-        {
-            #ifndef BENCHFASTONLY
-            //auto event = sdsl::memory_monitor::event("Construct Phi and Equidistant ISA Samples");
-            #endif
-            ConstructPhiAndSamples(Psi, PhiIntLen, Psi.data.c, numTopRuns, seqLens, intAtTop, numSequences, maxPhiIntLen, sampleInterval, Psi_Index_Samples, Psi_Offset_Samples
+            {
+                #ifndef BENCHFASTONLY
+                //auto event = sdsl::memory_monitor::event("Construct Phi and Equidistant ISA Samples");
+                #endif
+                ConstructPhiAndSamples(Psi, PhiIntLen, Psi.data.c, numTopRuns, seqLens, intAtTop, numSequences, maxPhiIntLen, sampleInterval, Psi_Index_Samples, Psi_Offset_Samples
+                        #ifndef BENCHFASTONLY
+                        , v
+                        #endif
+                        );
+            }
+
+            // ---- Checkpoint boundary B (after Phi + samples) ----
+            if (useCp) {
+                #ifndef BENCHFASTONLY
+                if (v >= TIME) { Timer.start("Checkpoint write (phase B)"); }
+                #endif
+                cpWriteCheckpointB(checkpointDir, sampleInterval, Psi_Index_Samples, Psi_Offset_Samples);
+                cpWriteManifest(checkpointDir, 2, rCount, totalLen, numSequences);
+                #ifndef BENCHFASTONLY
+                if (v >= TIME) { Timer.stop(); } //Checkpoint write (phase B)
+                #endif
+                if (stopAfter == StopAfter::B) {
                     #ifndef BENCHFASTONLY
-                    , v
+                    if (v >= TIME) { std::cout << "Stopping after phase B as requested; checkpoint written to '" << checkpointDir << "'\n"; }
                     #endif
-                    );
-        }
+                    complete = false;
+                    return;
+                }
+            }
 
         /*
         {
@@ -1196,27 +1455,38 @@ class TeraLCP {
         std::cout << "Phi is a permutation of length n\n";
         Timer.stop(); //Verifying Phi
         */
-        sdsl::int_vector<> intAtEnd;
-        std::ifstream tempInFile;
-        {
-            #ifndef BENCHFASTONLY
-            //auto event = sdsl::memory_monitor::event("Recover intAtEnd and F from disk");
-            if (v >= TIME) { Timer.start("Recover intAtEnd from disk"); }
-            #endif
-            intAtTop = sdsl::int_vector<>();
-            tempInFile.open(safeTempName);
-            if (!tempInFile.is_open()) {
-                std::cerr << "ERROR: File provided for temporary writing/reading, '" << safeTempName << "' failed to open for reading!" << std::endl;
-                exit(1);
+            {
+                #ifndef BENCHFASTONLY
+                //auto event = sdsl::memory_monitor::event("Recover intAtEnd and F from disk");
+                if (v >= TIME) { Timer.start("Recover intAtEnd from disk"); }
+                #endif
+                intAtTop = sdsl::int_vector<>();
+                tempInFile.open(safeTempName);
+                if (!tempInFile.is_open()) {
+                    std::cerr << "ERROR: File provided for temporary writing/reading, '" << safeTempName << "' failed to open for reading!" << std::endl;
+                    exit(1);
+                }
+                sdsl::load(intAtEnd, tempInFile);
+                #ifndef BENCHFASTONLY
+                if (v >= TIME) { Timer.stop(); } //Recover intAtEnd from disk
+                if (v >= TIME) { Timer.start("Recover F from disk"); }
+                #endif
+                sdsl::load(F, tempInFile);
+                #ifndef BENCHFASTONLY
+                if (v >= TIME) { Timer.stop(); } //Recover F from disk
+                #endif
             }
-            sdsl::load(intAtEnd, tempInFile);
+        }
+        else {
+            // Resume: phases A and B already complete. Load everything phase C needs
+            // (intAtTop is loaded after phase C, mirroring the straight-through path).
             #ifndef BENCHFASTONLY
-            if (v >= TIME) { Timer.stop(); } //Recover intAtEnd from disk
-            if (v >= TIME) { Timer.start("Recover F from disk"); } 
+            if (v >= TIME) { Timer.start("Checkpoint load (phase B)"); }
             #endif
-            sdsl::load(F, tempInFile);
+            cpLoadCheckpointB(checkpointDir, numSequences, numTopRuns, seqLens, sampleInterval, Psi_Index_Samples, Psi_Offset_Samples, intAtEnd);
+            rCount = F.size();
             #ifndef BENCHFASTONLY
-            if (v >= TIME) { Timer.stop(); } //Recover F from disk
+            if (v >= TIME) { Timer.stop(); } //Checkpoint load (phase B)
             #endif
         }
 
@@ -1262,22 +1532,29 @@ class TeraLCP {
         */
         //printPhiAndLCP(PLCPsamples);
 
-        //reload intAtEnd
+        //reload intAtTop
         {
             #ifndef BENCHFASTONLY
             //auto event = sdsl::memory_monitor::event("Recover intAtTop from disk");
-            if (v >= TIME) { Timer.start("Recover intAtTop from disk"); } 
+            if (v >= TIME) { Timer.start("Recover intAtTop from disk"); }
             #endif
-            if (!tempInFile.is_open()) {
-                std::cerr << "ERROR: File provided for temporary writing/reading, '" << safeTempName << "' is no longer open for reading!" << std::endl;
-                exit(1);
+            if (resumeFrom < 2) {
+                if (!tempInFile.is_open()) {
+                    std::cerr << "ERROR: File provided for temporary writing/reading, '" << safeTempName << "' is no longer open for reading!" << std::endl;
+                    exit(1);
+                }
+                sdsl::load(intAtTop, tempInFile);
+                tempInFile.close();
+            } else {
+                // Phase-B resume: intAtTop comes from the checkpoint, not the temp file.
+                cpLoadIntAtTop(checkpointDir);
             }
-            sdsl::load(intAtTop, tempInFile);
-            tempInFile.close();
             #ifndef BENCHFASTONLY
-            if (v >= TIME) { Timer.stop(); } //Recover intAtTop from disk 
+            if (v >= TIME) { Timer.stop(); } //Recover intAtTop from disk
             #endif
         }
+
+        complete = true;
 
         /*
         Timer.start("Computing minLCP per run");

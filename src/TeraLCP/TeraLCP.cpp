@@ -1,5 +1,6 @@
 #include"util/util.h"
 #include"TeraLCP/TeraLCP.h"
+#include<sys/stat.h>
 
 static constexpr const char* rlcp_extension = ".rlcp";
 
@@ -19,6 +20,13 @@ void printUsage() {
         "  Output:\n"
         "    -oindex     FILE                            optional       Output constructed index to FILE" << lcp_index_extension << "\n"
         "    -orlcp      FILE                            optional       Output (position, minLCP) pairs per run to FILE" << rlcp_extension << "\n"
+        "\n"
+        "  Checkpoint/resume (construct, -f fmd):\n"
+        "    -checkpoint DIR                             optional       Read/write per-phase checkpoints in DIR. On startup, resume from the\n"
+        "                                                              first incomplete phase; on a fresh run, write a checkpoint after each\n"
+        "                                                              slow phase so a killed job can resume. DIR is created if missing.\n"
+        "    -stop-after [A,B]                           optional       (-checkpoint) Stop after phase A (endmarker repair) or B (Phi+samples),\n"
+        "                                                              writing its checkpoint and exiting 0. Lets a >7-day build be chunked.\n"
         "\n"
         "  Behavior:\n"
         "    -p          INT                             optional       Limit the program to (nonnegative) INT threads. By default uses maximum available. Maximum on this hardware is " << omp_get_max_threads() << "\n"
@@ -42,6 +50,10 @@ void printUsage() {
 struct options{
     enum inputFormat { text, bwt, rlbwt, fmd, lcp_index }inputFormat;
     std::string inputFile, tempFile, oindex="", orlcp="";
+    // Checkpoint/resume for construct: -checkpoint <dir> reads/writes per-phase
+    // checkpoints; -stop-after A|B chunks a multi-week build across <=7-day jobs.
+    std::string checkpointDir="";
+    TeraLCP::StopAfter stopAfter = TeraLCP::StopAfter::NONE;
     unsigned numThreads = omp_get_max_threads();
     bool mmap;
     #ifndef BENCHFASTONLY
@@ -79,6 +91,18 @@ void processOptions(const int argc, const char* argv[]) {
     o.orlcp = getArg("-orlcp", false, true);
     if (o.orlcp != "")
         o.orlcp += rlcp_extension;
+    // Checkpoint/resume of construct across successive jobs.
+    o.checkpointDir = getArg("-checkpoint", false, true);
+    {
+        std::string sa = getArg("-stop-after", false, true);
+        if (sa == "") o.stopAfter = TeraLCP::StopAfter::NONE;
+        else if (sa == "A" || sa == "a") o.stopAfter = TeraLCP::StopAfter::A;
+        else if (sa == "B" || sa == "b") o.stopAfter = TeraLCP::StopAfter::B;
+        else { std::cerr << "ERROR: -stop-after must be A or B\n"; exit(1); }
+        if (o.stopAfter != TeraLCP::StopAfter::NONE && o.checkpointDir.empty()) {
+            std::cerr << "ERROR: -stop-after requires -checkpoint <dir>\n"; exit(1);
+        }
+    }
     s = getArg("-p", false, true);
     if (s != "")
         o.numThreads = std::stoul(s);
@@ -112,6 +136,13 @@ void processOptions(const int argc, const char* argv[]) {
     testOutFile(o.tempFile);
     testOutFile(o.oindex);
     testOutFile(o.orlcp);
+    if (!o.checkpointDir.empty()) {
+        // Create the checkpoint directory if needed (idempotent); ignore EEXIST.
+        if (mkdir(o.checkpointDir.c_str(), 0777) != 0 && errno != EEXIST) {
+            std::cerr << "ERROR: cannot create checkpoint directory '" << o.checkpointDir << "': " << strerror(errno) << "\n";
+            exit(1);
+        }
+    }
 }
 
 int main(const int argc, const char*argv[]) {
@@ -167,10 +198,18 @@ int main(const int argc, const char*argv[]) {
                 #ifndef BENCHFASTONLY
                 , o.v
                 #endif
-                );
+                , o.checkpointDir, o.stopAfter);
         #ifndef BENCHFASTONLY
-        if (o.v >= TIME) { Timer.stop(); } //LCP index construction 
+        if (o.v >= TIME) { Timer.stop(); } //LCP index construction
         #endif
+        // A -stop-after run wrote a checkpoint and returned without a full index;
+        // there is nothing to emit, so finish cleanly (exit 0) for the driver.
+        if (!ourIndex.complete) {
+            #ifndef BENCHFASTONLY
+            if (o.v >= TIME) { Timer.stop(); } //TeraLCP
+            #endif
+            return 0;
+        }
     }
     else if (o.inputFormat == options::lcp_index) {
         ourIndex = TeraLCP(o.inputFile, o.v);
