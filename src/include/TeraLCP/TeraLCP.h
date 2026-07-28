@@ -308,6 +308,7 @@ class TeraLCP {
         #ifndef BENCHFASTONLY
         if (v >= TIME) { Timer.start("Parallel seq traversal"); }
         #endif
+        if (numSequences > 1)
         {
             std::vector<uint64_t> maxPhiIntLenPerSeq(numSequences);
             std::vector<MoveStructureTable::IntervalPoint> correctSeqPsis(numSequences);
@@ -363,6 +364,76 @@ class TeraLCP {
                 maxPhiIntLen = std::max(maxPhiIntLen, maxPhiIntLenPerSeq[seq]);
             }
         }
+        else
+        {
+            // Single-sequence path (all input sequences pre-concatenated with separators
+            // into one terminator): the one Psi cycle would otherwise be
+            // walked single-threaded over all F.size() runs. Arc-partition the cycle: seed
+            // K arcs at offset-0 "top" positions and walk them concurrently. seqLen/numTop
+            // are order-independent SUMs and maxPhiIntLen an order-independent MAX; since
+            // arc boundaries land on tops, phi-interval gaps never straddle a boundary, so
+            // the result is byte-identical to the serial walk regardless of K or threads.
+            const uint64_t numRuns = F.size();
+            MoveStructureTable::IntervalPoint start = Psi.map({static_cast<uint64_t>(-1), static_cast<uint64_t>(0), 0});
+
+            // Seed intervals spread across [1, numRuns) by index (interval 0 is the
+            // terminator; exclude start's interval so the first arc's start is unambiguous).
+            // Arc 0 begins at `start` (suffix 0); every other arc begins at a seed's
+            // offset-0 "top". Each arc mirrors the serial walk exactly for the positions it
+            // owns, so the reduced totals/maximum are byte-identical for any K or thread count.
+            const uint64_t maxThreads = static_cast<uint64_t>(std::max(1, omp_get_max_threads()));
+            const uint64_t Kreq = (numRuns > 1) ? std::min<uint64_t>(maxThreads * 8, numRuns - 1) : 0;
+            std::vector<uint64_t> seedIntervals;
+            seedIntervals.reserve(Kreq);
+            uint64_t prevI = 0;
+            for (uint64_t j = 1; j <= Kreq; ++j) {
+                uint64_t i = 1 + (j * (numRuns - 1)) / (Kreq + 1); // in [1, numRuns-1]
+                if (i >= numRuns) i = numRuns - 1;
+                if (i != prevI && i != start.interval) { seedIntervals.push_back(i); prevI = i; }
+            }
+            sdsl::bit_vector isSeed(numRuns, 0);
+            for (uint64_t s = 0; s < seedIntervals.size(); ++s) isSeed[seedIntervals[s]] = 1;
+
+            const uint64_t numArcs = seedIntervals.size() + 1;
+            std::vector<uint64_t> arcLen(numArcs), arcTop(numArcs), arcMax(numArcs);
+            #pragma omp parallel for schedule(dynamic, 1)
+            for (uint64_t a = 0; a < numArcs; ++a) {
+                MoveStructureTable::IntervalPoint curr = (a == 0)
+                    ? start
+                    : MoveStructureTable::IntervalPoint{static_cast<uint64_t>(-1), seedIntervals[a - 1], 0};
+                // Arc 0 carries the serial walk's "suffix 0" phantom (len/numTop start at 1,
+                // gap at 1); interior arcs start clean and just process their own positions.
+                uint64_t localLen = (a == 0) ? 1 : 0;
+                uint64_t localTop = (a == 0) ? 1 : 0;
+                uint64_t gap = (a == 0) ? 1 : 0;
+                uint64_t localMax = 0;
+                while (true) {
+                    // Body mirrors the serial loop (lines above) for the current position.
+                    if (curr.offset == 0) { ++localTop; localMax = std::max(localMax, gap); gap = 0; }
+                    ++localLen;
+                    ++gap;
+                    curr = Psi.map(curr);
+                    // Stop before a position owned by another arc: the next seed's top, or the
+                    // terminator. The gap ending there is finalized below.
+                    if (curr.interval < numSequences) break;
+                    if (curr.offset == 0 && isSeed[curr.interval]) break;
+                }
+                localMax = std::max(localMax, gap);
+                arcLen[a] = localLen; arcTop[a] = localTop; arcMax[a] = localMax;
+            }
+
+            uint64_t totLen = 0, totTop = 0;
+            maxPhiIntLen = 0;
+            for (uint64_t a = 0; a < numArcs; ++a) {
+                totLen += arcLen[a];
+                totTop += arcTop[a];
+                maxPhiIntLen = std::max(maxPhiIntLen, arcMax[a]);
+            }
+            seqLens[1] = totLen;
+            numTopRuns[1] = totTop;
+            Psi.data.set<0>(0, start.interval);
+            Psi.data.set<1>(0, start.offset);
+        }
         #ifndef BENCHFASTONLY
         if (v >= TIME) { Timer.stop(); } //Parallel seq traversal 
         #endif
@@ -399,8 +470,13 @@ class TeraLCP {
         #endif
         {
             uint64_t dangerousInts = 64/std::min(PhiIntLen.width(), intAtTop.width()) + (64 % std::min(PhiIntLen.width(), intAtTop.width()) != 0);
+            // numSequences==1 (separator-concatenated input) is handled by the arc-partitioned
+            // block below; the per-sequence loop here stays exactly as-is for the multi-sequence case
+            // (bound is 0 when numSequences==1, so this loop is skipped). Bound is hoisted to a
+            // variable to keep the OpenMP loop in canonical form.
+            const uint64_t secondLoopSeqs = (numSequences > 1) ? numSequences : 0;
             #pragma omp parallel for schedule(dynamic, 1)
-            for (uint64_t seq = 0; seq < numSequences; ++seq) {
+            for (uint64_t seq = 0; seq < secondLoopSeqs; ++seq) {
                 uint64_t prevSeq = (seq)? seq - 1 : numSequences - 1;
                 MoveStructureTable::IntervalPoint curr = {static_cast<uint64_t>(-1), prevSeq, 0};
                 curr = Psi.map(curr);
@@ -478,6 +554,91 @@ class TeraLCP {
                 //exit(1);
                 //}
             }
+        }
+        if (numSequences == 1)
+        {
+            // Arc-partitioned "Second Parallel seq traversal" for the single-sequence
+            // (separator-concatenated) path. The costly part is the length-n Psi walk: split it into arcs run
+            // in parallel, each buffering (interval, PhiIntLen) for the tops it owns and the
+            // interval it stopped at (its orbit-order successor). A serial O(#arcs) stitch then
+            // replays the writes in orbit order, assigning currentInt exactly as the serial code
+            // would -> byte-identical PhiIntLen/intAtTop for any arc count or thread count. Only
+            // the writes (O(runs)) are serial; the O(n) walk is fully parallel.
+            const uint64_t numRuns = F.size();
+            MoveStructureTable::IntervalPoint startPos = Psi.map({static_cast<uint64_t>(-1), static_cast<uint64_t>(0), 0});
+            const uint64_t maxThreads = static_cast<uint64_t>(std::max(1, omp_get_max_threads()));
+            const uint64_t Kreq = (numRuns > 1) ? std::min<uint64_t>(maxThreads * 8, numRuns - 1) : 0;
+            std::vector<uint64_t> seedIntervals;
+            seedIntervals.reserve(Kreq);
+            uint64_t prevI = 0;
+            for (uint64_t j = 1; j <= Kreq; ++j) {
+                uint64_t i = 1 + (j * (numRuns - 1)) / (Kreq + 1);
+                if (i >= numRuns) i = numRuns - 1;
+                if (i != prevI && i != startPos.interval) { seedIntervals.push_back(i); prevI = i; }
+            }
+            sdsl::bit_vector isSeed(numRuns, 0);
+            for (uint64_t s = 0; s < seedIntervals.size(); ++s) isSeed[seedIntervals[s]] = 1;
+
+            const uint64_t numArcs = seedIntervals.size() + 1;
+            // Per-arc buffers are stored bit-packed. Each arc walks into a small thread-local
+            // std::vector, then packs it to its exact width, so only the ~threads arcs walking
+            // at once hold 64-bit data while retained buffers stay packed (interval, gap).
+            const uint8_t wInterval = sdsl::bits::hi(numRuns - 1) + 1;
+            const uint8_t wGap = sdsl::bits::hi(maxPhiIntLen) + 1;
+            std::vector<sdsl::int_vector<>> bufInterval(numArcs), bufGap(numArcs);
+            std::vector<uint64_t> arcEndInterval(numArcs, 0);
+            #pragma omp parallel for schedule(dynamic, 1)
+            for (uint64_t a = 0; a < numArcs; ++a) {
+                MoveStructureTable::IntervalPoint curr = (a == 0)
+                    ? startPos
+                    : MoveStructureTable::IntervalPoint{static_cast<uint64_t>(-1), seedIntervals[a - 1], 0};
+                std::vector<uint64_t> bi, bg;
+                bool skipEmit = (a != 0);   // an interior arc's start seed is emitted by the previous arc
+                uint64_t gap = 1;           // serial currIntLen init
+                while (true) {
+                    if (curr.offset == 0) {
+                        if (!skipEmit) { bi.push_back(curr.interval); bg.push_back(gap); }
+                        skipEmit = false;
+                        gap = 0;
+                    }
+                    ++gap;
+                    curr = Psi.map(curr);
+                    bool term = (curr.interval < numSequences);
+                    bool nseed = (!term && curr.offset == 0 && isSeed[curr.interval]);
+                    if (term || nseed) {
+                        // emit the boundary top (next seed, or terminator) with its gap
+                        bi.push_back(curr.interval);
+                        bg.push_back(gap);
+                        arcEndInterval[a] = curr.interval;
+                        break;
+                    }
+                }
+                sdsl::int_vector<> pi(bi.size(), 0, wInterval);
+                for (uint64_t t = 0; t < bi.size(); ++t) pi[t] = bi[t];
+                sdsl::int_vector<> pg(bg.size(), 0, wGap);
+                for (uint64_t t = 0; t < bg.size(); ++t) pg[t] = bg[t];
+                bufInterval[a] = std::move(pi);
+                bufGap[a] = std::move(pg);
+            }
+
+            // Serial stitch + write: walk arcs in orbit order from arc 0 (begins at suffix 0),
+            // following each arc's ending interval (a seed) to the arc that starts there.
+            uint64_t currentInt = 0;   // == numTopRuns[0]
+            uint64_t a = 0;
+            for (uint64_t step = 0; step < numArcs; ++step) {
+                const sdsl::int_vector<>& bi = bufInterval[a];
+                const sdsl::int_vector<>& bg = bufGap[a];
+                for (uint64_t t = 0; t < bi.size(); ++t) {
+                    PhiIntLen[currentInt] = bg[t];
+                    intAtTop[bi[t]] = currentInt;
+                    ++currentInt;
+                }
+                if (arcEndInterval[a] < numSequences) break;   // reached the terminator: done
+                std::vector<uint64_t>::iterator it =
+                    std::lower_bound(seedIntervals.begin(), seedIntervals.end(), arcEndInterval[a]);
+                a = static_cast<uint64_t>(it - seedIntervals.begin()) + 1;
+            }
+            assert(currentInt == numRuns);
         }
         /*
         uint64_t sum = 0;
@@ -608,8 +769,12 @@ class TeraLCP {
                 dangerousBufferInts = 64/buffer.width + (64 % buffer.width != 0);
             else
                 dangerousBufferInts = 1;
+            // numSequences==1 (separator-concatenated input) is handled by the arc-partitioned
+            // block below; this per-sequence loop is unchanged for multi-sequence inputs (bound 0 when
+            // numSequences==1). Bound hoisted to keep the OpenMP loop canonical.
+            const uint64_t phiLoopSeqs = (numSequences > 1) ? numSequences : 0;
             #pragma omp parallel for num_threads(threads) schedule (dynamic, 1)
-            for (uint64_t seq = 0; seq < numSequences; ++seq) {
+            for (uint64_t seq = 0; seq < phiLoopSeqs; ++seq) {
                 //curr is the interval point in the psi move data structure of suffix suff
                 //if curr is at the top of a psi interval, then suff+1 is at the top of an rlbwt interval
                 //if curr is at the bottom of a psi interval, then suff+1 is at the bottom of an rlbwt interval
@@ -778,6 +943,129 @@ class TeraLCP {
                     exit(1);
                 }
             }
+            if (numSequences == 1)
+            {
+                // Arc-partitioned Construct-Phi-and-Samples for the single-sequence
+                // (separator-concatenated) path. The length-n Psi walk is split into arcs run in parallel;
+                // each arc buffers its Psi-sample writes and its Phi.data writes (O(runs)),
+                // seeding phiPoint at its start top directly from intAtTop[S] and Phi.get<2>
+                // (no pre-walk). The only cross-arc dependency is phiPointAtPhiOutputIntervalStart
+                // (the phiPoint at the previous run-bottom), which is carried through a serial
+                // O(#arcs) stitch that then replays every write in orbit order -> byte-identical
+                // Phi.data / Psi samples for any arc count or thread count.
+                const uint64_t nRuns = numRuns;
+                MoveStructureTable::IntervalPoint startPos = Psi.map({static_cast<uint64_t>(-1), static_cast<uint64_t>(0), 0});
+                const uint64_t Kreq = (nRuns > 1) ? std::min<uint64_t>(static_cast<uint64_t>(threads) * 8, nRuns - 1) : 0;
+                std::vector<uint64_t> seedIntervals;
+                seedIntervals.reserve(Kreq);
+                uint64_t prevI = 0;
+                for (uint64_t j = 1; j <= Kreq; ++j) {
+                    uint64_t i = 1 + (j * (nRuns - 1)) / (Kreq + 1);
+                    if (i >= nRuns) i = nRuns - 1;
+                    if (i != prevI && i != startPos.interval) { seedIntervals.push_back(i); prevI = i; }
+                }
+                sdsl::bit_vector isSeed(nRuns, 0);
+                for (uint64_t s = 0; s < seedIntervals.size(); ++s) isSeed[seedIntervals[s]] = 1;
+
+                const uint64_t numArcs = seedIntervals.size() + 1;
+                // Per-arc buffers are stored bit-packed (interval fields at Phi.data.a, offsets
+                // at Phi.data.b / FlensBits). Each arc walks into small thread-local std::vectors
+                // and packs them after its walk, so only the ~threads arcs walking at once hold
+                // 64-bit data. Sample indices are contiguous within an arc, so only the first is
+                // kept (firstSmpIdx) and the rest reconstructed in the stitch.
+                const uint8_t wSmpInt = static_cast<uint8_t>(sdsl::bits::hi(nRuns - 1) + 1);
+                const uint8_t wSmpOff = static_cast<uint8_t>(FlensBits);
+                const uint8_t wPhiIntW = static_cast<uint8_t>(Phi.data.a);
+                const uint8_t wValOffW = static_cast<uint8_t>(Phi.data.b);
+                std::vector<sdsl::int_vector<>> smpInt(numArcs), smpOff(numArcs);
+                std::vector<sdsl::int_vector<>> wPhiInt(numArcs), wValInt(numArcs), wValOff(numArcs);
+                std::vector<uint64_t> firstSmpIdx(numArcs, 0);
+                std::vector<uint64_t> arcEndInterval(numArcs, 0);
+                std::vector<char> firstWritePending(numArcs, 0), hadRB(numArcs, 0);
+                std::vector<uint64_t> carryOutInt(numArcs, 0), carryOutOff(numArcs, 0);
+                #pragma omp parallel for schedule(dynamic, 1)
+                for (uint64_t a = 0; a < numArcs; ++a) {
+                    MoveStructureTable::IntervalPoint curr;
+                    uint64_t suff;
+                    MoveStructureStartTable::IntervalPoint phiPoint, phiPAOIS;
+                    bool paoisValid;
+                    if (a == 0) {
+                        curr = startPos;
+                        suff = seqLens[0];
+                        phiPoint = {Phi.data.get<2>(numTopRuns[0]), numTopRuns[0], 0};
+                        phiPAOIS = phiPoint;   // serial init
+                        paoisValid = true;
+                    } else {
+                        const uint64_t S = seedIntervals[a - 1];
+                        const uint64_t R = intAtTop[S];
+                        const uint64_t pStart = Phi.data.get<2>(R);
+                        const uint64_t pEnd = Phi.data.get<2>(R + 1);
+                        curr = {static_cast<uint64_t>(-1), S, 0};
+                        suff = pEnd - 1;                              // text position of this top
+                        phiPoint = {pEnd - 1, R, pEnd - pStart - 1}; // {position, interval, offset}
+                        phiPAOIS = phiPoint;                         // sentinel; first write patched in stitch
+                        paoisValid = false;
+                    }
+                    std::vector<uint64_t> sN, sO;      // sample: curr interval, offset
+                    std::vector<uint64_t> wI, wN, wO;  // phi write: phiInterval, value interval, value offset
+                    bool firstSample = true;
+                    while (true) {
+                        if (suff % sampleInterval == 0) {
+                            if (firstSample) { firstSmpIdx[a] = suff / sampleInterval; firstSample = false; }
+                            sN.push_back(curr.interval); sO.push_back(curr.offset);
+                        }
+                        ++phiPoint.offset; ++phiPoint.position;
+                        if (curr.offset == 0) { phiPoint.offset = 0; ++phiPoint.interval; }
+                        if (curr.offset == Psi.data.get<2>(curr.interval) - 1) {
+                            uint64_t runBelow = (curr.interval + 1) % nRuns;
+                            wI.push_back(intAtTop[runBelow]);
+                            if (paoisValid) { wN.push_back(phiPAOIS.interval); wO.push_back(phiPAOIS.offset); }
+                            else { wN.push_back(0); wO.push_back(0); firstWritePending[a] = 1; }
+                            phiPAOIS = phiPoint; paoisValid = true;
+                            hadRB[a] = 1; carryOutInt[a] = phiPAOIS.interval; carryOutOff[a] = phiPAOIS.offset;
+                        }
+                        // The terminator (interval < numSequences) is the sequence's last suffix
+                        // and IS processed (suff-based loop), unlike the curr-based A-phase walks.
+                        // We just processed it above, so stop now.
+                        if (curr.interval < numSequences) { arcEndInterval[a] = curr.interval; break; }
+                        curr = Psi.map(curr); ++suff;
+                        // Stop before the next arc's start seed (that arc processes it).
+                        if (curr.offset == 0 && isSeed[curr.interval]) { arcEndInterval[a] = curr.interval; break; }
+                    }
+                    // pack thread-local buffers to their exact widths
+                    sdsl::int_vector<> pN(sN.size(), 0, wSmpInt);  for (uint64_t t = 0; t < sN.size(); ++t) pN[t] = sN[t];
+                    sdsl::int_vector<> pO(sO.size(), 0, wSmpOff);  for (uint64_t t = 0; t < sO.size(); ++t) pO[t] = sO[t];
+                    sdsl::int_vector<> qI(wI.size(), 0, wPhiIntW); for (uint64_t t = 0; t < wI.size(); ++t) qI[t] = wI[t];
+                    sdsl::int_vector<> qN(wN.size(), 0, wPhiIntW); for (uint64_t t = 0; t < wN.size(); ++t) qN[t] = wN[t];
+                    sdsl::int_vector<> qO(wO.size(), 0, wValOffW); for (uint64_t t = 0; t < wO.size(); ++t) qO[t] = wO[t];
+                    smpInt[a] = std::move(pN); smpOff[a] = std::move(pO);
+                    wPhiInt[a] = std::move(qI); wValInt[a] = std::move(qN); wValOff[a] = std::move(qO);
+                }
+
+                // Serial stitch: walk arcs in orbit order from arc 0, carrying
+                // phiPointAtPhiOutputIntervalStart across boundaries, and replay every write.
+                uint64_t a = 0;
+                // Serial init of phiPointAtPhiOutputIntervalStart (matches the per-sequence loop):
+                // {position=Phi2[numTopRuns[0]], interval=numTopRuns[0], offset=0}; carries forward.
+                uint64_t carryInt = numTopRuns[0], carryOff = 0; bool carryValid = true;
+                for (uint64_t step = 0; step < numArcs; ++step) {
+                    if (firstWritePending[a] && carryValid) { wValInt[a][0] = carryInt; wValOff[a][0] = carryOff; }
+                    for (uint64_t t = 0; t < wPhiInt[a].size(); ++t) {
+                        Phi.data.set<0>(wPhiInt[a][t], wValInt[a][t]);
+                        Phi.data.set<1>(wPhiInt[a][t], wValOff[a][t]);
+                    }
+                    const uint64_t base = firstSmpIdx[a];
+                    for (uint64_t t = 0; t < smpInt[a].size(); ++t) {
+                        Psi_Index_Samples[base + t] = smpInt[a][t];
+                        Psi_Offset_Samples[base + t] = smpOff[a][t];
+                    }
+                    if (hadRB[a]) { carryInt = carryOutInt[a]; carryOff = carryOutOff[a]; carryValid = true; }
+                    if (arcEndInterval[a] < numSequences) break;   // terminator: done
+                    std::vector<uint64_t>::iterator it =
+                        std::lower_bound(seedIntervals.begin(), seedIntervals.end(), arcEndInterval[a]);
+                    a = static_cast<uint64_t>(it - seedIntervals.begin()) + 1;
+                }
+            }
         }
         #ifndef BENCHFASTONLY
         if (v >= TIME) { Timer.stop(); } //Construct Phi and Samples
@@ -812,14 +1100,57 @@ class TeraLCP {
         prevPsiIntSeqStart[0] = intAtEnd[F.size() - 1];
         for (uint64_t i = 1; i < numSequences; ++i)
             prevPsiIntSeqStart[i] = intAtEnd[numTopRuns[i] - 1];
+        // Intra-sequence parallelism: a separator-concatenated input is a single sequence
+        // (numSequences==1), so the
+        // per-sequence loop would run single-threaded over every output interval. Split each
+        // sequence's interval range [numTopRuns[seq], numTopRuns[seq+1]) into contiguous
+        // chunks and process the chunks in parallel. This loop already re-seeds its
+        // suffMatch state at interval boundaries (the reset path below), so a chunk boundary
+        // is byte-identical to a fresh sequence start -> output is independent of the chunk
+        // count and the thread count. Multi-sequence inputs (numSequences >= threads) keep
+        // one chunk per sequence, reproducing the original behavior exactly.
+        struct PlcpChunk { uint64_t seq, start, end; bool firstInSeq; uint64_t seedPrevIntAtEnd; };
+        std::vector<PlcpChunk> plcpChunks;
+        {
+            const uint64_t maxThreads = static_cast<uint64_t>(std::max(1, omp_get_max_threads()));
+            const uint64_t targetChunks = maxThreads * 8; // oversubscribe for dynamic load balance
+            const uint64_t minPerChunk = std::max<uint64_t>(1, 4 * dangerousInts); // limit boundary-critical overhead
+            for (uint64_t seq = 0; seq < numSequences; ++seq) {
+                const uint64_t s = numTopRuns[seq], e = numTopRuns[seq + 1];
+                const uint64_t n = e - s;
+                if (n == 0) continue;
+                uint64_t k = 1;
+                if (numSequences < maxThreads)
+                    k = std::min(targetChunks, std::max<uint64_t>(1, n / minPerChunk));
+                for (uint64_t j = 0; j < k; ++j) {
+                    const uint64_t cs = s + (n * j) / k;
+                    const uint64_t ce = s + (n * (j + 1)) / k;
+                    if (cs == ce) continue;
+                    const bool firstInSeq = (cs == s);
+                    const uint64_t seed = firstInSeq ? prevPsiIntSeqStart[seq] : intAtEnd[cs - 1];
+                    plcpChunks.push_back({seq, cs, ce, firstInSeq, seed});
+                }
+            }
+        }
         #pragma omp parallel for schedule (dynamic, 1)
-        for (uint64_t seq = 0; seq < numSequences; ++seq) {
-            uint64_t suffMatchEnd = seqLens[seq], currIntStart = seqLens[seq];
-            MoveStructureTable::IntervalPoint suffMatchEndIntPoint = Psi.map({static_cast<uint64_t>(-1), ((seq)? seq - 1 : numSequences - 1), 0});
-            const uint64_t start = numTopRuns[seq];
-            const uint64_t end = numTopRuns[seq+1];
-            uint64_t prevIntAtEnd = prevPsiIntSeqStart[seq];
-            for (uint64_t phiInt = start; phiInt < end; ++phiInt) { 
+        for (uint64_t ci = 0; ci < plcpChunks.size(); ++ci) {
+            const uint64_t seq = plcpChunks[ci].seq;
+            const uint64_t start = plcpChunks[ci].start;
+            const uint64_t end = plcpChunks[ci].end;
+            uint64_t prevIntAtEnd = plcpChunks[ci].seedPrevIntAtEnd;
+            uint64_t suffMatchEnd, currIntStart;
+            MoveStructureTable::IntervalPoint suffMatchEndIntPoint;
+            if (plcpChunks[ci].firstInSeq) {
+                suffMatchEnd = seqLens[seq];
+                currIntStart = seqLens[seq];
+                suffMatchEndIntPoint = Psi.map({static_cast<uint64_t>(-1), ((seq)? seq - 1 : numSequences - 1), 0});
+            } else {
+                // Fresh chunk: seed exactly like the loop's own interval-boundary reset.
+                currIntStart = Phi.data.get<2>(start);
+                suffMatchEnd = currIntStart;
+                suffMatchEndIntPoint = Psi.map({static_cast<uint64_t>(-1), prevIntAtEnd, 0});
+            }
+            for (uint64_t phiInt = start; phiInt < end; ++phiInt) {
                 //get suffix above phiInt
                 MoveStructureStartTable::IntervalPoint suffMatchingToPhiIntPoint = Phi.map({static_cast<uint64_t>(-1), phiInt, 0});
                 uint64_t suffMatchingTo = Phi.data.get<2>(suffMatchingToPhiIntPoint.interval) + suffMatchingToPhiIntPoint.offset;
