@@ -164,8 +164,8 @@ void processOptions(const int argc, const char* argv[]) {
     } else {
         testInFile(o.inputFile);
     }
-    testInFile(o.tempFile);
     testOutFile(o.tempFile);
+    testInFile(o.tempFile);
     testOutFile(o.oindex);
     testOutFile(o.orlcp);
 

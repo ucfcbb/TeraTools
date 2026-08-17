@@ -46,7 +46,7 @@ void testOutFile(const std::string& name) {
 
 void testInFile(const std::string& name) {
     if (name == "") return;
-    std::ofstream in(name, std::ios::app);
+    std::ifstream in(name);
     if (!in.is_open()) {
         std::cerr << "ERROR: Cannot open input file '" << name 
                   << "' for reading: " << strerror(errno) << "\n";
