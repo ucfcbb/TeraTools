@@ -87,7 +87,7 @@ Use the provided Makefiles to build modules:
 
 ## Reference
 
-If you use TeraTools in your research, please cite: TBA.
+If you use TeraTools in your research, please cite: Ahsan Sanaullah, Nathaniel K Brown, Pramesh Shakya, Arun Deegutla, Ardalan Naseri, Ben Langmead, Degui Zhi, Shaojie Zhang, RLBWT-based LCP computation in compressed space for terabase-scale pangenome analysis, Bioinformatics, Volume 42, Issue Supplement_1, July 2026, btag268, https://doi.org/10.1093/bioinformatics/btag268.
 
 ## Dependencies
 
