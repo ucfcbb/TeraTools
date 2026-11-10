@@ -66,20 +66,33 @@ class TeraIndex {
 
         //std::cout << "starting rlbwt generation loop" << std::endl;
         //generate rlbwt
+        // currentStarts maps the F row that the next run of a character must
+        // map to under LF to that character.
         for (uint64_t i = 0; i < numRuns; ++i) {
             auto p = LF.map({static_cast<uint64_t>(-1), i, 0});
-            if (p.interval < start.interval || (p.interval == start.interval && p.offset < start.offset))
+            const bool separator = p.interval < start.interval || (p.interval == start.interval && p.offset < start.offset);
+            if (separator)
                 rlbwt[i] = 0;
             else {
                 assert(currentStarts.count(pointToInt(p)));
                 rlbwt[i] = currentStarts[pointToInt(p)];
                 currentStarts.erase(pointToInt(p));
             }
+            // Separator runs are identified by where they map.
+            if (separator) {
+                continue;
+            }
             p.offset += LF.data.get<2>(i);
             while (p.interval < numRuns && p.offset >= LF.data.get<2>(p.interval))
                 p.offset -= LF.data.get<2>(p.interval++);
             assert(p.interval != numRuns || p.offset == 0);
-            currentStarts[pointToInt(p)] = rlbwt[i];
+            // The end position's key would equal that of (interval 0, offset 1).
+            if (p.interval == numRuns) {
+                continue;
+            }
+            // An existing key is kept: it can be the first F row of a character
+            // whose first run has not been seen yet.
+            currentStarts.emplace(pointToInt(p), rlbwt[i]);
         }
     }
 
@@ -95,9 +108,11 @@ class TeraIndex {
             intAtBot[i] = invPi[intAtTop[(i+1)%intAtTop.size()]];
     }
 
+    // An offset within a Psi interval can exceed the width of LF offsets, so
+    // PsiOffAtTop uses the width of Psi lengths.
     void generatePsiAtTop() {
         PsiIntAtTop = sdsl::int_vector<>(LF.num_intervals(), 0, LF.data.a);
-        PsiOffAtTop = sdsl::int_vector<>(LF.num_intervals(), 0, LF.data.b);
+        PsiOffAtTop = sdsl::int_vector<>(LF.num_intervals(), 0, Psi.data.c);
         uint64_t L_pos = 0;
         uint64_t F_pos = 0;
         uint64_t F_int = 0;
