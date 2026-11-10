@@ -1026,7 +1026,10 @@ private:
     }
 
     // ================================ Reposition Functions ================================
-    // Doesn't use thresholds, so we look for both the predecessor and successor
+    // Doesn't use thresholds, so we look for both the predecessor and successor.
+    // Only min(LCE, state.length) affects the result; when length is 0, we can skip
+    // LCE computation, and since ties go to the predecessor, we can skip the successor
+    // once the predecessor reaches the length.
     using LCEFunction = std::function<uint64_t(const MSState& state, const PosDist& end, const uint64_t lower_lim)>;
     void reposition_explicit(MSState& state, const uint8_t c, LCEFunction lce) {
         auto pred_pos_result = pred_char(state.rlbwt_pos, c);
@@ -1038,7 +1041,9 @@ private:
         Phi_IntervalPoint pred_phi_pos;
         uint64_t pred_lce = 0;
         if (pred_pos_result.has_value()) {
-            pred_lce = lce(state, pred_pos_result.value(), 0);
+            if (state.length > 0) {
+                pred_lce = std::min(lce(state, pred_pos_result.value(), 0), state.length);
+            }
             // New phi position is a run tail
             pred_pos = pred_pos_result.value().pos;
             pred_phi_pos = rlbwt_tail_to_phi(pred_pos);
@@ -1048,7 +1053,10 @@ private:
         Phi_IntervalPoint succ_phi_pos;
         uint64_t succ_lce = 0;
         if (succ_pos_result.has_value()) {
-            succ_lce = lce(state, succ_pos_result.value(), pred_lce);
+            bool pred_at_cap = pred_pos_result.has_value() && pred_lce >= state.length;
+            if (state.length > 0 && !pred_at_cap) {
+                succ_lce = std::min(lce(state, succ_pos_result.value(), pred_lce), state.length);
+            }
             // New phi position is a run head
             succ_pos = succ_pos_result.value().pos;
             succ_phi_pos = rlbwt_head_to_phi(succ_pos);
