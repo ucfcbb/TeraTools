@@ -85,9 +85,15 @@ TeraTools requires the **RLBWT** of your input text. You can generate this using
 
 Use the provided Makefiles to build modules:
 
-## Reference
+## References
 
-If you use TeraTools in your research, please cite: Ahsan Sanaullah, Nathaniel K Brown, Pramesh Shakya, Arun Deegutla, Ardalan Naseri, Ben Langmead, Degui Zhi, Shaojie Zhang, RLBWT-based LCP computation in compressed space for terabase-scale pangenome analysis, Bioinformatics, Volume 42, Issue Supplement_1, July 2026, btag268, https://doi.org/10.1093/bioinformatics/btag268.
+If you use **TeraLCP** from the TeraTools suite in your research, please cite the following paper:
+
+Ahsan Sanaullah, Nathaniel K. Brown, Pramesh Shakya, Arun Deegutla, Ardalan Naseri, Ben Langmead, Degui Zhi, Shaojie Zhang. "RLBWT-based LCP computation in compressed space for terabase-scale pangenome analysis." *Bioinformatics*, Volume 42, Issue Supplement_1, July 2026, btag268. https://doi.org/10.1093/bioinformatics/btag268.
+
+If you use **TeraMEM** from the TeraTools suite in your research, please cite the following work:
+
+Ahsan Sanaullah, Degui Zhi, Heng Li, and Shaojie Zhang. "Detection of Maximal Exact Matches in Terabases of Genome Assemblies in Compressed Space and Sublinear Time." Manuscript under review.
 
 ## Dependencies
 
