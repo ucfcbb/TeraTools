@@ -91,9 +91,9 @@ If you use **TeraLCP** from the TeraTools suite in your research, please cite th
 
 Ahsan Sanaullah, Nathaniel K. Brown, Pramesh Shakya, Arun Deegutla, Ardalan Naseri, Ben Langmead, Degui Zhi, Shaojie Zhang. "RLBWT-based LCP computation in compressed space for terabase-scale pangenome analysis." *Bioinformatics*, Volume 42, Issue Supplement_1, July 2026, btag268. https://doi.org/10.1093/bioinformatics/btag268.
 
-If you use **TeraMEM** from the TeraTools suite in your research, please cite the following work:
+If you use **TeraMEM** from the TeraTools suite in your research, please cite the following preprint:
 
-Ahsan Sanaullah, Degui Zhi, Heng Li, and Shaojie Zhang. "Detection of Maximal Exact Matches in Terabases of Genome Assemblies in Compressed Space and Sublinear Time." Manuscript under review.
+Ahsan Sanaullah, Degui Zhi, Heng Li, and Shaojie Zhang. "Detection of Maximal Exact Matches in Terabases of Genome Assemblies in Compressed Space and Sublinear Time." *bioRxiv* (2026). https://doi.org/10.64898/2026.11.10.765459.
 
 ## Dependencies
 
